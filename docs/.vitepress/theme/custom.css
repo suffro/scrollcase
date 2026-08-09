@@ -39,16 +39,80 @@
 }
 
 /* ── Buttons ───────────────────────────────────────────────────── */
+
+/* Native VitePress brand buttons */
 .VPButton.brand {
   background-color: var(--vp-c-brand-1) !important;
   border-color: var(--vp-c-brand-1) !important;
   color: var(--vp-c-bg) !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
 }
 
 .VPButton.brand:hover {
   background-color: var(--vp-c-brand-2) !important;
   border-color: var(--vp-c-brand-2) !important;
+}
+
+/* Canonical Scrollcase button */
+.scrollcase-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  height: 44px;
+  padding: 0 20px;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  font-family: var(--vp-font-family-base);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1;
+
+  text-decoration: none !important;
+  cursor: pointer;
+
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.scrollcase-btn svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.scrollcase-btn--brand {
+  color: var(--vp-c-bg) !important;
+  background-color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.scrollcase-btn--brand:hover {
+  color: var(--vp-c-bg) !important;
+  background-color: var(--vp-c-brand-2);
+  border-color: var(--vp-c-brand-2);
+}
+
+.scrollcase-btn--ghost {
+  color: var(--vp-c-text-1) !important;
+  background-color: transparent;
+  border-color: var(--vp-c-divider);
+}
+
+.scrollcase-btn--ghost:hover {
+  color: var(--vp-c-text-1) !important;
+  background-color: var(--vp-c-bg-soft);
+  border-color: var(--vp-c-text-2);
+}
+
+.scrollcase-btn:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
 }
 
 /* ── Content ───────────────────────────────────────────────────── */

@@ -60,7 +60,7 @@ export default defineConfig({
         { text: 'Reference', link: '/reference/' },
         { text: 'Security & trust', link: '/concepts/security-and-trust' },
         { text: 'Other tools', link: '/concepts/tool-comparison' },
-        { text: 'Box-run Demo', link: '/guides/demo-box' },
+        { text: 'Quick Demo', link: '/guides/demo-box' },
         { text: 'White paper', link: '/white-paper' },
       ]
     },
@@ -84,7 +84,7 @@ export default defineConfig({
         link: '/guides',
         collapsed: false,
         items: [
-          { text: 'Box-run demo', link: '/guides/demo-box' },
+          { text: 'Quick Demo', link: '/guides/demo-box' },
           { text: 'Managing Model Weights', link: '/guides/managing-weights' },
           { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
           { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },

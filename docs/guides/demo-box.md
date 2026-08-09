@@ -1,17 +1,37 @@
 ---
 title: Demo Box
 description: Try a box run, without installing a toolchain.
+outline: [2,3]
 ---
 
 # Box-run demo
 
-<big> **Try a box run easily, without installing a toolchain** </big>
+<big> **Run a demo box easily, without installing any toolchain** </big>
+
+## Try it now
+
+Run a real Scrollcase box directly in your browser.  
+No local installation, Docker setup, Pixi or Conda required.
+
+<Button
+  href="https://codespaces.new/suffro/scrollcase-demo-codespace?quickstart=1"
+  external
+>
+
+  Open in GitHub Codespaces
+
+</Button>
+
+> <small> *Runs the Linux x86_64 CPU demo using your GitHub Codespaces account.* </small>
+
+
+## Local setup
 
 Building a box needs pixi and conda-pack. But **consuming does not**: <br>
 If you only want to see what a box is, and how to run it, try this public demo.
 > You can find the demo box **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1).
 
-## Downloads
+### Downloads
 
 Download the demo for your system:
 
@@ -28,7 +48,7 @@ The demo box is the <samp>.zip</samp> inside it under <samp>box/</samp>, next to
 
 :::
 
-## Run the box
+### Run the box
 
 Once you have downloaded the demo, follow these steps:
 
@@ -98,7 +118,7 @@ scrollcase run    (Get-ChildItem box\*.release.json).FullName --public-key keys\
 > after unzipping. You never name the box archive: `verify` finds it beside the release document,
 > under the hash that document commits to.</small>
 
-### What just happened
+#### What just happened
 
 `verify` checks the signature, the archive's size and hash, the entry names and manifest agreement,
 and works on any machine. `run` extracts the box to a temporary directory and executes its entry
@@ -109,7 +129,7 @@ prints is `sys.prefix`, which is the point: the interpreter answering is the one
 <Tab title="Node/Python">
 
 
-### Run it from your own app
+#### Run it from your own app
 
 The CLI is the quickest way to see a box work, but an application does not shell out to it: every
 consumer exposes the same verify-then-run semantics as a library. `run-box.ts` and `run_box.py` are

@@ -98,10 +98,18 @@ const capabilities = [
           </p>
 
           <div class="actions">
-            <a class="btn btn-primary" :href="withBase('/getting-started/quickstart')">
-              <span class="btn-text">Read the docs</span>
+            <a
+              class="scrollcase-btn scrollcase-btn--brand"
+              :href="withBase('/getting-started/quickstart')"
+            >
+              Read the docs
             </a>
-            <a class="btn btn-ghost" target="_blank" href="https://github.com/suffro/scrollcase">
+            <a
+              class="scrollcase-btn scrollcase-btn--ghost"
+              target="_blank"
+              rel="noopener noreferrer"
+              href="https://github.com/suffro/scrollcase"
+            >
               <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
               <span>GitHub</span>
             </a>
@@ -432,46 +440,6 @@ html.dark .tech-glow {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 40px;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  border-radius: 8px;
-  font-family: var(--vp-font-family-base);
-}
-
-.btn svg {
-  width: 18px; height: 18px;
-}
-
-.btn-primary {
-  color: var(--vp-c-bg);
-  background: var(--vp-c-brand-1);
-  border: 1px solid var(--vp-c-brand-1);
-}
-
-.btn-primary:hover {
-  background: var(--vp-c-brand-2);
-  border-color: var(--vp-c-brand-2);
-}
-
-.btn-ghost {
-  color: var(--vp-c-text-1);
-  background: transparent;
-  border: 1px solid var(--vp-c-divider);
-}
-
-.btn-ghost:hover {
-  border-color: var(--vp-c-text-2);
-  background: var(--vp-c-bg-soft);
 }
 
 .trust {
