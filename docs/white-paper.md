@@ -5872,7 +5872,7 @@ Published separately, and listed here because it implements the same section 8 a
 | `contract/` | The mirror: `targets.rs`, `documents.rs`, `links.rs`, `payload_digest.rs` | 5.2–5.5 |
 | `trust.rs` | Trust anchors from either source, key rotation, and strict ed25519 verification | 7.4 |
 | `release.rs` | The typed release and box manifests, refusing an unknown field where the others run a schema — except in `compatibility`, the one object the schema leaves open, whose unfamiliar constraints are carried to the caller | 8.1 |
-| `archive.rs` | Defensive reading and extraction, including the duplicate-name check the ZIP backend cannot make | 8.2, 8.6 |
+| `archive.rs` | Defensive reading and extraction, including the duplicate-name check the ZIP backend cannot make; that check locates EOCD or EOCD64 and streams only the declared central-directory records, because identical index bytes inside stored nested archives are payload data | 8.2, 8.6 |
 | `filesystem.rs` | Walking, sizing and validating an extracted tree, links included | 8.3 |
 | `execution.rs` | The static execution prerequisites | 8.4 |
 | `environment.rs` | Environment precedence, masking and the report | 8.4 |

@@ -6,11 +6,28 @@
 
 mod support;
 
+use std::io::{Cursor, Write as _};
+
 use scrollcase_consumer::archive::{extract_zip_archive, list_zip_entries};
 use scrollcase_consumer::trust::TrustAnchors;
 use scrollcase_consumer::verify::inspect_box_archive;
 use serde_json::json;
 use support::Entry;
+use zip::write::SimpleFileOptions;
+
+fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, contents) in entries {
+        writer
+            .start_file(
+                *name,
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(contents).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
 
 #[test]
 fn a_valid_box_passes_the_whole_chain() {
@@ -324,4 +341,63 @@ fn an_encrypted_entry_is_refused_by_the_real_reader() {
     let destination = fixture.directory.join("extracted");
     assert!(extract_zip_archive(&fixture.archive_path, &destination).is_err());
     assert!(!destination.exists(), "a hostile archive reached the filesystem");
+}
+
+#[test]
+fn central_directory_signatures_inside_stored_entries_are_not_index_records() {
+    // Already-compressed payloads are stored rather than deflated. Two nested archives therefore
+    // carry identical central-directory bytes in the outer archive's file data, but their outer
+    // names are distinct and there is no collision to refuse.
+    let fixture = support::valid("archive-nested-stored");
+    let nested = stored_zip(&[("ecg.npy", b"fixture")]);
+    let outer = stored_zip(&[("first.zip", &nested), ("second.zip", &nested)]);
+    std::fs::write(&fixture.archive_path, outer).unwrap();
+
+    let entries = list_zip_entries(&fixture.archive_path).expect("nested indexes are payload data");
+    assert_eq!(
+        entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+        ["first.zip", "second.zip"]
+    );
+}
+
+#[test]
+fn a_name_repeated_in_the_real_central_directory_is_refused() {
+    let fixture = support::valid("archive-real-duplicate");
+    let mut archive = stored_zip(&[("a.txt", b"first"), ("b.txt", b"second")]);
+    let central_headers: Vec<usize> = archive
+        .windows(4)
+        .enumerate()
+        .filter_map(|(offset, bytes)| (bytes == b"PK\x01\x02").then_some(offset))
+        .collect();
+    assert_eq!(central_headers.len(), 2);
+    let second_name = central_headers[1] + 46;
+    assert_eq!(&archive[second_name..second_name + 5], b"b.txt");
+    archive[second_name..second_name + 5].copy_from_slice(b"a.txt");
+    std::fs::write(&fixture.archive_path, archive).unwrap();
+
+    let error = list_zip_entries(&fixture.archive_path).unwrap_err();
+    assert!(
+        error
+            .message()
+            .contains("Archive entry collides with another entry: a.txt"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_zip64_central_directory_is_scanned_by_its_declared_record_count() {
+    let fixture = support::valid("archive-zip64-directory");
+    let file = std::fs::File::create(&fixture.archive_path).unwrap();
+    let mut writer = zip::ZipWriter::new(file);
+    let options =
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for index in 0..=u16::MAX {
+        writer
+            .start_file(format!("entry-{index:05}.txt"), options)
+            .unwrap();
+    }
+    writer.finish().unwrap();
+
+    let entries = list_zip_entries(&fixture.archive_path).expect("ZIP64 directory must be readable");
+    assert_eq!(entries.len(), usize::from(u16::MAX) + 1);
 }

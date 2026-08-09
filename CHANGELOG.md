@@ -13,6 +13,14 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Fixed
 
+- `scrollcase-consumer` 0.3.2 (Rust): locate the real ZIP central directory through EOCD or EOCD64
+  and scan exactly its declared records when checking for duplicate names. The previous check loaded
+  the entire archive into memory and searched every byte for central-directory signatures, so two
+  stored copies of the same nested wheel, NPZ or JAR could invent a duplicate entry that did not
+  exist in the outer archive; a multi-gigabyte box also needed its full size again in RAM before it
+  could be installed. The check now seeks to the directory and reads only that bounded region, while
+  a name genuinely repeated there remains a hard refusal.
+
 - Define trust-source parsing in the shared consumer conformance fixture instead of only in
   per-language tests. Its 81 cases now make Node, Python and Rust agree on single keys, bundles,
   in-memory keys, empty bundles, malformed JSON and bundle shapes, and malformed PEM: invalid trust
