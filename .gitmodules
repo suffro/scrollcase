@@ -1,3 +1,4 @@
 [submodule "codespace-demo"]
 	path = codespace-demo
 	url = https://github.com/suffro/scrollcase-demo-codespace.git
+	branch = main
