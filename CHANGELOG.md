@@ -40,6 +40,17 @@ All notable changes to Scrollcase are documented here. The format follows
   **Breaking, crate only, and only for a caller constructing `Compatibility` with a struct literal:**
   the struct has a new public field. Callers that deserialize a release are unaffected.
 
+## [Python 0.4.1] — 2026-08-09
+
+### Fixed
+
+- Make file-backed and in-memory trusted-key parsing share one validation contract. A key needs a
+  string `keyId`; `publicKeyPem` may be absent or `null`, and otherwise must be a string. Malformed
+  JSON, bundle shapes and entries now fail with the stable
+  `Invalid trusted ed25519 key file.` message, while an empty bundle or unusable PEM reaches the
+  common no-valid-signature refusal before extraction. The shared 81-case consumer fixture pins the
+  same outcomes and messages in Python, Node and Rust.
+
 ## [0.8.0] — 2026-08-06
 
 ### Added
