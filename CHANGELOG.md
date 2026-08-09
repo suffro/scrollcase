@@ -6,63 +6,18 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- A Rust consumer, `scrollcase-consumer`, under `rust/`. It verifies a signed release, prepares or
-  re-identifies a local box, checks an extracted payload against the entry list its release commits
-  to, and runs the declared entry point — the same surface as `scrollcase/consumer` and
-  `scrollcase_consumer`, proved against the same shared conformance cases. A prepared receipt has
-  private fields and no public constructor, so the rule that verification precedes execution is
-  carried by the type system rather than by convention. Signals are forwarded through a channel the
-  caller owns: a library that installed process-wide handlers would displace those of the application
-  embedding it. It is released independently on crates.io as `scrollcase-consumer`, requires Rust
-  1.88 or newer, forbids `unsafe`, and is synchronous throughout so an embedding application picks
-  its own runtime or none. Nothing in the npm package changed to accommodate it.
-
-- `scrollcase-consumer` 0.2.0 (Rust): every entry point now takes `trust::TrustAnchors` instead of a
-  trust-file path, so a caller can verify against keys it already holds — anchors compiled into the
-  binary with `include_str!`, a keychain, anywhere. An application shipped to someone else's machine
-  could previously be made to accept a box by editing the trust file beside it; carrying the anchors
-  moves that decision inside the binary. `trust::parse_trusted_keys` reads the single-key and bundle
-  shapes from bytes, so an embedded bundle goes through the same parser a trust file does rather than
-  a second reading of the format at the call site.
-
-  **Breaking, crate only.** The `public_key_path` field of `PrepareOptions`, `AttachOptions` and
-  `RunBoxOptions` becomes `trust`, and the same argument of `inspect_release_document` and
-  `inspect_box_archive` changes type; wrap an existing path in `TrustAnchors::KeyFile(path)`.
-  `inspect_release_document_with_keys` is gone — `TrustAnchors::Keys(&keys)` covers it on the regular
-  entry point, and keeping both would have meant two ways to state one trust decision.
-  `verify_signed_document_with_key_file` becomes `verify_signed_document_with_anchors`. The box
-  format, the npm package and the Python package are untouched, and boxes already signed and
-  distributed verify exactly as before.
-
-  Note for anyone compiling anchors in: rotating a key then means releasing the application, so embed
-  the `{ "keys": [...] }` bundle rather than a single key. Both keys are trusted at once, which is
-  what lets a rotation land without stranding the boxes signed by the outgoing one.
-
-- The same in-memory trust source for the Node and Python consumers, additively: every operation
-  takes `publicPath` **or** `trustedKeys` (`public_key_path` or `trusted_keys`), exactly one, and
-  `parseTrustedKeys` / `parse_trusted_keys` reads both trust-file shapes from text or bytes. An
-  application holding its keys in a keyring, an environment variable or a secrets manager had to
-  write them to a file to verify a signature — putting key material on disk for no reason but the
-  API's shape. Naming both sources or neither is refused rather than resolved by preference.
-
-  Nothing is removed and no signature changes meaning, so existing callers are unaffected. Unlike
-  the crate, this is not about compiling anchors in: a hard-coded key in a script is as editable as
-  the trust file beside it, so the security argument that shaped the Rust change does not carry —
-  only the plain one, that a library should not force a caller's key material through the
-  filesystem.
-
-- An `unsupported-schema-version` error pattern and case in `consumer-conformance.json`, so the
-  refusal of a `schemaVersion: 1` document is pinned across all three consumers instead of only being
-  asserted per language. Without it, dropping the by-name refusal degrades the message to a schema
-  shape complaint — a v2 consumer would still refuse a v1 release, but stop saying why.
-
-- An `unknown-compatibility-constraint` case in `consumer-conformance.json`, expecting a *successful*
-  preparation. Every case before it expected either the canonical outcome or a refusal, so a consumer
-  that refused something the format allows could diverge without any harness noticing.
+- Read the schema version shown in the documentation hero from `package.json`, so the public site
+  cannot keep displaying an old version after the package moves on.
 
 ### Fixed
+
+- Define trust-source parsing in the shared consumer conformance fixture instead of only in
+  per-language tests. Its 81 cases now make Node, Python and Rust agree on single keys, bundles,
+  in-memory keys, empty bundles, malformed JSON and bundle shapes, and malformed PEM: invalid trust
+  documents fail as `Invalid trusted ed25519 key file.`, while an empty bundle or unusable PEM
+  reaches the common no-valid-signature refusal before extraction.
 
 - `scrollcase-consumer` 0.3.0 (Rust): a release whose `compatibility` carries a constraint the format
   does not define is now accepted, and the constraint is carried to the caller, instead of the document
@@ -78,12 +33,77 @@ All notable changes to Scrollcase are documented here. The format follows
   verbatim through the parse. No safety is given up: the obligation the schema states falls on the
   application — *a consumer that cannot evaluate a constraint must refuse the box rather than assume
   it passes* — and refusing the document instead took away the very value the application needed to
-  make that call. The shared conformance case above pins the behaviour in all three consumers, and
-  `rust/tests/schema.rs` now checks type/schema agreement in the accepting direction too, which is
-  the direction a typed parse drifts by default.
+  make that call. The shared `unknown-compatibility-constraint` conformance case pins the behaviour
+  in all three consumers, and `rust/tests/schema.rs` now checks type/schema agreement in the
+  accepting direction too, which is the direction a typed parse drifts by default.
 
   **Breaking, crate only, and only for a caller constructing `Compatibility` with a struct literal:**
   the struct has a new public field. Callers that deserialize a release are unaffected.
+
+## [0.8.0] — 2026-08-06
+
+### Added
+
+- A Rust consumer, `scrollcase-consumer`, under `rust/`. It verifies a signed release, prepares or
+  re-identifies a local box, checks an extracted payload against the entry list its release commits
+  to, and runs the declared entry point — the same surface as `scrollcase/consumer` and
+  `scrollcase_consumer`, proved against the same shared conformance cases. A prepared receipt has
+  private fields and no public constructor, so the rule that verification precedes execution is
+  carried by the type system rather than by convention. Signals are forwarded through a channel the
+  caller owns: a library that installed process-wide handlers would displace those of the application
+  embedding it. It is released independently on crates.io as `scrollcase-consumer`, requires Rust
+  1.88 or newer, forbids `unsafe`, and is synchronous throughout so an embedding application picks
+  its own runtime or none. Nothing in the npm package changed to accommodate it.
+
+- `scrollcase-consumer` 0.2.0 (Rust): every entry point that verifies a signed release now takes
+  `trust::TrustAnchors` instead of a trust-file path, so a caller can verify against keys it already
+  holds — anchors compiled into the binary with `include_str!`, a keychain, anywhere. An application
+  shipped to someone else's machine could previously be made to accept a box by editing the trust
+  file beside it; carrying the anchors moves that decision inside the binary.
+  `trust::parse_trusted_keys` reads the single-key and bundle shapes from bytes, so an embedded
+  bundle goes through the same parser a trust file does rather than a second reading of the format
+  at the call site.
+
+  **Breaking, crate only.** The `public_key_path` field of `PrepareOptions`, `AttachOptions` and
+  `RunBoxOptions` becomes `trust`, and the same argument of `inspect_release_document` and
+  `inspect_box_archive` changes type; wrap an existing path in `TrustAnchors::KeyFile(path)`.
+  `inspect_release_document_with_keys` is gone — `TrustAnchors::Keys(&keys)` covers it on the regular
+  entry point, and keeping both would have meant two ways to state one trust decision.
+  `verify_signed_document_with_key_file` becomes `verify_signed_document_with_anchors`. The box
+  format, the npm package and the Python package are untouched, and boxes already signed and
+  distributed verify exactly as before.
+
+  Note for anyone compiling anchors in: rotating a key then means releasing the application, so embed
+  the `{ "keys": [...] }` bundle rather than a single key. Both keys are trusted at once, which is
+  what lets a rotation land without stranding the boxes signed by the outgoing one.
+
+- The same in-memory trust source for the Node and Python consumers, additively: every operation that
+  verifies a signed release takes `publicPath` **or** `trustedKeys` (`public_key_path` or
+  `trusted_keys`), exactly one, and `parseTrustedKeys` / `parse_trusted_keys` reads both trust-file
+  shapes from text or bytes. An application holding its keys in a keyring, an environment variable
+  or a secrets manager had to
+  write them to a file to verify a signature — putting key material on disk for no reason but the
+  API's shape. Naming both sources or neither is refused rather than resolved by preference.
+
+  Nothing is removed and no signature changes meaning, so existing callers are unaffected. Unlike
+  the crate, this is not about compiling anchors in: a hard-coded key in a script is as editable as
+  the trust file beside it, so the security argument that shaped the Rust change does not carry —
+  only the plain one, that a library should not force a caller's key material through the
+  filesystem.
+
+- An `unsupported-schema-version` error pattern and case in `consumer-conformance.json`, so the
+  refusal of a `schemaVersion: 1` document is pinned across all three consumers instead of only being
+  asserted per language. Without it, dropping the by-name refusal degrades the message to a schema
+  shape complaint — a v2 consumer would still refuse a v1 release, but stop saying why.
+
+## [Python 0.4.0] — 2026-08-06
+
+### Added
+
+- Add `trusted_keys` to every Python consumer operation that verifies a signed release and
+  `parse_trusted_keys` for single-key and bundle JSON held in memory. Exactly one of
+  `public_key_path` and `trusted_keys` is required there, so callers can use a keyring, environment
+  variable or secrets manager without writing key material to a temporary file.
 
 ## [0.7.0] — 2026-08-03
 

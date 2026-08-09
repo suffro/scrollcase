@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "description": "Language-neutral semantic cases shared by the Node, Python and Rust Scrollcase consumers.",
   "errorPatterns": {
+    "invalid-trust-file": "Invalid trusted ed25519 key file",
     "invalid-signature": "no valid signature",
     "altered-payload": "Signed payload SHA-256 mismatch",
     "archive-hash": "Archive SHA-256 mismatch",
@@ -35,6 +36,10 @@
     {
       "id": "valid-local-signer",
       "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "single"
+      },
       "fixture": {
         "signer": "local"
       },
@@ -48,6 +53,216 @@
           "pythonEntryPoint": "$NATIVE_PYTHON",
           "targetId": "$NATIVE_TARGET"
         }
+      }
+    },
+    {
+      "id": "trusted-single-key-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "single"
+      },
+      "expected": {
+        "outcome": "prepared",
+        "receipt": {
+          "status": "prepared",
+          "boxId": "consumer-fixture",
+          "executionKind": "python-script",
+          "requiredAssetCount": 0,
+          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "targetId": "$NATIVE_TARGET"
+        }
+      }
+    },
+    {
+      "id": "trusted-key-bundle-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "bundle"
+      },
+      "expected": {
+        "outcome": "prepared",
+        "receipt": {
+          "status": "prepared",
+          "boxId": "consumer-fixture",
+          "executionKind": "python-script",
+          "requiredAssetCount": 0,
+          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "targetId": "$NATIVE_TARGET"
+        }
+      }
+    },
+    {
+      "id": "trusted-key-bundle-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "bundle"
+      },
+      "expected": {
+        "outcome": "prepared",
+        "receipt": {
+          "status": "prepared",
+          "boxId": "consumer-fixture",
+          "executionKind": "python-script",
+          "requiredAssetCount": 0,
+          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "targetId": "$NATIVE_TARGET"
+        }
+      }
+    },
+    {
+      "id": "empty-trusted-key-bundle-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "empty-bundle"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-signature",
+        "message": "Document has no valid signature from a trusted ed25519 key.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "empty-trusted-key-bundle-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "empty-bundle"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-signature",
+        "message": "Document has no valid signature from a trusted ed25519 key.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "non-array-trusted-key-bundle-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "non-array-bundle"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "non-array-trusted-key-bundle-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "non-array-bundle"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "invalid-trusted-key-bundle-entry-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "invalid-bundle-entry"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "invalid-trusted-key-bundle-entry-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "invalid-bundle-entry"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "malformed-trusted-key-json-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "malformed-json"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "malformed-trusted-key-json-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "malformed-json"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "message": "Invalid trusted ed25519 key file.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "missing-trusted-key-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "missing-file"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-trust-file",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "malformed-trusted-key-pem-from-file",
+      "action": "prepare",
+      "trust": {
+        "source": "file",
+        "shape": "malformed-pem"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-signature",
+        "message": "Document has no valid signature from a trusted ed25519 key.",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "malformed-trusted-key-pem-in-memory",
+      "action": "prepare",
+      "trust": {
+        "source": "memory",
+        "shape": "malformed-pem"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid-signature",
+        "message": "Document has no valid signature from a trusted ed25519 key.",
+        "destinationExists": false
       }
     },
     {

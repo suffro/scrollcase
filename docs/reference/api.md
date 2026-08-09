@@ -285,10 +285,12 @@ previous handlers are restored.
 models. Their fields mirror the Node structure in snake case; `BoxRunResult` and every verification
 receipt include one.
 
-Every operation takes `public_key_path` **or** `trusted_keys`, exactly one, and
-`parse_trusted_keys(source)` reads both trust-file shapes from text or bytes — so an application
+Every operation that verifies a signed release takes `public_key_path` **or** `trusted_keys`, exactly
+one, and `parse_trusted_keys(source)` reads both trust-file shapes from text or bytes — so an application
 holding its keys in a keyring, an environment variable or a secrets manager verifies against them
-directly instead of writing key material to a file first.
+directly instead of writing key material to a file first. Naming both sources or neither raises a
+`ScrollcaseConsumerError`; the Rust `TrustAnchors` enum makes those two invalid states
+unrepresentable instead.
 
 The distribution is not a downloader: callers still supply local release, archive, trust-key,
 destination, and on-demand asset paths. It verifies Ed25519 signatures with `cryptography` and
@@ -332,9 +334,10 @@ let result = run_extracted_box(
 
 ### Where the trusted keys come from
 
-Every entry point takes a `TrustAnchors`, not a path, because the two sources are not equivalent
-security decisions. `TrustAnchors::KeyFile` reads a trust file at the moment of verification, which
-suits a command line whose operator is also its administrator. `TrustAnchors::Keys` verifies against
+Every entry point that verifies a signed release takes a `TrustAnchors`, not a path, because the two
+sources are not equivalent security decisions. `TrustAnchors::KeyFile` reads a trust file at the
+moment of verification, which suits a command line whose operator is also its administrator.
+`TrustAnchors::Keys` verifies against
 keys the caller already holds — and an application shipped to someone else's machine usually wants
 exactly that, because a trust file sitting beside the application can be edited, and whoever edits it
 decides which boxes the application will accept:
@@ -355,6 +358,16 @@ parser at the call site. Prefer the bundle shape: keys compiled into an applicat
 rotated by releasing the application, and a bundle lets the outgoing and incoming keys both be
 trusted while that release makes its way out. Verification is unchanged either way, a document being
 accepted when any one of its signatures verifies against any trusted key.
+
+The trust-file grammar is the same in all three implementations. Every entry needs a string
+`keyId`; `publicKeyPem` may be absent or `null`, and otherwise must be a string. An empty bundle is
+structurally valid but cannot verify a signature. Malformed JSON, bundle shapes or entries fail as
+`Invalid trusted ed25519 key file.`; a syntactically valid but unusable PEM is skipped and therefore
+reaches the common `Document has no valid signature from a trusted ed25519 key.` refusal. Node and
+Python also reject malformed directly supplied key lists as `Invalid trusted ed25519 keys.`; Rust's
+`Vec<TrustedKey>` makes the corresponding field-type errors unrepresentable. A trust file that
+cannot be read uses the same `Invalid trusted ed25519 key file` prefix and includes the path and I/O
+detail.
 
 `attach_extracted_box` and `verify_extracted_payload` behave exactly as their Node and Python
 counterparts, including the `attached` status and the refusal of a release that commits to no
@@ -466,10 +479,10 @@ for (const { target } of cases.invalid) {
 | `decodeSignedDocument` | `(document) => { bytes, payload }` | Unwraps and checks the payload hash. Does **not** check the signature |
 
 The trusted key file is either a single key object or a `{ "keys": [...] }` bundle; a document is
-accepted when any one of its signatures verifies. Every consumer operation takes `publicPath` **or**
-`trustedKeys`, exactly one: an application holding its keys in a keyring, an environment variable or
-a secrets manager should not have to write them to disk to verify a signature. See
-[Signing & Key Custody](/guides/signing-and-custody).
+accepted when any one of its signatures verifies. Every consumer operation that verifies a signed
+release takes `publicPath` **or** `trustedKeys`, exactly one: an application holding its keys in a
+keyring, an environment variable or a secrets manager should not have to write them to disk to
+verify a signature. See [Signing & Key Custody](/guides/signing-and-custody).
 
 ## `scrollcase/build`
 

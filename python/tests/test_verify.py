@@ -288,6 +288,15 @@ class ReattachmentTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ScrollcaseConsumerError, "are required"):
             attach_extracted_box(self.fixture.release_path, root=self.root)
+        with self.assertRaisesRegex(
+            ScrollcaseConsumerError,
+            r"^Invalid trusted ed25519 keys\.$",
+        ):
+            attach_extracted_box(
+                self.fixture.release_path,
+                trusted_keys=[{}],
+                root=self.root,
+            )
 
     def test_mints_a_receipt_marked_for_what_it_did_not_check(self) -> None:
         attached = self.attach()

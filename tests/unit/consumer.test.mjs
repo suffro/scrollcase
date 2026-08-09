@@ -219,6 +219,10 @@ describe('Node consumer re-attachment', () => {
     })).rejects.toThrow(/not both/);
     await expect(attachExtractedBox(fixture.releasePath, { root }))
       .rejects.toThrow(/trusted key file or trusted keys are required/);
+    await expect(attachExtractedBox(fixture.releasePath, {
+      trustedKeys: [{}],
+      root,
+    })).rejects.toThrow(/^Invalid trusted ed25519 keys\.$/);
   });
 
   it('mints a receipt from an existing directory, marked for what it did not check', async () => {

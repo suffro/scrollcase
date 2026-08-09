@@ -116,13 +116,25 @@ def _decode_base64(value: object, label: str) -> bytes:
         raise ScrollcaseConsumerError(f"Invalid {label}.") from error
 
 
-def _trusted_keys(value: object) -> list[Mapping[str, Any]]:
+def _trusted_keys(
+    value: object,
+    message: str = "Invalid trusted ed25519 key file.",
+) -> list[Mapping[str, Any]]:
     if isinstance(value, Mapping) and isinstance(value.get("keys"), list):
         entries = cast(list[object], value["keys"])
     else:
         entries = [value]
-    if not all(isinstance(entry, Mapping) for entry in entries):
-        raise ScrollcaseConsumerError("Invalid trusted ed25519 key file.")
+    if not all(
+        isinstance(entry, Mapping)
+        and isinstance(entry.get("keyId"), str)
+        and (
+            "publicKeyPem" not in entry
+            or entry.get("publicKeyPem") is None
+            or isinstance(entry.get("publicKeyPem"), str)
+        )
+        for entry in entries
+    ):
+        raise ScrollcaseConsumerError(message)
     return [cast(Mapping[str, Any], entry) for entry in entries]
 
 
@@ -156,14 +168,22 @@ def _resolve_trusted_keys(
             "Name either a trusted key file or trusted keys, not both."
         )
     if trusted_keys is not None:
-        return _trusted_keys({"keys": list(trusted_keys)})
+        return _trusted_keys(
+            {"keys": list(trusted_keys)},
+            "Invalid trusted ed25519 keys.",
+        )
     if public_key_path is None:
         raise ScrollcaseConsumerError(
             "A trusted key file or trusted keys are required."
         )
-    return _trusted_keys(
-        _read_json(absolute_path(public_key_path), "trusted ed25519 key file")
-    )
+    path = absolute_path(public_key_path)
+    try:
+        source = path.read_bytes()
+    except OSError as error:
+        raise ScrollcaseConsumerError(
+            f"Invalid trusted ed25519 key file {path}: {error}"
+        ) from error
+    return parse_trusted_keys(source)
 
 
 def _verify_signed_document(

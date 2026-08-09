@@ -13,6 +13,7 @@ from typing import IO, Any, cast
 from scrollcase_consumer import (
     BoxRunResult,
     attach_extracted_box,
+    parse_trusted_keys,
     run_box,
     run_extracted_box,
     verify_and_extract_box,
@@ -445,6 +446,43 @@ def _environment_report(report: Any, names: list[str]) -> dict[str, Any]:
     }
 
 
+def _trust_options(
+    fixture: ConsumerFixture,
+    spec: dict[str, str],
+) -> dict[str, Any]:
+    source = spec.get("source", "file")
+    shape = spec.get("shape", "single")
+    key = json.loads(fixture.public_key_path.read_text(encoding="utf-8"))
+    if shape == "missing-file":
+        if source != "file":
+            raise AssertionError("A missing trust file is only a file-source case.")
+        fixture.public_key_path.unlink()
+        return {"public_key_path": fixture.public_key_path}
+    if shape == "single":
+        raw = json.dumps(key)
+    elif shape == "bundle":
+        raw = json.dumps({"keys": [key]})
+    elif shape == "empty-bundle":
+        raw = json.dumps({"keys": []})
+    elif shape == "non-array-bundle":
+        raw = json.dumps({"keys": key})
+    elif shape == "invalid-bundle-entry":
+        raw = json.dumps({"keys": [None]})
+    elif shape == "malformed-json":
+        raw = "{"
+    elif shape == "malformed-pem":
+        raw = json.dumps({**key, "publicKeyPem": "not a PEM key"})
+    else:
+        raise AssertionError(f"Unknown conformance trust shape: {shape}")
+
+    if source == "file":
+        fixture.public_key_path.write_text(raw, encoding="utf-8")
+        return {"public_key_path": fixture.public_key_path}
+    if source == "memory":
+        return {"trusted_keys": parse_trusted_keys(raw)}
+    raise AssertionError(f"Unknown conformance trust source: {source}")
+
+
 def run_python_conformance_case(
     test_case: dict[str, Any],
     suite: dict[str, Any],
@@ -474,10 +512,11 @@ def run_python_conformance_case(
         )
         if not post_extraction_mutation:
             _mutate_fixture(fixture, mutation, destination)
+        trust = _trust_options(fixture, test_case.get("trust", {}))
         if test_case["action"] == "prepare":
             prepared = verify_and_extract_box(
                 fixture.release_path,
-                public_key_path=fixture.public_key_path,
+                **trust,
                 archive=fixture.archive_path,
                 destination=destination,
                 env_report=bool(runtime.get("envReport")),
@@ -506,7 +545,7 @@ def run_python_conformance_case(
         if action in ("attach", "verify-payload"):
             prepared = verify_and_extract_box(
                 fixture.release_path,
-                public_key_path=fixture.public_key_path,
+                **trust,
                 archive=fixture.archive_path,
                 destination=destination,
                 env_report=bool(runtime.get("envReport")),
@@ -521,7 +560,7 @@ def run_python_conformance_case(
             if action == "attach":
                 attached = attach_extracted_box(
                     fixture.release_path,
-                    public_key_path=fixture.public_key_path,
+                    **trust,
                     root=root,
                     env_report=bool(runtime.get("envReport")),
                     env_report_values=bool(runtime.get("envReportValues")),
@@ -549,7 +588,7 @@ def run_python_conformance_case(
                 return actual, expected, fixture.root
             verified = verify_extracted_payload(
                 fixture.release_path,
-                public_key_path=fixture.public_key_path,
+                **trust,
                 root=root,
                 env_report=bool(runtime.get("envReport")),
                 env_report_values=bool(runtime.get("envReportValues")),
@@ -584,7 +623,7 @@ def run_python_conformance_case(
         if action == "run-prepared":
             prepared = verify_and_extract_box(
                 fixture.release_path,
-                public_key_path=fixture.public_key_path,
+                **trust,
                 archive=fixture.archive_path,
                 destination=destination,
             )
@@ -592,7 +631,7 @@ def run_python_conformance_case(
             if runtime.get("attach"):
                 prepared = attach_extracted_box(
                     fixture.release_path,
-                    public_key_path=fixture.public_key_path,
+                    **trust,
                     root=prepared.root,
                 )
             result = run_extracted_box(
@@ -610,7 +649,7 @@ def run_python_conformance_case(
             temporary_directory.mkdir()
             result = run_box(
                 fixture.release_path,
-                public_key_path=fixture.public_key_path,
+                **trust,
                 archive=fixture.archive_path,
                 temporary_directory=temporary_directory,
                 args=runtime.get("args", ()),
@@ -666,10 +705,13 @@ def run_python_conformance_case(
             actual["shell"] = options["shell"]
         return actual, expected, fixture.root
     except Exception as error:
+        message = str(error)
         actual = {
             "outcome": "rejected",
-            "error": _classify_error(str(error), suite["errorPatterns"]),
+            "error": _classify_error(message, suite["errorPatterns"]),
         }
+        if "message" in expected:
+            actual["message"] = message
         if "destinationExists" in expected:
             actual["destinationExists"] = destination.exists()
         if "spawned" in expected:

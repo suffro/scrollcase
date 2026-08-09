@@ -3995,11 +3995,21 @@ own.
 
 All three take their trusted keys from a file **or** from the caller directly, and for the same
 reason: an application that holds its keys in a keyring, an environment variable or a secrets
-manager should not have to write key material to disk to check a signature. Naming both sources, or
-neither, is refused rather than resolved by preference — a caller that named two has not decided
-which keys it trusts. In every implementation the named source is resolved once, at the entry point,
-and everything below it sees one list of keys; supplying them directly is not a second verification
-path.
+manager should not have to write key material to disk to check a signature. Node and Python refuse
+both sources or neither rather than resolving by preference — a caller that named two has not
+decided which keys it trusts — while Rust's `TrustAnchors` enum makes both invalid states
+unrepresentable. In every implementation the named source is resolved once, at the entry point, and
+everything below it sees one list of keys; supplying them directly is not a second verification path.
+
+The parser contract is shared too. A trust source is one key object or `{ "keys": [...] }`; every
+entry needs a string `keyId`, while `publicKeyPem` may be absent or `null` and otherwise must be a
+string. An empty bundle parses and then cannot verify any signature. Malformed JSON, bundle shapes
+or entries produce `Invalid trusted ed25519 key file.` in all three; an unusable PEM is skipped and
+reaches the common no-valid-signature error, never a raw crypto-library exception. Node and Python
+additionally validate directly supplied arrays and report `Invalid trusted ed25519 keys.`; Rust's
+typed `Vec<TrustedKey>` makes the corresponding malformed field types impossible to construct.
+An unreadable trust file keeps the same error prefix and adds its path and the I/O detail. These
+cases live in `consumer-conformance.json`, not in three independent readings of the rule.
 
 What differs is what that buys. In Rust it additionally closes a chain the format cannot close from
 the inside: the crate is compiled into an application handed to someone else, a trust file beside

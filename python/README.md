@@ -23,6 +23,13 @@ The public operations are `verify_and_extract_box`, `attach_extracted_box`,
 execution, and the child application runs with the box's own interpreter through an argument array,
 never a shell.
 
+Every operation that verifies a signed release takes exactly one trust source: `public_key_path`, or
+`trusted_keys` for keys the caller already holds. `parse_trusted_keys(source)` turns either the
+single-key JSON shape or a `{"keys": [...]}` bundle from text or bytes into the latter, without
+requiring a temporary key file. Malformed trust JSON or entries raise
+`Invalid trusted ed25519 key file.`; an empty bundle or an unusable PEM cannot verify a signature
+and reaches the common no-valid-signature error.
+
 Every verification, attachment, payload-check, and run result carries `environment_report`.
 Release-declared values override inherited host and caller values; no inherited variable is
 filtered. Host values are masked by default. Pass `env_report=True` to include every name and

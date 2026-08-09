@@ -95,7 +95,7 @@ export function verifySignedDocument(document: import("../contract/types/index.d
  * A published public key, as written by `keygen` and read back when verifying.
  */
 export type TrustedKey = {
-    algorithm: "ed25519";
+    algorithm?: "ed25519";
     /**
      * stable identifier derived from the key itself
      */
@@ -103,6 +103,6 @@ export type TrustedKey = {
     /**
      * the raw 32-byte key, for non-Node verifiers
      */
-    publicKeyBase64: string;
-    publicKeyPem: string;
+    publicKeyBase64?: string;
+    publicKeyPem?: string | null;
 };

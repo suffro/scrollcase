@@ -23,7 +23,7 @@ use scrollcase_consumer::prepare::{
     EnvironmentReportOptions, PrepareOptions, PreparedBox, PreparedStatus,
 };
 use scrollcase_consumer::release::Execution;
-use scrollcase_consumer::trust::TrustAnchors;
+use scrollcase_consumer::trust::{parse_trusted_keys, TrustAnchors, TrustedKey};
 use scrollcase_consumer::run::{
     run_box, run_extracted_box, BoxInvocation, ForwardedSignal, RunBoxOptions, RunOptions,
     RunningBox, SpawnBox, StdioMode,
@@ -816,12 +816,72 @@ struct Outcome {
     expected: Value,
 }
 
+struct CaseTrust {
+    keys: Option<Vec<TrustedKey>>,
+}
+
+impl CaseTrust {
+    fn configure(fixture: &Fixture, spec: &Value) -> Result<Self, String> {
+        let source = spec.get("source").and_then(Value::as_str).unwrap_or("file");
+        let shape = spec.get("shape").and_then(Value::as_str).unwrap_or("single");
+        let key: Value = serde_json::from_slice(
+            &std::fs::read(&fixture.key_path).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        if shape == "missing-file" {
+            if source != "file" {
+                return Err("A missing trust file is only a file-source case.".to_string());
+            }
+            std::fs::remove_file(&fixture.key_path).map_err(|error| error.to_string())?;
+            return Ok(Self { keys: None });
+        }
+        let value = match shape {
+            "single" => key,
+            "bundle" => json!({ "keys": [key] }),
+            "empty-bundle" => json!({ "keys": [] }),
+            "non-array-bundle" => json!({ "keys": key }),
+            "invalid-bundle-entry" => json!({ "keys": [null] }),
+            "malformed-pem" => {
+                let mut key = key;
+                key["publicKeyPem"] = json!("not a PEM key");
+                key
+            }
+            "malformed-json" => Value::Null,
+            other => return Err(format!("Unknown conformance trust shape: {other}")),
+        };
+        let raw = if shape == "malformed-json" {
+            b"{".to_vec()
+        } else {
+            serde_json::to_vec(&value).map_err(|error| error.to_string())?
+        };
+
+        match source {
+            "file" => {
+                std::fs::write(&fixture.key_path, raw).map_err(|error| error.to_string())?;
+                Ok(Self { keys: None })
+            }
+            "memory" => Ok(Self {
+                keys: Some(parse_trusted_keys(&raw).map_err(|error| error.to_string())?),
+            }),
+            other => Err(format!("Unknown conformance trust source: {other}")),
+        }
+    }
+
+    fn anchors<'a>(&'a self, fixture: &'a Fixture) -> TrustAnchors<'a> {
+        match self.keys.as_deref() {
+            Some(keys) => TrustAnchors::Keys(keys),
+            None => TrustAnchors::KeyFile(&fixture.key_path),
+        }
+    }
+}
+
 fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
     let id = case["id"].as_str().unwrap();
     let action = case["action"].as_str().unwrap();
     let runtime = case.get("runtime").cloned().unwrap_or_else(|| json!({}));
     let mutation = case.get("mutation").and_then(Value::as_str);
     let spec = case.get("fixture").cloned().unwrap_or_else(|| json!({}));
+    let trust_spec = case.get("trust").cloned().unwrap_or_else(|| json!({}));
     let expected_raw = &case["expected"];
 
     let mut fixture = Fixture::create(id, &spec);
@@ -860,18 +920,21 @@ fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
         state: Arc::clone(&state),
     };
 
-    let result = execute(
-        action,
-        &fixture,
-        &destination,
-        &temporary,
-        &runtime,
-        expected_raw,
-        &report_names,
-        &environment,
-        &spawner,
-        mutation.filter(|_| post_extraction),
-    );
+    let result = CaseTrust::configure(&fixture, &trust_spec).and_then(|trust| {
+        execute(
+            action,
+            &fixture,
+            &trust,
+            &destination,
+            &temporary,
+            &runtime,
+            expected_raw,
+            &report_names,
+            &environment,
+            &spawner,
+            mutation.filter(|_| post_extraction),
+        )
+    });
 
     // `$BOX` stays a token in the expectation; it is the observed argv and cwd that are normalised
     // onto it, so the comparison never depends on a temporary directory name.
@@ -882,10 +945,16 @@ fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
             value.as_object_mut().unwrap().remove("$root");
             value
         }
-        Err(error) => json!({
-            "outcome": "rejected",
-            "error": classify_error(&error, patterns),
-        }),
+        Err(error) => {
+            let mut value = json!({
+                "outcome": "rejected",
+                "error": classify_error(&error, patterns),
+            });
+            if expected_raw.get("message").is_some() {
+                value["message"] = json!(error);
+            }
+            value
+        }
     };
 
     // Structural observations the suite asks for on either outcome.
@@ -953,6 +1022,7 @@ fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
 fn execute(
     action: &str,
     fixture: &Fixture,
+    trust: &CaseTrust,
     destination: &Path,
     temporary: &Path,
     runtime: &Value,
@@ -963,7 +1033,7 @@ fn execute(
     post_extraction: Option<&str>,
 ) -> Result<Value, String> {
     let prepare_options = |environment: EnvironmentReportOptions| PrepareOptions {
-        trust: TrustAnchors::KeyFile(&fixture.key_path),
+        trust: trust.anchors(fixture),
         archive: Some(&fixture.archive_path),
         destination,
         environment,
@@ -988,7 +1058,7 @@ fn execute(
             None => prepared.root().to_path_buf(),
         };
         let attach_options = AttachOptions {
-            trust: TrustAnchors::KeyFile(&fixture.key_path),
+            trust: trust.anchors(fixture),
             root: &root,
             environment: environment.clone(),
         };
@@ -1064,7 +1134,7 @@ fn execute(
             attach_extracted_box(
                 &fixture.release_path,
                 &AttachOptions {
-                    trust: TrustAnchors::KeyFile(&fixture.key_path),
+                    trust: trust.anchors(fixture),
                     root: prepared.root(),
                     environment: environment.clone(),
                 },
@@ -1084,7 +1154,7 @@ fn execute(
             run_box(
                 &fixture.release_path,
                 &RunBoxOptions {
-                    trust: TrustAnchors::KeyFile(&fixture.key_path),
+                    trust: trust.anchors(fixture),
                     archive: Some(&fixture.archive_path),
                     temporary_root: temporary,
                     run: run_options(),
@@ -1121,7 +1191,7 @@ fn the_shared_consumer_conformance_suite_passes() {
     let suite: Value = serde_json::from_str(SUITE).unwrap();
     let patterns = suite["errorPatterns"].as_object().unwrap();
     let cases = suite["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 67, "the suite changed size");
+    assert_eq!(cases.len(), 81, "the suite changed size");
 
     let mut failures: Vec<String> = Vec::new();
     let mut ran = 0usize;

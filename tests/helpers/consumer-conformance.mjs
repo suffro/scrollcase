@@ -36,6 +36,7 @@ import {
   verifyAndExtractBox,
   verifyExtractedPayload,
 } from '../../src/consumer/index.mjs';
+import { parseTrustedKeys } from '../../src/sign/index.mjs';
 import {
   createConsumerBoxFixture,
   nativeTarget,
@@ -361,6 +362,33 @@ function fixtureOptions(spec = {}) {
   };
 }
 
+async function trustOptions(fixture, spec = {}) {
+  const source = spec.source ?? 'file';
+  const shape = spec.shape ?? 'single';
+  const key = JSON.parse(await readFile(fixture.publicPath, 'utf8'));
+  if (shape === 'missing-file') {
+    if (source !== 'file') throw new Error('A missing trust file is only a file-source case.');
+    await rm(fixture.publicPath);
+    return { publicPath: fixture.publicPath };
+  }
+  let raw;
+  if (shape === 'single') raw = JSON.stringify(key);
+  else if (shape === 'bundle') raw = JSON.stringify({ keys: [key] });
+  else if (shape === 'empty-bundle') raw = JSON.stringify({ keys: [] });
+  else if (shape === 'non-array-bundle') raw = JSON.stringify({ keys: key });
+  else if (shape === 'invalid-bundle-entry') raw = JSON.stringify({ keys: [null] });
+  else if (shape === 'malformed-json') raw = '{';
+  else if (shape === 'malformed-pem') raw = JSON.stringify({ ...key, publicKeyPem: 'not a PEM key' });
+  else throw new Error(`Unknown conformance trust shape: ${shape}`);
+
+  if (source === 'file') {
+    await writeFile(fixture.publicPath, raw);
+    return { publicPath: fixture.publicPath };
+  }
+  if (source === 'memory') return { trustedKeys: parseTrustedKeys(raw) };
+  throw new Error(`Unknown conformance trust source: ${source}`);
+}
+
 function environmentReport(report, names = []) {
   const selected = new Set(names);
   return {
@@ -443,9 +471,10 @@ export async function runNodeConformanceCase(testCase) {
     if (!postExtractionMutation) {
       await mutateFixture(fixture, testCase.mutation, destination);
     }
+    const trust = await trustOptions(fixture, testCase.trust);
     if (testCase.action === 'prepare') {
       prepared = await verifyAndExtractBox(fixture.releasePath, {
-        publicPath: fixture.publicPath,
+        ...trust,
         archive: fixture.archivePath,
         destination,
         envReport: Boolean(runtime.envReport),
@@ -477,7 +506,7 @@ export async function runNodeConformanceCase(testCase) {
 
     if (testCase.action === 'attach' || testCase.action === 'verify-payload') {
       prepared = await verifyAndExtractBox(fixture.releasePath, {
-        publicPath: fixture.publicPath,
+        ...trust,
         archive: fixture.archivePath,
         destination,
         envReport: Boolean(runtime.envReport),
@@ -491,7 +520,7 @@ export async function runNodeConformanceCase(testCase) {
       );
       if (testCase.action === 'attach') {
         const attached = await attachExtractedBox(fixture.releasePath, {
-          publicPath: fixture.publicPath,
+          ...trust,
           root,
           envReport: Boolean(runtime.envReport),
           envReportValues: Boolean(runtime.envReportValues),
@@ -520,7 +549,7 @@ export async function runNodeConformanceCase(testCase) {
         };
       }
       const verified = await verifyExtractedPayload(fixture.releasePath, {
-        publicPath: fixture.publicPath,
+        ...trust,
         root,
         envReport: Boolean(runtime.envReport),
         envReportValues: Boolean(runtime.envReportValues),
@@ -559,14 +588,14 @@ export async function runNodeConformanceCase(testCase) {
     let result;
     if (testCase.action === 'run-prepared') {
       prepared = await verifyAndExtractBox(fixture.releasePath, {
-        publicPath: fixture.publicPath,
+        ...trust,
         archive: fixture.archivePath,
         destination,
       });
       await materializeAsset(prepared, runtime.assetState);
       if (runtime.attach) {
         prepared = await attachExtractedBox(fixture.releasePath, {
-          publicPath: fixture.publicPath,
+          ...trust,
           root: prepared.root,
         });
       }
@@ -587,7 +616,7 @@ export async function runNodeConformanceCase(testCase) {
     } else if (testCase.action === 'run-box') {
       await mkdir(temporaryDirectory);
       const running = runBox(fixture.releasePath, {
-        publicPath: fixture.publicPath,
+        ...trust,
         archive: fixture.archivePath,
         temporaryDirectory,
         args: runtime.args ?? [],
@@ -644,10 +673,12 @@ export async function runNodeConformanceCase(testCase) {
     }
     return { actual, expected, root: fixture.root };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     const actual = {
       outcome: 'rejected',
-      error: classifyError(error instanceof Error ? error.message : String(error), testCase.suite.errorPatterns),
+      error: classifyError(message, testCase.suite.errorPatterns),
     };
+    if ('message' in expected) actual.message = message;
     if ('destinationExists' in expected) actual.destinationExists = await pathExists(destination);
     if ('spawned' in expected) actual.spawned = (fake?.calls.length ?? 0) > 0;
     if ('temporaryDirectoryEmpty' in expected) {

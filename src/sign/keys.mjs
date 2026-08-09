@@ -26,10 +26,10 @@ import { BOX_SCHEMA_VERSION, PAYLOAD_ENCODING } from '../contract/document-shape
  * A published public key, as written by `keygen` and read back when verifying.
  *
  * @typedef {object} TrustedKey
- * @property {'ed25519'} algorithm
+ * @property {'ed25519'} [algorithm]
  * @property {string} keyId stable identifier derived from the key itself
- * @property {string} publicKeyBase64 the raw 32-byte key, for non-Node verifiers
- * @property {string} publicKeyPem
+ * @property {string} [publicKeyBase64] the raw 32-byte key, for non-Node verifiers
+ * @property {string | null} [publicKeyPem]
  */
 
 const sha256Hex = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -91,9 +91,17 @@ export async function readSigningKey({ privatePath, publicPath }) {
   return { privateKey, metadata };
 }
 
-/** Accepts both trust-file shapes: a bundle of keys, or a single bare key. */
-function trustedKeyEntries(value) {
-  return Array.isArray(value?.keys) ? value.keys : [value];
+/** Accepts both trust-file shapes and rejects values neither shape can represent. */
+function trustedKeyEntries(value, message) {
+  const entries = Array.isArray(value?.keys) ? value.keys : [value];
+  if (!entries.every((entry) => entry
+    && typeof entry === 'object'
+    && !Array.isArray(entry)
+    && typeof entry.keyId === 'string'
+    && (entry.publicKeyPem == null || typeof entry.publicKeyPem === 'string'))) {
+    fail(message);
+  }
+  return entries;
 }
 
 /**
@@ -107,7 +115,13 @@ function trustedKeyEntries(value) {
  * @returns {TrustedKey[]}
  */
 export function parseTrustedKeys(source) {
-  return trustedKeyEntries(JSON.parse(typeof source === 'string' ? source : source.toString('utf8')));
+  let value;
+  try {
+    value = JSON.parse(typeof source === 'string' ? source : source.toString('utf8'));
+  } catch {
+    fail('Invalid trusted ed25519 key file.');
+  }
+  return trustedKeyEntries(value, 'Invalid trusted ed25519 key file.');
 }
 
 /**
@@ -120,13 +134,24 @@ export function parseTrustedKeys(source) {
  * @returns {Promise<TrustedKey[]>}
  */
 export async function resolveTrustedKeys({ publicPath = null, trustedKeys = null } = {}) {
-  if (publicPath && trustedKeys) fail('Name either a trusted key file or trusted keys, not both.');
-  if (trustedKeys) {
-    if (!Array.isArray(trustedKeys)) fail('Invalid trusted ed25519 keys.');
-    return trustedKeys;
+  const hasPublicPath = publicPath !== null && publicPath !== undefined;
+  const hasTrustedKeys = trustedKeys !== null && trustedKeys !== undefined;
+  if (hasPublicPath && hasTrustedKeys) {
+    fail('Name either a trusted key file or trusted keys, not both.');
   }
-  if (!publicPath) fail('A trusted key file or trusted keys are required.');
-  return parseTrustedKeys(await readFile(publicPath, 'utf8'));
+  if (hasTrustedKeys) {
+    if (!Array.isArray(trustedKeys)) fail('Invalid trusted ed25519 keys.');
+    return trustedKeyEntries({ keys: trustedKeys }, 'Invalid trusted ed25519 keys.');
+  }
+  if (!hasPublicPath) fail('A trusted key file or trusted keys are required.');
+  let source;
+  try {
+    source = await readFile(publicPath, 'utf8');
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    fail(`Invalid trusted ed25519 key file ${publicPath}: ${detail}`);
+  }
+  return parseTrustedKeys(source);
 }
 
 /**
@@ -187,8 +212,17 @@ export async function verifySignedDocument(document, trust) {
   const { bytes, payload } = decodeSignedDocument(document);
   const valid = document.signatures?.some((signature) => {
     const key = trusted.find((candidate) => candidate.keyId === signature.keyId);
-    return key?.publicKeyPem
-      && edVerify(null, bytes, createPublicKey(key.publicKeyPem), Buffer.from(signature.signatureBase64, 'base64'));
+    if (!key?.publicKeyPem) return false;
+    try {
+      return edVerify(
+        null,
+        bytes,
+        createPublicKey(key.publicKeyPem),
+        Buffer.from(signature.signatureBase64, 'base64'),
+      );
+    } catch {
+      return false;
+    }
   });
   if (!valid) fail('Document has no valid signature from a trusted ed25519 key.');
   return payload;
