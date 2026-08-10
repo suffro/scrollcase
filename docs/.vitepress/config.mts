@@ -60,7 +60,7 @@ export default defineConfig({
         { text: 'Reference', link: '/reference/' },
         { text: 'Security & trust', link: '/concepts/security-and-trust' },
         { text: 'Other tools', link: '/concepts/tool-comparison' },
-        { text: 'Quick Demo', link: '/guides/demo-box' },
+        { text: 'Quick Demo', link: '/demos/box-run-demo' },
         { text: 'White paper', link: '/white-paper' },
       ]
     },
@@ -76,7 +76,15 @@ export default defineConfig({
           { text: 'Why Scrollcase?', link: '/getting-started/why-scrollcase' },
           { text: 'Quickstart', link: '/getting-started/quickstart' },
           { text: 'Installation', link: '/getting-started/installation' },
-          { text: 'TL;DR', link: '/getting-started/tl-dr' }
+          { text: 'TL;DR', link: '/getting-started/tl-dr' },
+          {
+            text: 'Demos',
+            link: "/demos",
+            collapsed: true,
+            items: [
+              { text: 'Box-run demo', link: '/demos/box-run-demo' }
+            ]
+          }
         ]
       },
       {
@@ -84,7 +92,6 @@ export default defineConfig({
         link: '/guides',
         collapsed: false,
         items: [
-          { text: 'Try the demo', link: '/guides/demo-box' },
           { text: 'Managing Model Weights', link: '/guides/managing-weights' },
           { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
           { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },

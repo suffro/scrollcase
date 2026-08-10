@@ -15,7 +15,7 @@ machine anyway, since conda-pack packs the host's own environment.
 `demo-consumers/` holds what travels inside each published archive beside the box: `run-box.ts`,
 `run_box.py`, a `package.json`, and a `README.md`, so unpacking a download gives a folder that
 already runs three ways. The same files are embedded in
-[the demo box guide](https://scrollcase.dev/guides/demo-box), which is why they live here rather
+[the demo box guide](https://scrollcase.dev/demos/box-run-demo), which is why they live here rather
 than in the page — documentation and shipped bytes cannot drift apart. The public key is never
 copied in: a signature proves nothing if the key arrives in the same package as what it signs.
 

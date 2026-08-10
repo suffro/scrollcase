@@ -253,7 +253,7 @@ body:has(.cookie-backdrop) {
   border-radius: 5px !important;
 }
 
-.collapsed {
+.collapse-element {
   height: 0px !important;
   max-height: 0px !important;
   overflow: hidden !important;
@@ -261,7 +261,7 @@ body:has(.cookie-backdrop) {
   pointer-events: none !important;
 }
 
-.hidden {
+.hide-element {
   display: none !important;
 }
 

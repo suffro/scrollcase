@@ -61,4 +61,4 @@ This box is signed with a key that exists **only for this demo**. It signs nothi
 chain depends on it, and it is not the key for any Scrollcase release. Treat a signature from it as
 evidence that the example is intact — never as evidence that anything else is.
 
-Full walkthrough: <https://scrollcase.dev/guides/demo-box>
+Full walkthrough: <https://scrollcase.dev/demos/box-run-demo>

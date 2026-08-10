@@ -11,7 +11,7 @@ hand while exercising the complete packaging and signing pipeline.
 
 Prerequisites: the CLI and toolchain from [Installation](/getting-started/installation).
 
-<div class="collapsed">
+<div class="collapse-element">
 
 ## Try the demo
 
@@ -32,7 +32,7 @@ This demo is useful if you only want to see what a box is, and how to run it:
 <Spacer />
 
 <Button
-  href="/guides/demo-box"
+  href="/demos/box-run-demo"
 >
 
 Try the demo

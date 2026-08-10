@@ -70,7 +70,7 @@ they are and side by side — `verify` finds the box by the hash its release doc
 renaming or separating them breaks that. The enclosing zip carries no guarantee of its own; it holds
 the pair and the examples, and its name says which machine they are for.
 
-Full walkthrough: [the demo box guide](https://scrollcase.dev/guides/demo-box).
+Full walkthrough: [the demo box guide](https://scrollcase.dev/demos/box-run-demo).
 
 ## About the signing key
 
