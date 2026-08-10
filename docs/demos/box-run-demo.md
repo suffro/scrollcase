@@ -18,7 +18,7 @@ No local installation, Docker setup, Pixi or Conda required.
   external
 >
 
-Run in browser
+Start the guided demo
 
 </Button>
 
