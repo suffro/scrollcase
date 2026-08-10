@@ -154,6 +154,14 @@ export async function buildBox(name, options = {}) {
   await rm(objectDir, { recursive: true, force: true });
   await mkdir(payloadDir, { recursive: true });
 
+  // `conda-pack` owns the progress bar a user sees. Its 100% means only that the relocatable
+  // tarball is complete; extraction and repair still take real time. Report that handoff exactly
+  // after the subprocess returns, without teaching the public pixi helper about terminal output.
+  const runEnvironmentCommand = (command, args, runOptions) => {
+    const result = run(command, args, runOptions);
+    if (command === condaPack) log('Extracting and relocating packed environment');
+    return result;
+  };
   const { interpreter } = await installAndPackPixiEnvironment({
     pixi,
     condaPack,
@@ -162,9 +170,10 @@ export async function buildBox(name, options = {}) {
     buildDir,
     payloadDir,
     adapter,
-    run,
+    run: runEnvironmentCommand,
   });
 
+  log('Preparing payload');
   // `embed` packs the assets into the archive, so an installed box needs no network and works
   // air-gapped. `on-demand` leaves them out for the caller's distribution layer to materialize from
   // descriptors carried in the signed release. Consumers verify those bytes before execution; the
@@ -206,9 +215,11 @@ export async function buildBox(name, options = {}) {
     pythonVersion: scroll.pythonVersion,
     files: new Set(await collectFiles(payloadDir)),
   });
+  log('Running self-test');
   runSelfTest({ interpreter, adapter, scroll, payloadDir, run });
   // Parity runs after the self-test, on the same payload: there is no point comparing accelerators
   // in a box that cannot import its dependencies in the first place.
+  if (scroll.parity) log('Running parity gate');
   const parity = await checkParity({
     parity: scroll.parity,
     adapter,
@@ -266,6 +277,7 @@ export async function buildBox(name, options = {}) {
     ...deferred,
     provenance,
   }, null, 2)}\n`);
+  log('Finalizing payload');
   // The entry list is the last thing written, because it describes everything already there and
   // cannot describe itself. It goes in before `normalizeTree` so it carries the same fixed mtime as
   // the rest, and before `payloadSize` so the size a consumer checks free space against is honest.
@@ -287,8 +299,10 @@ export async function buildBox(name, options = {}) {
     ...scroll.assets.map((asset) => safeRelativePath(asset.relativePath)),
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path)),
   ];
+  log('Creating deterministic archive');
   await createDeterministicZip(payloadDir, archivePath, adapter, uncompressedPaths);
 
+  log('Hashing deterministic archive');
   const archiveSha = await sha256File(archivePath);
   const archiveSize = (await stat(archivePath)).size;
   // Content-addressed: the object is named after its own hash, so publishing is idempotent and an
@@ -298,6 +312,7 @@ export async function buildBox(name, options = {}) {
   if (!assetBaseUrl) fail('No asset base URL: declare assetBaseUrl in the scroll or pass --asset-base-url.');
   const kinds = documentKinds(namespace);
   const signing = { signerCommand, privatePath, publicPath };
+  log('Signing release and channel');
 
   const release = {
     schemaVersion: 2,

@@ -386,6 +386,39 @@ describe('the build pipeline', () => {
       .resolves.toMatchObject({ status: 'passed' });
   });
 
+  it('reports each formerly silent phase after conda-pack completes', async () => {
+    const { keys, payloadDir } = await makeProject();
+    const events = [];
+    const toolchain = fakeToolchain(payloadDir, {
+      onSelfTest: () => events.push('self-test started'),
+    });
+    const run = (...args) => {
+      const result = toolchain.run(...args);
+      if (args[0] === 'conda-pack') events.push('conda-pack completed');
+      return result;
+    };
+
+    await buildBox(SCROLL_REF, {
+      ...keys,
+      run,
+      runResult: toolchain.runResult,
+      log: (message) => events.push(message),
+    });
+
+    const expected = [
+      'conda-pack completed',
+      'Extracting and relocating packed environment',
+      'Preparing payload',
+      'Running self-test',
+      'self-test started',
+      'Finalizing payload',
+      'Creating deterministic archive',
+      'Hashing deterministic archive',
+      'Signing release and channel',
+    ];
+    expect(events.filter((event) => expected.includes(event))).toEqual(expected);
+  });
+
   it('refuses a Python module absent from the built environment', async () => {
     const { keys, payloadDir } = await makeProject({
       ...SCROLL,

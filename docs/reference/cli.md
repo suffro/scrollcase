@@ -297,6 +297,11 @@ keygen before building.` The build command never generates identity material its
 pair is never overwritten; an external signer instead requires its trusted public key to be
 present.
 
+The progress bar ending in `100% Completed` belongs to `conda-pack`, not to the whole build. After
+that handoff Scrollcase reports the remaining long phases while it extracts and relocates the
+packed environment, prepares and self-tests the payload, creates and hashes the deterministic
+archive, and signs the release and channel documents.
+
 A successful build ends with a compact relative-path summary: you can distribute the two immutable files
 under `boxes/<boxId>/<version>/<targetId>/` and the signed pointer at
 `channels/<boxId>/<channel>/<targetId>.json`. The individual content-addressed filenames remain

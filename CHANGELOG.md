@@ -19,6 +19,11 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Fixed
 
+- Keep `scrollcase build` visibly moving after the `conda-pack` progress bar reaches 100%. That bar
+  describes only creation of the relocatable tarball; the CLI now reports extraction and relocation,
+  payload preparation and self-test, deterministic archiving and hashing, and document signing
+  before the final build summary instead of leaving those phases silent.
+
 - Give `scrollcase run` and `verify` immediate, blank-separated launch status before verification or
   extraction begins. `run` then flushes its signed `Running …` status before starting the box
   interpreter, so it cannot appear after the application has already finished when stdout and
