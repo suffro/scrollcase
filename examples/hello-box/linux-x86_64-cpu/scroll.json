@@ -20,7 +20,7 @@
     {
       "sourcePath": "examples/hello-box/linux-x86_64-cpu/entrypoint.py",
       "relativePath": "entrypoint.py",
-      "sha256": "3dea550d406449ea5f425133a9d20cdd17a4977b2b9bdd6ae5454c7107177f9c"
+      "sha256": "9267859ac54e0e2f866113e10a872f3cfd745d7c247dc196d14b3a093f4636f2"
     }
   ],
   "selfTest": { "imports": ["json", "sqlite3"], "files": ["entrypoint.py"] },

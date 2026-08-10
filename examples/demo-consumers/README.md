@@ -51,7 +51,9 @@ On PowerShell the `box/*.release.json` glob is not expanded for a command like t
 
 `verify` checks the signature, the archive's size and hash, the entry names and the manifest, and
 works on any machine. Running the box needs a machine matching its target, because the interpreter
-inside it is executed. What it prints is `sys.prefix` — the interpreter answering is the box's own.
+inside it is executed. Its first line says the useful part plainly — `Hello from inside a
+Scrollcase box!` — followed by the verified-to-running path and a short runtime/host summary. It
+does not make you interpret a temporary `sys.prefix` path to discover that the box worked.
 
 ## About the signing key
 

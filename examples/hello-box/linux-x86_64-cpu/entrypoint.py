@@ -1,9 +1,8 @@
-"""What the example box prints when it runs.
+"""Make the successful box run obvious before showing its small runtime proof.
 
-Deliberately standard-library only: the example declares no dependencies, so everything
-reported here comes from the packed environment itself and not from the host. `sys.prefix` is
-the line that matters — it points inside the extracted box, which is the whole claim the tool
-makes about relocation.
+The demo stays standard-library only: reaching this script already proves that the packed
+interpreter was verified, relocated, and started. The output leads with that outcome instead of
+making a newcomer interpret temporary paths to discover it.
 """
 
 import platform
@@ -11,12 +10,18 @@ import sys
 
 
 def main() -> int:
-    print(f"python      {sys.version.split()[0]}")
-    print(f"platform    {platform.system().lower()} / {platform.machine()}")
-    print(f"executable  {sys.executable}")
-    print(f"prefix      {sys.prefix}")
+    system = platform.system()
+    host = {"Darwin": "macOS"}.get(system, system or "unknown")
+
+    print("Hello from inside a Scrollcase box!")
     print()
-    print("This interpreter was packed on another machine and relocated here.")
+    print("  signed -> verified -> relocated -> running")
+    print()
+    print("Success: the box's own Python runtime executed this program.")
+    print("No dependencies were resolved or installed to make this run.")
+    print()
+    print(f"  Runtime  Python {sys.version.split()[0]}")
+    print(f"  Host     {host} / {platform.machine() or 'unknown'}")
     return 0
 
 

@@ -55,6 +55,10 @@ python -m pip install scrollcase-consumer && python run_box.py
 On PowerShell that glob is not expanded for a command like this — use
 `(Get-ChildItem box\*.release.json).FullName`, or simply type the file name you see under `box/`.
 
+A successful run opens with `Hello from inside a Scrollcase box!`, then shows the
+`signed -> verified -> relocated -> running` path and a compact runtime/host summary. Temporary
+extraction paths stay out of the demo output: reaching its entry point is already the useful proof.
+
 `verify` checks the signature, the archive's size and hash, the entry names and the manifest.
 Adding `--self-test` extracts the box and imports with the interpreter inside it, and `run` executes
 its entry point — both need the machine to match the box's target. `verify` on its own works

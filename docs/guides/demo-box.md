@@ -122,8 +122,23 @@ scrollcase run    (Get-ChildItem box\*.release.json).FullName --public-key keys\
 
 `verify` checks the signature, the archive's size and hash, the entry names and manifest agreement,
 and works on any machine. `run` extracts the box to a temporary directory and executes its entry
-point with the interpreter *inside* it — so it needs a machine matching the box's target. What it
-prints is `sys.prefix`, which is the point: the interpreter answering is the one from the box.
+point with the interpreter *inside* it — so it needs a machine matching the box's target. The box
+output makes that outcome explicit instead of presenting its temporary extraction paths as the
+demo:
+
+```text
+Hello from inside a Scrollcase box!
+
+  signed -> verified -> relocated -> running
+
+Success: the box's own Python runtime executed this program.
+No dependencies were resolved or installed to make this run.
+
+  Runtime  Python 3.11.15
+  Host     Linux / x86_64
+```
+
+The final two lines reflect the box you downloaded and the matching machine running it.
 
 </Tab>
 <Tab title="Node/Python">

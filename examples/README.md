@@ -56,9 +56,24 @@ scrollcase run .scrollcase/dist/boxes/hello-box/1.0.0/macos-aarch64-metal/*.rele
 
 `verify --self-test` extracts the archive and imports `json` and `sqlite3` with the interpreter
 *inside the box*, which is the check that matters: it proves the packed environment runs somewhere
-other than where it was built. `run` then executes `entrypoint.py` — a stdlib-only script that
-prints `sys.prefix`, so you can see for yourself that the interpreter answering is the one from the
-box and not the one on your `PATH`.
+other than where it was built. `run` then executes `entrypoint.py`, whose output leads with the
+result a newcomer cares about and keeps the runtime evidence readable:
+
+```text
+Hello from inside a Scrollcase box!
+
+  signed -> verified -> relocated -> running
+
+Success: the box's own Python runtime executed this program.
+No dependencies were resolved or installed to make this run.
+
+  Runtime  Python 3.11.15
+  Host     Linux / x86_64
+```
+
+The final two lines vary with the target. There is deliberately no temporary extraction path to
+decode: reaching the entry point already means the consumer verified the signed box and started its
+own relocated interpreter.
 
 The committed `pixi.lock` pins the exact packages, so `build` installs rather than resolves and two
 builds of the same commit produce byte-identical archives. `platforms` in `pixi.toml` must equal the

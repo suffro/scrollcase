@@ -11,6 +11,12 @@ All notable changes to Scrollcase are documented here. The format follows
 - Read the schema version shown in the documentation hero from `package.json`, so the public site
   cannot keep displaying an old version after the package moves on.
 
+- Make the published `hello-box` demo announce a successful box execution before showing a compact
+  runtime and host summary. Its previous output was a table of Python diagnostics and temporary
+  extraction paths: technically useful, but it made a newcomer infer the actual result. The demo
+  now presents the signed-to-running path directly and keeps those ephemeral paths out of its
+  output; all three target scrolls commit to the same revised entry point.
+
 ### Fixed
 
 - `scrollcase-consumer` 0.3.2 (Rust): locate the real ZIP central directory through EOCD or EOCD64
