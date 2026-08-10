@@ -19,6 +19,11 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Fixed
 
+- Give `scrollcase run` and `verify` immediate, blank-separated launch status before verification or
+  extraction begins. `run` then flushes its signed `Running …` status before starting the box
+  interpreter, so it cannot appear after the application has already finished when stdout and
+  stderr are piped or captured.
+
 - `scrollcase-consumer` 0.3.2 (Rust): locate the real ZIP central directory through EOCD or EOCD64
   and scan exactly its declared records when checking for duplicate names. The previous check loaded
   the entire archive into memory and searched every byte for central-directory signatures, so two

@@ -101,6 +101,42 @@ describe('the run CLI edge', () => {
     expect(log).toHaveBeenCalledWith('Extracted to a temporary directory, deleted on exit.');
   });
 
+  it('flushes blank-separated status before execution proceeds', async () => {
+    const events = [];
+    const log = vi.fn(async (message) => {
+      events.push(`write:${message}`);
+      await Promise.resolve();
+      events.push(`flush:${message}`);
+    });
+    const run = vi.fn(async (_releasePath, options) => {
+      await options.onPrepared(prepared);
+      events.push('execute');
+      return { exitCode: 0, signal: null };
+    });
+
+    await runCliBox('release.json', {
+      publicPath: 'trusted.json',
+      run,
+      log,
+      setExitCode: vi.fn(),
+    });
+
+    expect(log.mock.calls.map(([message]) => message)).toEqual([
+      '',
+      'Running example-box 1.2.3 (linux-x86_64-cpu, python-script)',
+      '3.0 GB extracted to a temporary directory, deleted on exit.',
+    ]);
+    expect(events).toEqual([
+      'write:',
+      'flush:',
+      'write:Running example-box 1.2.3 (linux-x86_64-cpu, python-script)',
+      'flush:Running example-box 1.2.3 (linux-x86_64-cpu, python-script)',
+      'write:3.0 GB extracted to a temporary directory, deleted on exit.',
+      'flush:3.0 GB extracted to a temporary directory, deleted on exit.',
+      'execute',
+    ]);
+  });
+
   it('passes report flags through and prints the consumer report on stderr', async () => {
     const log = vi.fn();
     const report = {
@@ -207,6 +243,9 @@ describe('the run CLI edge', () => {
       expect(result.status, result.stderr).toBe(7);
       // Scrollcase's own lines go to stderr and the box owns stdout, so a caller redirecting
       // stdout to a file receives the application's bytes and nothing else.
+      expect(result.stderr).toMatch(/^\r?\n→ Preparing box for execution\r?\n/);
+      expect(result.stderr.indexOf('Preparing box for execution'))
+        .toBeLessThan(result.stderr.indexOf('Running consumer-fixture 2.0.0'));
       expect(result.stderr).toContain('Running consumer-fixture 2.0.0');
       expect(result.stderr).toMatch(/extracted to a temporary directory, deleted on exit\./i);
       expect(result.stdout).not.toMatch(/Running consumer-fixture/);

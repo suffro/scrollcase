@@ -57,6 +57,7 @@ describe('the verify CLI edge', () => {
       env,
     });
     expect(masked.status, masked.stderr).toBe(0);
+    expect(masked.stdout).toMatch(/^\r?\n→ Verifying box\r?\n/);
     expect(masked.stderr).toContain('SCROLLCASE_VERIFY_REPORT=release-value');
     expect(masked.stderr).not.toContain('host-secret');
 
@@ -75,6 +76,7 @@ describe('the verify CLI edge', () => {
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
+    expect(result.stdout).toMatch(/^\r?\n→ Verifying extracted payload\r?\n/);
     expect(result.stdout).toContain(
       `Verified extracted payload consumer-fixture 2.0.0 (${fixture.release.target.platform}`,
     );

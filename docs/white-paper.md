@@ -4535,22 +4535,30 @@ if (result.signal) terminate(result.signal);
 else setExitCode(result.exitCode ?? 1);
 ```
 
-The module adds two things and nothing else: two status lines printed from the `onPrepared` hook, and
-a translation of the child's terminal result into this process's own. A child killed by a signal
-makes the CLI kill *itself* with the same signal, so a shell sees the real termination cause rather
-than an invented exit code; otherwise the child's exit code becomes the CLI's.
+The CLI dispatch prints a blank separator and `Preparing box for execution` before calling this
+module, so verification and extraction never look like a hung command. The module adds two things
+and nothing else: another blank separator plus two status lines printed from the `onPrepared` hook,
+and a translation of the child's terminal result into this process's own. A child killed by a
+signal makes the CLI kill *itself* with the same signal, so a shell sees the real termination cause
+rather than an invented exit code; otherwise the child's exit code becomes the CLI's.
 
 Both lines go to **stderr**, because stdout belongs to the box. Every other verb owns its standard
 output; `run` hands it to the application, and a status line written there would land inside
 whatever file or process the caller piped that output into, with the box unable to tell. The second
 line states what `run` is — a one-shot extraction, deleted on exit — and prints on every run rather
 than above a size threshold, because a caller who does not know that reads a repeated
-multi-gigabyte extraction as the tool being slow. A box kept across runs is `verifyAndExtractBox`
-once, then `attachExtractedBox` and `runExtractedBox` from the library, not this verb.
+multi-gigabyte extraction as the tool being slow. Each write is awaited before execution begins;
+otherwise the parent stderr and the box stdout can be displayed out of order when either stream is
+piped. A box kept across runs is `verifyAndExtractBox` once, then `attachExtractedBox` and
+`runExtractedBox` from the library, not this verb.
 
 Verification, extraction, execution, signal forwarding and cleanup all stay in `runBox`. The
 injectable `run`, `log`, `setExitCode` and `terminate` parameters exist so the translation can be
 tested without terminating the test runner.
+
+`verify` follows the same launch convention on stdout: a blank line and `Verifying box` — or
+`Verifying extracted payload` — are flushed after argument validation and before any potentially
+long read or hash. Unlike `run`, it owns stdout because no application process owns that stream.
 
 <div class="h3-section-initial-part">
 

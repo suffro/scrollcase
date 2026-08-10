@@ -35,7 +35,7 @@ function readableSize(bytes) {
  *   envReport?: boolean,
  *   envReportValues?: boolean,
  *   run?: typeof runBox,
- *   log?: (message: string) => void,
+ *   log?: (message: string) => void | Promise<void>,
  *   setExitCode?: (code: number) => void,
  *   terminate?: (signal: NodeJS.Signals) => void,
  * }} options
@@ -65,8 +65,9 @@ export async function runCliBox(releaseDocumentPath, {
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',
-    onPrepared: (prepared) => {
-      log(
+    onPrepared: async (prepared) => {
+      await log('');
+      await log(
         `Running ${prepared.boxId} ${prepared.version} `
         + `(${prepared.targetId}, ${prepared.execution?.kind ?? 'library-only'})`,
       );
@@ -74,11 +75,13 @@ export async function runCliBox(releaseDocumentPath, {
       // who does not know that reads a repeated multi-gigabyte extraction as the tool being slow.
       // One line, always the same shape, so it stays skippable once it has been read.
       const size = readableSize(prepared.installedSizeBytes);
-      log(`${size ? `${size} extracted` : 'Extracted'} to a temporary directory, deleted on exit.`);
+      await log(
+        `${size ? `${size} extracted` : 'Extracted'} to a temporary directory, deleted on exit.`,
+      );
     },
-    onEnvironmentReport: (report) => {
+    onEnvironmentReport: async (report) => {
       if (!shouldReportEnvironment(report)) return;
-      for (const line of formatEnvironmentReport(report)) log(line);
+      for (const line of formatEnvironmentReport(report)) await log(line);
     },
   });
   if (result.signal) terminate(result.signal);

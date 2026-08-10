@@ -61,6 +61,19 @@ const step = (message) => console.log(statusLine('step', message));
 const info = (message) => console.log(statusLine('info', message));
 const warning = (message) => console.log(statusLine('warning', message));
 
+/** Writes one status line completely before later work can write to the same terminal stream. */
+function flushedStep(stream, message) {
+  const line = message ? statusLine('step', message, { stream }) : '';
+  return new Promise((resolveWrite, rejectWrite) => {
+    stream.write(`${line}\n`, (error) => {
+      if (error) rejectWrite(error);
+      else resolveWrite();
+    });
+  });
+}
+
+const flushedRunStatus = (message) => flushedStep(process.stderr, message);
+
 const text = (flags, name) => (flags.has(name) ? String(flags.get(name)) : null);
 
 /** Signing key locations, defaulting into the workspace's key directory. */
@@ -334,6 +347,8 @@ async function verify(path, flags) {
     fail('--extracted requires a directory path.');
   }
   if (typeof extracted === 'string') {
+    await flushedStep(process.stdout, '');
+    await flushedStep(process.stdout, 'Verifying extracted payload');
     const result = await verifyExtractedPayload(path, {
       publicPath: keyPaths(flags).publicPath,
       root: extracted,
@@ -349,6 +364,8 @@ async function verify(path, flags) {
     );
     return;
   }
+  await flushedStep(process.stdout, '');
+  await flushedStep(process.stdout, 'Verifying box');
   await verifyBox(path, {
     publicPath: keyPaths(flags).publicPath,
     archive: text(flags, 'archive'),
@@ -363,6 +380,8 @@ async function verify(path, flags) {
 }
 
 async function runRelease(path, flags, args) {
+  await flushedRunStatus('');
+  await flushedRunStatus('Preparing box for execution');
   return runCliBox(path, {
     publicPath: keyPaths(flags).publicPath,
     archive: text(flags, 'archive'),
@@ -371,7 +390,7 @@ async function runRelease(path, flags, args) {
     envReportValues: Boolean(flags.get('env-report-values')),
     // Every other command owns stdout; `run` hands it to the box. A status line written there
     // would land in whatever file or process the caller piped the application's output into.
-    log: (message) => console.error(statusLine('step', message)),
+    log: flushedRunStatus,
   });
 }
 

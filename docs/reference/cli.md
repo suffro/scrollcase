@@ -346,6 +346,10 @@ additionally requires a matching native host, extracts to a temporary directory,
 payload size, and runs the signed import check. It does not repeat scroll-only `pythonCode` or file
 assertions, which are builder-only checks.
 
+After validating the command arguments, `verify` prints a blank line and `Verifying box` (or
+`Verifying extracted payload`) before it starts reading and hashing the supplied bytes, so a long
+verification gives immediate terminal feedback.
+
 Every verification result carries a structured environment snapshot in the library. The CLI stays
 silent on a plain verification unless a report flag is present; `--self-test` prints the compact
 report automatically when the release declares variables, conflicts exist, or inherited variables
@@ -370,11 +374,14 @@ Verify and execute one caller-supplied local release through `scrollcase/consume
 scrollcase run <release.json> [--archive <box.zip>] [--env-report] [--env-report-values] -- [application args]
 ```
 
-The command performs the same signature, schema, archive, safe-entry, manifest-agreement, installed
-size, interpreter, and execution checks as the Node consumer. It then extracts into a private
-temporary directory, prints the signed box ID, version, target and execution kind, attaches terminal
-stdio, and runs the declared script or module with the box's own Python. Signed `defaultArgs` come
-first; every string after `--` follows unchanged, without a shell.
+The command prints a blank line and `Preparing box for execution` immediately after validating its
+arguments, then performs the same signature, schema, archive, safe-entry, manifest-agreement,
+installed-size, interpreter, and execution checks as the Node consumer. It extracts into a private
+temporary directory and prints the signed box ID, version, target and execution kind after another
+blank separator, then attaches terminal stdio and runs the declared script or module with the box's
+own Python. Every status write is flushed before the interpreter starts, so it cannot appear after
+the box's own output. Signed `defaultArgs` come first; every string after `--` follows unchanged,
+without a shell.
 
 The compact environment report appears automatically when it has something relevant to say.
 `--env-report` expands it to every variable name and provenance source while keeping inherited host
