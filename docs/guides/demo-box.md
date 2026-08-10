@@ -25,7 +25,7 @@ Run in browser
 
 ---
 
-Prefer a full online development environment? Open the demo in GitHub Codespaces to get an instant VM with the repository ready to run:
+**Prefer a full online development environment?** Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-demo-codespace?quickstart=1"

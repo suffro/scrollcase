@@ -84,7 +84,7 @@ export default defineConfig({
         link: '/guides',
         collapsed: false,
         items: [
-          { text: 'Quick Demo', link: '/guides/demo-box' },
+          { text: 'Try the demo', link: '/guides/demo-box' },
           { text: 'Managing Model Weights', link: '/guides/managing-weights' },
           { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
           { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },
