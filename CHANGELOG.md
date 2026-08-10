@@ -6,7 +6,18 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Generate a non-overwriting Rust consumer template crate under `consumer-templates/rust/` during
+  `scrollcase init`, beside the existing Node and Python templates. Interactive setup now asks
+  `Install scrollcase-consumer for Rust?` and, when accepted, adds the crate dependency to that
+  generated manifest with Cargo.
+
 ### Changed
+
+- Default every interactive `scrollcase init` yes/no question to yes and render it as `[Y/n]`,
+  including the Node, Python, Rust, Python fallback, and managed-toolchain offers. Non-interactive
+  input still grants no consent unless an explicit flag does so.
 
 - Read the schema version shown in the documentation hero from `package.json`, so the public site
   cannot keep displaying an old version after the package moves on.

@@ -268,11 +268,12 @@ guesses a CUDA ABI, never overwrites an existing example, and can be omitted wit
 Its application starter lives at
 `box-entrypoints/<boxId>/<targetId>/entrypoint.py`: executable input is grouped by the same box and
 target it belongs to, without adding a redundant tool-named directory.
-Two adjacent, non-overwriting consumer examples show the other side of the boundary:
-`scrollcase/consumer` from TypeScript and `scrollcase_consumer` from Python. They accept local
-release and trust inputs; they do not add download or distribution behavior. They live under
-`consumer-templates/`, while a short non-overwriting `SCROLLCASE.md` keeps the basic workflow and
-links to the canonical documentation visible in the project.
+Three adjacent, non-overwriting consumer examples show the other side of the boundary:
+`scrollcase/consumer` from TypeScript, `scrollcase_consumer` from Python, and
+`scrollcase-consumer` from Rust. They accept local release and trust inputs; they do not add
+download or distribution behavior. They live under `consumer-templates/`, with Rust in its own
+small Cargo crate, while a short non-overwriting `SCROLLCASE.md` keeps the basic workflow and links
+to the canonical documentation visible in the project.
 
 `scrollcase new scroll` remains the only command that authors real project identity, target,
 versions, compatibility, weights, and execution intent. A non-terminal authoring call must provide

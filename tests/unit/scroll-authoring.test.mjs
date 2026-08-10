@@ -184,18 +184,24 @@ describe('scroll authoring', () => {
     await writeFile(first.generatedScriptPath, 'print("customized")\n');
     const typescriptTemplate = join(current.root, 'consumer-templates', 'run-box.ts');
     const pythonTemplate = join(current.root, 'consumer-templates', 'run_box.py');
+    const rustTemplate = join(current.root, 'consumer-templates', 'rust', 'src', 'main.rs');
+    const rustManifest = join(current.root, 'consumer-templates', 'rust', 'Cargo.toml');
     const packageJson = join(current.root, 'package.json');
     await writeFile(typescriptTemplate, '// customized\n');
     await rm(pythonTemplate);
+    await writeFile(rustTemplate, '// customized\n');
+    await rm(rustManifest);
     await writeFile(packageJson, '{"type":"commonjs","custom":true}\n');
 
     const second = await ensureExampleScroll({ workspace: current, target: TARGET });
 
     expect(second.created).toBe(false);
-    expect(second.written).toEqual([pythonTemplate]);
+    expect(second.written).toEqual([pythonTemplate, rustManifest]);
     expect(await readFile(first.generatedScriptPath, 'utf8')).toBe('print("customized")\n');
     expect(await readFile(typescriptTemplate, 'utf8')).toBe('// customized\n');
     expect(await readFile(pythonTemplate, 'utf8')).toContain('run_box');
+    expect(await readFile(rustTemplate, 'utf8')).toBe('// customized\n');
+    expect(await readFile(rustManifest, 'utf8')).toContain('scrollcase-consumer-template');
     expect(await readFile(packageJson, 'utf8')).toBe('{"type":"commonjs","custom":true}\n');
 
     const third = await ensureExampleScroll({ workspace: current, target: TARGET });

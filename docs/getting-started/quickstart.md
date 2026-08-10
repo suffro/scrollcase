@@ -85,6 +85,7 @@ already exists:
   that box and target.
 - `consumer-templates/run-box.ts` — a typed Node consumer using `scrollcase/consumer`.
 - `consumer-templates/run_box.py` — the equivalent Python consumer using `scrollcase_consumer`.
+- `consumer-templates/rust/` — the equivalent Rust consumer as a small Cargo crate.
 - `package.json` — when absent, a private Node package with `"type": "module"` for the TypeScript
   consumer; an existing package file is never overwritten.
 - `SCROLLCASE.md` — a short project-local workflow guide linked to the full documentation.
@@ -95,7 +96,7 @@ Then, if `pixi` or `conda-pack` is missing, `init` **asks** whether to install i
 
 ```text
 This project needs pixi and conda-pack to build a box.
-Install them into /work/my-boxes/.scrollcase/toolchain? [y/N]
+Install them into /work/my-boxes/.scrollcase/toolchain? [Y/n]
 ```
 
 Answer yes and both land inside the project, with the pixi download checksum-verified and
@@ -104,11 +105,12 @@ described in [Installation](/getting-started/installation). Either way `init` ne
 anything you did not agree to, which is what makes it safe to re-run.
 
 Because the example includes consumer templates, `init` asks separately whether to install
-`scrollcase`, `typescript`, and `tsx`, and whether to install the Python `scrollcase-consumer`
-package. For Python you choose PyPI with pip or conda-forge with conda. It collects all answers
-before starting any installation, with a blank line separating each question. Without a terminal
-these optional installs default to no. If Conda is unavailable after selecting conda-forge, a
-separate question offers to continue with PyPI.
+`scrollcase`, `typescript`, and `tsx`, whether to install the Python `scrollcase-consumer` package,
+and whether to add the Rust crate to the generated Cargo manifest. For Python you choose PyPI with
+pip or conda-forge with conda. It collects all answers before starting any installation, with a
+blank line separating each question. Interactive yes/no questions default to yes (`[Y/n]`);
+without a terminal these optional installs remain no. If Conda is unavailable after selecting
+conda-forge, a separate default-yes question offers to continue with PyPI.
 
 Use `--install-toolchain` or `--no-install-toolchain` to answer up front in a script. Pass
 `--no-example` when an explicitly empty workspace is preferable.
@@ -170,10 +172,10 @@ git add . && git commit -m "Example box scroll and lock"
 Committing now also matters for the next steps: `build` refuses a dirty tree without
 `--allow-dirty`, because an artefact built from uncommitted changes is reproducible by nobody.
 
-After the build, the two files under `consumer-templates/` show how an application can run the
-local signed release through either public consumer API. Replace the `<target>` and `<hash>`
-placeholders in the chosen template, then follow its setup and run instructions. The Node or Python
-consumer package must be installed in the application that runs the template.
+After the build, the three templates under `consumer-templates/` show how an application can run the
+local signed release through the Node, Python, or Rust public consumer API. Replace the `<target>`
+and `<hash>` placeholders in the chosen template, then follow its setup and run instructions. The
+corresponding consumer package must be installed in the application that runs the template.
 
 For Python, npm does not install `scrollcase_consumer`. The generated template includes the complete
 setup; the equivalent commands are:
@@ -184,6 +186,13 @@ python consumer-templates/run_box.py
 ```
 
 A Python consumer-only application does not need the Scrollcase CLI or Node.js.
+
+For Rust, the generated crate includes the equivalent commands:
+
+```sh
+cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer
+cargo run --manifest-path consumer-templates/rust/Cargo.toml
+```
 
 ## 7. `keygen` — create a signing key
 

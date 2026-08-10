@@ -104,17 +104,19 @@ archive (191 MB on Linux — see [examples/README.md](examples/README.md)). Its 
 interpreter *inside* it — the check that proves the environment runs somewhere other than where it
 was built. See [examples/README.md](examples/README.md).
 
-`init` also writes a concise `SCROLLCASE.md`, plus `consumer-templates/run-box.ts` and
-`consumer-templates/run_box.py`. The templates show the external application side of the boundary
-by calling `runBox` from `scrollcase/consumer` or `run_box` from the separately installed
-`scrollcase-consumer` Python package. The application executed inside the example box is kept
-separately at `box-entrypoints/<boxId>/<targetId>/entrypoint.py`.
+`init` also writes a concise `SCROLLCASE.md`, plus Node, Python, and Rust templates under
+`consumer-templates/`. They show the external application side of the boundary by calling the
+public consumer for each language against a caller-supplied local release. The Rust template is a
+small non-publishable crate under `consumer-templates/rust/`; the application executed inside the
+example box is kept separately at `box-entrypoints/<boxId>/<targetId>/entrypoint.py`.
 If the project has no `package.json`, `init` creates a private one with `"type": "module"` for the
 TypeScript consumer; an existing file is never changed.
 Interactive initialization separately offers to install the templates' Node/TypeScript
-dependencies and the Python consumer from PyPI or conda-forge. It collects every answer first and
-then performs the approved installations. If conda-forge is selected but Conda is unavailable,
-`init` asks whether to continue with PyPI instead.
+dependencies, the Python consumer from PyPI or conda-forge, and the Rust crate with Cargo. Every
+interactive yes/no question defaults to yes (`[Y/n]`); without a terminal, optional installs remain
+disabled unless a flag explicitly authorizes them. `init` collects every answer first and then
+performs the approved installations. If conda-forge is selected but Conda is unavailable, it asks
+whether to continue with PyPI instead.
 
 ## Commands
 

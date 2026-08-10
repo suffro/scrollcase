@@ -4,11 +4,12 @@
  * These installations belong to the initialized project, not Scrollcase's managed build
  * toolchain. Every command therefore runs from the workspace root, beside
  * `scrollcase.config.json`. Node uses the root package and `node_modules`; Python uses the
- * interpreter selected from the caller's environment. Consent and the Python package source are
- * chosen at the CLI edge and passed in explicitly.
+ * interpreter selected from the caller's environment; Rust uses the generated template crate.
+ * Consent and the Python package source are chosen at the CLI edge and passed in explicitly.
  */
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fail, run as defaultRun, runResult as defaultRunResult } from './process.mjs';
 
 const packageJson = JSON.parse(readFileSync(
@@ -36,6 +37,23 @@ export function installTypeScriptConsumerDependencies({
   runNpm(['install', `scrollcase@${scrollcaseVersion}`]);
   runNpm(['install', '--save-dev', 'tsx', 'typescript']);
   return { scrollcaseVersion };
+}
+
+export function installRustConsumerDependency({
+  root,
+  run = defaultRun,
+}) {
+  run(
+    'cargo',
+    [
+      'add',
+      '--manifest-path',
+      join(root, 'consumer-templates', 'rust', 'Cargo.toml'),
+      'scrollcase-consumer',
+    ],
+    { cwd: root },
+  );
+  return { command: 'cargo' };
 }
 
 function findPython({ root, runResult }) {

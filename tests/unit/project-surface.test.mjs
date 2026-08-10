@@ -53,7 +53,7 @@ describe('setting a project up', () => {
     expect(await readFile(join(root, '.gitignore'), 'utf8')).toContain('.scrollcase/');
     const guide = await readFile(join(root, 'SCROLLCASE.md'), 'utf8');
     const lines = guide.trim().split('\n');
-    expect(lines.length).toBeLessThan(40);
+    expect(lines.length).toBeLessThan(50);
     expect(lines[0]).toBe('[Scrollcase documentation](https://scrollcase.dev/)');
     expect(lines.at(-1)).toBe('[Scrollcase documentation](https://scrollcase.dev/)');
     expect(guide.match(/https:\/\/scrollcase\.dev\//g)).toHaveLength(8);
@@ -64,6 +64,8 @@ describe('setting a project up', () => {
     expect(guide).toContain('npm does not install the Python consumer');
     expect(guide).toContain('python -m pip install scrollcase-consumer');
     expect(guide).toContain('consumer-templates/run_box.py');
+    expect(guide).toContain('cargo add --manifest-path consumer-templates/rust/Cargo.toml');
+    expect(guide).toContain('cargo run --manifest-path consumer-templates/rust/Cargo.toml');
     expect(guide).not.toContain('.scrollcase/python-consumer');
   });
 

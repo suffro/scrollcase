@@ -83,9 +83,10 @@ It asks separately from the build toolchain and can use either PyPI with pip or 
 conda install --yes --channel conda-forge scrollcase-consumer
 ```
 
-The TypeScript template has its own optional prompt. If approved, `init` runs npm from the same
-project root to install `scrollcase`, `typescript`, and `tsx`. `init` collects every answer before
-starting any installation. If pip reports a PEP 668 externally managed interpreter, `init`
+The TypeScript and Rust templates have their own optional prompts. If approved, `init` runs npm from
+the same project root to install `scrollcase`, `typescript`, and `tsx`, and Cargo against the
+generated Rust manifest to add `scrollcase-consumer`. `init` collects every answer before starting
+any installation. If pip reports a PEP 668 externally managed interpreter, `init`
 automatically retries as a user install, keeping package files outside the managed Python prefix.
 If you select conda-forge but the `conda` command is unavailable, it asks whether to continue with
 PyPI instead.
@@ -108,8 +109,9 @@ The crate name uses a hyphen and the import name an underscore:
 use scrollcase_consumer::run::run_box;
 ```
 
-Like the Python package it builds and downloads nothing, and `scrollcase init` does not install it:
-Cargo dependencies belong in the consuming crate's own manifest.
+Like the Python package it builds and downloads nothing. When `scrollcase init` creates its
+non-publishable template crate, it can run the same `cargo add` command against that crate's own
+manifest after asking `Install scrollcase-consumer for Rust?`.
 
 </Tab>
 </Tabs>
@@ -122,10 +124,11 @@ Cargo dependencies belong in the consuming crate's own manifest.
 
 ```text
 This project needs pixi and conda-pack to build a box.
-Install them into /work/my-project/.scrollcase/toolchain? [y/N]
+Install them into /work/my-project/.scrollcase/toolchain? [Y/n]
 ```
 
-Nothing is downloaded before you answer, and the default is no. Say yes and Scrollcase installs
+Nothing is downloaded before you answer, and the interactive default is yes. Say yes (or press
+Enter) and Scrollcase installs
 both **inside the project**, under `.scrollcase/toolchain/` — nothing is added to `PATH`, nothing
 is installed system-wide, and deleting the directory undoes it. Later commands find the tools
 there on their own.

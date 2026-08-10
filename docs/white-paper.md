@@ -3404,9 +3404,10 @@ Execution intent is a closed set at this level too — `python-script`, `python-
 refused rather than silently simplified.
 
 `ensureExampleScroll()` creates the disposable `example-box` that `init` offers, through the same
-validated authoring path as any real scroll, plus two non-overwriting consumer templates. An
-existing target directory is treated as authored input and left untouched, including when a user has
-edited the starter.
+validated authoring path as any real scroll, plus three non-overwriting consumer templates. The Rust
+template is a small Cargo crate with its own manifest and `/target/` ignore. An existing target
+directory is treated as authored input and left untouched, including when a user has edited the
+starter or any consumer template.
 
 **Rejected:** treating setup metadata as the project's real scroll, and equally, leaving a newcomer
 with an empty directory. The example is explicitly disposable onboarding material; real inputs are
@@ -3421,11 +3422,13 @@ created independently rather than edited from guessed product metadata.
 Optional installation of the generated templates' dependencies, into the *initialised project* — not
 into Scrollcase's managed toolchain. Every command runs from the workspace root.
 
-Two platform realities are handled explicitly. On Windows, `npm` is a `.cmd` shim that `spawnSync`
+Three package-manager realities are handled explicitly. On Windows, `npm` is a `.cmd` shim that `spawnSync`
 cannot execute directly, so it is invoked through the command interpreter. On a PEP 668
 "externally-managed environment" — the default on modern Linux distributions and Homebrew Python —
 `pip install` is retried with `--user --break-system-packages`, which keeps package files out of the
-distribution's managed prefix rather than fighting it.
+distribution's managed prefix rather than fighting it. Rust dependencies belong to a Cargo
+manifest, so the optional Rust setup runs `cargo add` against the generated template crate rather
+than attempting a global installation of a library.
 
 Consent and the Python package source are chosen at the CLI edge and passed in, never read from a
 terminal here.
@@ -4999,10 +5002,11 @@ The CLI owns interaction. Every module below it receives the *answer*, never the
 if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
 ```
 
-Both ends must be a terminal, the default is no, and the only accepted affirmative is `y` or `yes`.
-Without a terminal — a CI job, a pipe, a container build — there is nobody to answer, and **silence
-must not be read as consent**. This is the guard that keeps `init` from downloading a toolchain in an
-automated environment that never agreed to one.
+Both ends must be a terminal. There, the prompt is `[Y/n]`: an empty answer, `y`, or `yes` accepts;
+`n`, `no`, or unrecognised input declines. Without a terminal — a CI job, a pipe, a container build
+— the answer is still no, because **silence outside an interactive prompt must not be read as
+consent**. This is the guard that keeps `init` from downloading a toolchain in an automated
+environment that never agreed to one.
 
 `--install-toolchain` and `--no-install-toolchain` are how an automated caller states the answer it
 would have given. They are passed into `ensureToolchain` as a `confirm` callback that ignores the
@@ -5118,10 +5122,12 @@ installer runs.**
 if (hasExample) {
   shouldInstallTypeScript = await confirmTypeScript();
   if (await confirmPython()) pythonSource = await choosePythonSource();
+  shouldInstallRust = await confirmRust();
 }
 const toolchain = await installToolchain();
 const typescript = shouldInstallTypeScript ? installTypeScript() : null;
 const python = pythonSource ? installPython(pythonSource) : null;
+const rust = shouldInstallRust ? installRust() : null;
 ```
 
 Interleaving them would let a multi-minute download interrupt the remaining questions, leaving a user
@@ -5651,7 +5657,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `assets.test.mjs` | Only bytes matching the declared size **and** hash are written; a resumed download sends the exact `Range` header; a same-size wrong-hash response is never promoted and restarts cleanly; a dropped connection is retried through injected time and logging |
 | `build-pipeline.test.mjs` | The pipeline end to end: scroll layout and target resolution, every refusal that must happen before probing or fetching, a full build-sign-verify, signed environment propagation into both manifests and self-tests, platform-correct symlink handling, `conda-meta/` reduced to identity, the `dist/` layout with nothing written twice, a **byte-identical rebuild** of the same commit, dirty-tree and non-checkout refusals, on-demand descriptors instead of packed assets, detection of a tampered archive, rejection of an untrusted key, and manifest agreement field by field |
 | `cli-args.test.mjs` | Every application argument after `--` is preserved byte for byte; the inline, separated and bare flag forms still parse as before |
-| `cli-init.test.mjs` | Every answer is collected before any installer runs; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; no consumer questions are asked when there is no example |
+| `cli-init.test.mjs` | `[Y/n]` accepts an empty answer as yes while rejecting unknown input; every Node, Python, Rust, and toolchain answer is collected before any installer runs; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; no consumer questions are asked when there is no example |
 | `cli-output.test.mjs` | Symbols survive redirection while ANSI does not; only the symbol is coloured; `NO_COLOR` wins even when empty; the distribution summary is relative and hash-free |
 | `cli-run.test.mjs` | Exactly one release path before the separator; `runBox` is called once and the child's exit code is preserved; environment report flags and stderr formatting; a termination signal is re-raised *after* cleanup; the real CLI preserves application arguments and exit status, and forwards Ctrl-C while still removing the temporary box; a library-only release and an unmaterialised on-demand asset are refused; a non-native target is refused before any interpreter is spawned |
 | `cli-signing.test.mjs` | The preflight fails clearly when no local keys exist, refuses to overwrite an incomplete pair, and requires the trust key for an external signer without offering to generate one |
@@ -5659,7 +5665,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `cli-version.test.mjs` | `-v` and `--version` print exactly the package version, run from an unrelated working directory |
 | `cli-verify.test.mjs` | `verify --extracted` delegates to the consumer, reports signed identity and entry count, names a tampered path through the CLI failure edge, emits masked and explicitly revealed environment reports, refuses archive/self-test combinations, and requires a directory value |
 | `consumer-conformance.test.mjs` | Every case in the shared fixture, through the Node consumer |
-| `consumer-setup.test.mjs` | Conda detection from the workspace root; npm run through `cmd.exe` on Windows; the PEP 668 user-install fallback; a clear error when conda disappears after selection; an unknown package source rejected before anything runs |
+| `consumer-setup.test.mjs` | Conda detection from the workspace root; npm run through `cmd.exe` on Windows; Cargo adding the Rust dependency to the generated manifest; the PEP 668 user-install fallback; a clear error when conda disappears after selection; an unknown package source rejected before anything runs |
 | `consumer.test.mjs` | Preparation, attachment, installed-payload verification, execution and one-shot: immutable process-bound receipts, environment precedence and reports at every surface, root and asset checks, list-not-directory semantics, named corruption failures, shell-free invocation, signals, and cleanup on every terminal path |
 | `contract-links.test.mjs` | The link rule: the shapes a real prefix produces are accepted; targets escaping the payload, host-only shapes, cycles, over-long chains, dangling links and directory targets are refused; writing through a directory link is refused while an unused one is fine; and a Windows box is link-free |
 | `contract-payload-digest.test.mjs` | The canonical payload entry stream against shared golden vectors, including byte ordering above the BMP, newline framing, link/file discrimination, parsing refusals, and the collector's self-exclusion |

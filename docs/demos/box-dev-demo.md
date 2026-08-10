@@ -80,8 +80,8 @@ scrollcase verify .scrollcase/dist/boxes/example-box/1.0.0/linux-x86_64-cpu/*.re
 ```
 
 Redirecting `init` from `/dev/null` keeps this walkthrough non-interactive: the required toolchain
-is installed because `--install-toolchain` explicitly authorizes it, while the optional Node and
-Python consumer packages are skipped. Their ready-to-customize templates are still written under
+is installed because `--install-toolchain` explicitly authorizes it, while the optional Node,
+Python, and Rust consumer packages are skipped. Their ready-to-customize templates are still written under
 `consumer-templates/`.
 
 The commit is not ceremony. Every box records the exact Git revision it came from, and `build`

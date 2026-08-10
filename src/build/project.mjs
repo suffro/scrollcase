@@ -67,6 +67,13 @@ python -m pip install scrollcase-consumer
 python consumer-templates/run_box.py
 \`\`\`
 
+## Rust consumer
+
+\`\`\`sh
+cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer
+cargo run --manifest-path consumer-templates/rust/Cargo.toml
+\`\`\`
+
 [Scrollcase documentation](https://scrollcase.dev/)
 `;
 

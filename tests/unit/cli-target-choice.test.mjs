@@ -210,6 +210,23 @@ describe('CLI target selection', () => {
     expect(pythonConsumer).not.toContain('scrollcase-consumer==');
     expect(pythonConsumer).toContain('python consumer-templates/run_box.py');
     expect(pythonConsumer).not.toContain('.scrollcase/python-consumer');
+    const rustConsumer = await readFile(
+      join(root, 'consumer-templates', 'rust', 'src', 'main.rs'),
+      'utf8',
+    );
+    expect(rustConsumer).toContain('scrollcase_consumer::run');
+    expect(rustConsumer).toContain('run_box(');
+    expect(rustConsumer).toContain(
+      'cargo run --manifest-path consumer-templates/rust/Cargo.toml',
+    );
+    expect(await readFile(
+      join(root, 'consumer-templates', 'rust', 'Cargo.toml'),
+      'utf8',
+    )).toContain('scrollcase-consumer-template');
+    expect(await readFile(
+      join(root, 'consumer-templates', 'rust', '.gitignore'),
+      'utf8',
+    )).toBe('/target/\n');
     expect(await readdir(root)).not.toContain('consumer-examples');
     expect(await readdir(root)).not.toContain('node_modules');
     expect(result.stdout).toContain('Workspace initialized');

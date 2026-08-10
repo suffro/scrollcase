@@ -50,19 +50,23 @@ the caller to pass `--target`. v2 accepts only the nested
 Initialize a workspace and a fixed, disposable `example-box` for the native host. The example is a
 complete runnable v2 scroll: Metal on Apple Silicon and CPU on Linux or Windows. It is created
 through the normal validated authoring path and never overwritten. It also includes
-`consumer-templates/run-box.ts` and `consumer-templates/run_box.py`, which demonstrate the public
-Node and Python consumer APIs against a caller-supplied local release and include their setup
-commands. If no `package.json` exists, it creates a private one with `"type": "module"`; an
-existing package file is never changed. A concise, linked `SCROLLCASE.md` is always created unless
-one already exists. Pass `--no-example` to omit `example-box`, the consumer examples, and the Node
-package file while retaining the workspace guide.
+`consumer-templates/run-box.ts`, `consumer-templates/run_box.py`, and a small Rust crate at
+`consumer-templates/rust/`. They demonstrate the public Node, Python, and Rust consumer APIs against
+a caller-supplied local release and include their setup commands. If no `package.json` exists, it
+creates a private one with `"type": "module"`; an existing package file is never changed. The Rust
+crate has its own non-overwriting `Cargo.toml` and ignores only its generated `target/` directory. A
+concise, linked `SCROLLCASE.md` is always created unless one already exists. Pass `--no-example` to
+omit `example-box`, the consumer examples, and the Node package file while retaining the workspace
+guide.
 
 When it generated the consumer templates, `init` separately asks whether to install their
-Node/TypeScript dependencies and whether to install the Python consumer from PyPI with pip or
-conda-forge with conda. It also offers to install `pixi` and `conda-pack` if they are missing. Each
-question is separated by a blank line, and every answer is collected before the first installer
-runs. If conda-forge is selected but `conda` cannot start, another question offers PyPI instead.
-Without a terminal every answer defaults to no.
+Node/TypeScript dependencies, whether to install the Python consumer from PyPI with pip or
+conda-forge with conda, and whether to add the Rust consumer to the generated Cargo manifest. It
+also offers to install `pixi` and `conda-pack` if they are missing. Each question is separated by a
+blank line, defaults to yes (`[Y/n]`) in an interactive terminal, and every answer is collected
+before the first installer runs. If conda-forge is selected but `conda` cannot start, another
+default-yes question offers PyPI instead. Without a terminal every answer remains no: a pipe or CI
+job does not grant installation consent by being silent.
 
 ```sh
 scrollcase init [--pixi-version <version>]
@@ -83,7 +87,7 @@ product flags passed to `init` are rejected with the same remedy instead of bein
 
 ### The toolchain step
 
-With neither flag and a terminal attached, `init` prompts, defaulting to **no**. Without a
+With neither flag and a terminal attached, `init` prompts, defaulting to **yes**. Without a
 terminal — CI, a pipe — it never installs and simply reports what is missing: silence is not
 consent.
 
@@ -111,7 +115,9 @@ prompt runs npm in the project root to install `scrollcase`, `typescript`, and `
 Python prompt installs `scrollcase-consumer` with either pip or conda-forge. For a PEP 668
 externally managed interpreter, `init` retries as a user-scoped installation and keeps package
 files outside the managed prefix. The conda-forge path checks Conda before installation and offers
-the PyPI fallback when it is missing.
+the PyPI fallback when it is missing. Accepting the Rust prompt runs
+`cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer`, modifying only
+the generated template crate.
 
 The example follows Scrollcase's supported box target matrix. On another host, initialize with
 `--no-example`. Toolchain-only setup can still use any host for which pixi publishes a build.

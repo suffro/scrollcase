@@ -6,6 +6,12 @@
  * questions and leaving the user's choices only half collected.
  */
 
+/** Interprets an interactive `[Y/n]` answer without treating arbitrary input as consent. */
+export function defaultYesConfirmation(value) {
+  const answer = value.trim();
+  return answer === '' || /^y(es)?$/i.test(answer);
+}
+
 export async function resolvePythonConsumerSource({
   selectedSource,
   condaAvailable,
@@ -19,28 +25,35 @@ export async function runInitDependencySetup({
   hasExample,
   confirmTypeScript,
   confirmPython,
+  confirmRust,
   choosePythonSource,
   installToolchain,
   installTypeScript,
   installPython,
+  installRust,
 }) {
   let shouldInstallTypeScript = false;
   let pythonSource = null;
+  let shouldInstallRust = false;
 
   if (hasExample) {
     shouldInstallTypeScript = await confirmTypeScript();
     if (await confirmPython()) pythonSource = await choosePythonSource();
+    shouldInstallRust = await confirmRust();
   }
 
   const toolchain = await installToolchain();
   const typescript = shouldInstallTypeScript ? installTypeScript() : null;
   const python = pythonSource ? installPython(pythonSource) : null;
+  const rust = shouldInstallRust ? installRust() : null;
 
   return {
     installTypeScript: shouldInstallTypeScript,
     pythonSource,
+    installRust: shouldInstallRust,
     toolchain,
     typescript,
     python,
+    rust,
   };
 }

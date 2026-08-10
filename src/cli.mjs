@@ -26,6 +26,7 @@ import { buildBox } from './build/box.mjs';
 import {
   isCondaAvailable,
   installPythonConsumerDependency,
+  installRustConsumerDependency,
   installTypeScriptConsumerDependencies,
   SCROLLCASE_NPM_VERSION,
 } from './build/consumer-setup.mjs';
@@ -43,6 +44,7 @@ import {
 import { collectNewScrollOptions } from './cli-authoring.mjs';
 import { parseArgs } from './cli-args.mjs';
 import {
+  defaultYesConfirmation,
   resolvePythonConsumerSource,
   runInitDependencySetup,
 } from './cli-init.mjs';
@@ -114,7 +116,7 @@ async function lock(name, flags) {
 }
 
 /**
- * Asks a yes/no question, defaulting to no.
+ * Asks a yes/no question, defaulting to yes in an interactive terminal.
  *
  * Only ever asks when both ends are a terminal. Without one — CI, a pipe — there is nobody to
  * answer, and silence must not be read as consent, so the answer is no.
@@ -124,7 +126,7 @@ async function confirm(question) {
   console.log();
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return /^y(es)?$/i.test((await readline.question(`${question} [y/N] `)).trim());
+    return defaultYesConfirmation(await readline.question(`${question} [Y/n] `));
   } finally {
     readline.close();
   }
@@ -192,6 +194,9 @@ async function init(flags) {
     confirmPython: () => confirm(
       'Install scrollcase-consumer for Python?',
     ),
+    confirmRust: () => confirm(
+      'Install scrollcase-consumer for Rust?',
+    ),
     choosePythonSource: async () => {
       console.log();
       const selectedSource = await chooseCliValue(
@@ -222,6 +227,7 @@ async function init(flags) {
       root: workspace.root,
       source,
     }),
+    installRust: () => installRustConsumerDependency({ root: workspace.root }),
   });
   const { toolchain } = setup;
 
@@ -247,6 +253,12 @@ async function init(flags) {
     const installed = setup.python;
     success(
       `Installed scrollcase-consumer from ${installed.source} using ${installed.command}`,
+    );
+  }
+
+  if (setup.rust) {
+    success(
+      `Added scrollcase-consumer to ${join(workspace.root, 'consumer-templates', 'rust', 'Cargo.toml')} using ${setup.rust.command}`,
     );
   }
 

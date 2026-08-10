@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   isCondaAvailable,
   installPythonConsumerDependency,
+  installRustConsumerDependency,
   installTypeScriptConsumerDependencies,
 } from '../../src/build/consumer-setup.mjs';
 
@@ -63,6 +64,27 @@ describe('consumer template dependency setup', () => {
         { cwd: 'D:\\work\\project' },
       ],
     ]);
+  });
+
+  it('adds the Rust consumer to the generated template crate', () => {
+    const run = vi.fn();
+
+    const installed = installRustConsumerDependency({
+      root: '/work/project',
+      run,
+    });
+
+    expect(installed).toEqual({ command: 'cargo' });
+    expect(run).toHaveBeenCalledWith(
+      'cargo',
+      [
+        'add',
+        '--manifest-path',
+        '/work/project/consumer-templates/rust/Cargo.toml',
+        'scrollcase-consumer',
+      ],
+      { cwd: '/work/project' },
+    );
   });
 
   it('installs the Python consumer with the selected interpreter', () => {
