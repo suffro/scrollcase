@@ -45,7 +45,7 @@ describe('published demo box', () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toMatch(/^Hello from inside a Scrollcase box!\n/);
+    expect(result.stdout).toMatch(/^Hello from inside a Scrollcase box!\r?\n/);
     expect(result.stdout).toContain('signed -> verified -> relocated -> running');
     expect(result.stdout).toContain("Success: the box's own Python runtime executed this program.");
     expect(result.stdout).toMatch(/Runtime  Python \d+\.\d+\.\d+/);
