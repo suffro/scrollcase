@@ -10,8 +10,7 @@ outline: [2,3]
 
 ## Try it now
 
-Run a real Scrollcase box directly in your browser.  
-No local installation, Docker setup, Pixi or Conda required.
+See how to run a Scrollcase box with our guided scenario, all in a disposable cloud Linux environment. Every Scrollcase command and its result are shown in the terminal.
 
 <Button
   href="https://killercoda.com/suffro/scenario/hello-box"
@@ -22,9 +21,13 @@ Start the guided demo
 
 </Button>
 
+> <small> All from your browser, no setup needed </small>
+
 ---
 
-**Prefer a full online development environment?** Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run:
+#### Prefer a real development environment?
+
+Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run and an easy walktrough:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-run-demo-codespace?quickstart=1"

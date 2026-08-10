@@ -10,8 +10,7 @@ outline: [2,3]
 
 ## Try it now
 
-Use the guided browser scenario to walk through the complete build path in a disposable Linux
-environment. Every Scrollcase command and its result are shown in the terminal.
+See how to initialize, lock, sign, build and verify a Scrollcase box with our guided scenario, all in a disposable cloud Linux environment. Every Scrollcase command and its result are shown in the terminal.
 
 <Button
   href="https://killercoda.com/suffro/scenario/build-box"
@@ -22,10 +21,13 @@ Start the guided demo
 
 </Button>
 
+> <small> All from your browser, no setup needed </small>
+
 ---
 
-**Prefer to type the commands yourself?** Open the empty demo project in **GitHub Codespaces**.
-Its README opens as a rendered walkthrough, with a terminal ready beside it.
+**Prefer a real development environment?**
+
+Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run and an easy walktrough:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-build-demo-codespace?quickstart=1"
