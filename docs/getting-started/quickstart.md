@@ -11,12 +11,35 @@ hand while exercising the complete packaging and signing pipeline.
 
 Prerequisites: the CLI and toolchain from [Installation](/getting-started/installation).
 
-::: info Before that
----
-#### Checkout the box run demo:
-This demo is useful if you only want to see what a box is, and how to run it. <br>
+<div class="collapsed">
 
-[**Try the demo**](/guides/demo-box)
+## Try the demo
+
+</div>
+
+::: info Before that
+
+<br>
+
+<div style="font-size: 20px;">
+
+**Checkout the box run demo**
+
+</div>
+
+This demo is useful if you only want to see what a box is, and how to run it:
+
+<Spacer />
+
+<Button
+  href="/guides/demo-box"
+>
+
+Try the demo
+
+</Button>
+
+<Spacer />
 
 :::
 

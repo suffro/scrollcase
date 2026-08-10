@@ -7,6 +7,7 @@ import HomePage from './HomePage.vue'
 import Tabs from './tabs-component/Tabs.vue'
 import Tab from './tabs-component/Tab.vue'
 import Button from './Button.vue'
+import Spacer from './Spacer.vue'
 import SubPagesList from './SubPagesList.vue'
 import './custom.css'
 
@@ -31,5 +32,6 @@ export default {
     app.component('Tabs', Tabs),
     app.component('Tab', Tab)
     app.component('Button', Button)
+    app.component('Spacer', Spacer)
   },
 }
