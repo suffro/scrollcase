@@ -13,6 +13,16 @@ outline: [2,3]
 Run a real Scrollcase box directly in your browser.  
 No local installation, Docker setup, Pixi or Conda required.
 
+
+<Button
+  href="https://killercoda.com/suffro/scenario/hello-box"
+  external
+>
+
+  Run in browser
+
+</Button>
+
 <Button
   href="https://codespaces.new/suffro/scrollcase-demo-codespace?quickstart=1"
   external
