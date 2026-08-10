@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   isCondaAvailable,
@@ -68,9 +69,10 @@ describe('consumer template dependency setup', () => {
 
   it('adds the Rust consumer to the generated template crate', () => {
     const run = vi.fn();
+    const root = '/work/project';
 
     const installed = installRustConsumerDependency({
-      root: '/work/project',
+      root,
       run,
     });
 
@@ -80,10 +82,10 @@ describe('consumer template dependency setup', () => {
       [
         'add',
         '--manifest-path',
-        '/work/project/consumer-templates/rust/Cargo.toml',
+        join(root, 'consumer-templates', 'rust', 'Cargo.toml'),
         'scrollcase-consumer',
       ],
-      { cwd: '/work/project' },
+      { cwd: root },
     );
   });
 
