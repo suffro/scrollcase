@@ -1,5 +1,5 @@
 ---
-title: Box-run demo
+title: Box-run
 description: Try a box run, without installing a toolchain.
 outline: [2,3]
 ---

@@ -10,4 +10,4 @@ prev: false
 
 Explore our collection of easy interactive demos to see Scrollcase in action. Each demo showcases different features and use cases to help you understand how to leverage Scrollcase in your projects.
 
-<SubPagesList />
+<SubPagesList title="Demos" />
