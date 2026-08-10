@@ -27,7 +27,7 @@ Start the guided demo
 
 **Prefer a real development environment?**
 
-Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run and an easy walktrough:
+Open the demo in **GitHub Codespaces** to get an instant VM with a clean repository and an easy walktrough:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-build-demo-codespace?quickstart=1"
