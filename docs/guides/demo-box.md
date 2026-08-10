@@ -19,16 +19,20 @@ No local installation, Docker setup, Pixi or Conda required.
   external
 >
 
-  Run in browser
+Run in browser
 
 </Button>
+
+---
+
+Prefer a full online development environment? Open the demo in GitHub Codespaces to get an instant VM with the repository ready to run:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-demo-codespace?quickstart=1"
   external
 >
 
-  Open in GitHub Codespaces
+Open in GitHub Codespaces
 
 </Button>
 
