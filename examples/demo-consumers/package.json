@@ -7,7 +7,7 @@
     "start": "tsx run-box.ts"
   },
   "dependencies": {
-    "scrollcase": "^0.6.1"
+    "scrollcase": "latest"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
