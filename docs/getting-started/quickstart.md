@@ -13,7 +13,7 @@ Prerequisites: the CLI and toolchain from [Installation](/getting-started/instal
 
 <div class="collapse-element">
 
-## Try the demo
+## Try a demo
 
 </div>
 
@@ -23,19 +23,19 @@ Prerequisites: the CLI and toolchain from [Installation](/getting-started/instal
 
 <div style="font-size: 20px;">
 
-**Checkout the box run demo**
+**You can try a Scrollcase demo**
 
 </div>
 
-This demo is useful if you only want to see what a box is, and how to run it:
+Each demo showcases different features and use cases to help you understand how to leverage Scrollcase in your projects.
 
 <Spacer />
 
 <Button
-  href="/demos/box-run-demo"
+  href="/demos"
 >
 
-Try the demo
+Try a demo
 
 </Button>
 
