@@ -3428,7 +3428,9 @@ cannot execute directly, so it is invoked through the command interpreter. On a 
 `pip install` is retried with `--user --break-system-packages`, which keeps package files out of the
 distribution's managed prefix rather than fighting it. Rust dependencies belong to a Cargo
 manifest, so the optional Rust setup runs `cargo add` against the generated template crate rather
-than attempting a global installation of a library.
+than attempting a global installation of a library. `isCargoAvailable()` probes the package manager
+before the interactive questions: if it is absent, the Rust question and install are skipped while
+the generated crate remains available for later setup.
 
 Consent and the Python package source are chosen at the CLI edge and passed in, never read from a
 terminal here.
@@ -5122,7 +5124,7 @@ installer runs.**
 if (hasExample) {
   shouldInstallTypeScript = await confirmTypeScript();
   if (await confirmPython()) pythonSource = await choosePythonSource();
-  shouldInstallRust = await confirmRust();
+  if (rustAvailable) shouldInstallRust = await confirmRust();
 }
 const toolchain = await installToolchain();
 const typescript = shouldInstallTypeScript ? installTypeScript() : null;
@@ -5137,7 +5139,10 @@ whole interaction reviewable as one block before anything irreversible happens.
 `resolvePythonConsumerSource` handles the one branch that cannot be decided in advance: conda-forge
 was chosen but conda is not installed. It offers PyPI, and a declined offer returns `null` — which
 skips the Python install rather than silently substituting a different package source.
-`tests/unit/cli-init.test.mjs` asserts both the ordering and the declined fallback.
+The CLI similarly probes Cargo before entering this sequence, so a missing optional package manager
+removes the Rust question rather than turning an accepted default into a subprocess failure.
+`tests/unit/cli-init.test.mjs` asserts the ordering, the declined fallback, and the unavailable-Cargo
+branch.
 
 </div>
 
@@ -5657,7 +5662,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `assets.test.mjs` | Only bytes matching the declared size **and** hash are written; a resumed download sends the exact `Range` header; a same-size wrong-hash response is never promoted and restarts cleanly; a dropped connection is retried through injected time and logging |
 | `build-pipeline.test.mjs` | The pipeline end to end: scroll layout and target resolution, every refusal that must happen before probing or fetching, a full build-sign-verify, signed environment propagation into both manifests and self-tests, platform-correct symlink handling, `conda-meta/` reduced to identity, the `dist/` layout with nothing written twice, a **byte-identical rebuild** of the same commit, dirty-tree and non-checkout refusals, on-demand descriptors instead of packed assets, detection of a tampered archive, rejection of an untrusted key, and manifest agreement field by field |
 | `cli-args.test.mjs` | Every application argument after `--` is preserved byte for byte; the inline, separated and bare flag forms still parse as before |
-| `cli-init.test.mjs` | `[Y/n]` accepts an empty answer as yes while rejecting unknown input; every Node, Python, Rust, and toolchain answer is collected before any installer runs; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; no consumer questions are asked when there is no example |
+| `cli-init.test.mjs` | `[Y/n]` accepts an empty answer as yes while rejecting unknown input; every Node, Python, Rust, and toolchain answer is collected before any installer runs; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; unavailable Cargo skips both its question and install; no consumer questions are asked when there is no example |
 | `cli-output.test.mjs` | Symbols survive redirection while ANSI does not; only the symbol is coloured; `NO_COLOR` wins even when empty; the distribution summary is relative and hash-free |
 | `cli-run.test.mjs` | Exactly one release path before the separator; `runBox` is called once and the child's exit code is preserved; environment report flags and stderr formatting; a termination signal is re-raised *after* cleanup; the real CLI preserves application arguments and exit status, and forwards Ctrl-C while still removing the temporary box; a library-only release and an unmaterialised on-demand asset are refused; a non-native target is refused before any interpreter is spawned |
 | `cli-signing.test.mjs` | The preflight fails clearly when no local keys exist, refuses to overwrite an incomplete pair, and requires the trust key for an external signer without offering to generate one |
@@ -5665,7 +5670,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `cli-version.test.mjs` | `-v` and `--version` print exactly the package version, run from an unrelated working directory |
 | `cli-verify.test.mjs` | `verify --extracted` delegates to the consumer, reports signed identity and entry count, names a tampered path through the CLI failure edge, emits masked and explicitly revealed environment reports, refuses archive/self-test combinations, and requires a directory value |
 | `consumer-conformance.test.mjs` | Every case in the shared fixture, through the Node consumer |
-| `consumer-setup.test.mjs` | Conda detection from the workspace root; npm run through `cmd.exe` on Windows; Cargo adding the Rust dependency to the generated manifest; the PEP 668 user-install fallback; a clear error when conda disappears after selection; an unknown package source rejected before anything runs |
+| `consumer-setup.test.mjs` | Cargo and Conda detection from the workspace root; npm run through `cmd.exe` on Windows; Cargo adding the Rust dependency to the generated manifest; the PEP 668 user-install fallback; a clear error when conda disappears after selection; an unknown package source rejected before anything runs |
 | `consumer.test.mjs` | Preparation, attachment, installed-payload verification, execution and one-shot: immutable process-bound receipts, environment precedence and reports at every surface, root and asset checks, list-not-directory semantics, named corruption failures, shell-free invocation, signals, and cleanup on every terminal path |
 | `contract-links.test.mjs` | The link rule: the shapes a real prefix produces are accepted; targets escaping the payload, host-only shapes, cycles, over-long chains, dangling links and directory targets are refused; writing through a directory link is refused while an unused one is fine; and a Windows box is link-free |
 | `contract-payload-digest.test.mjs` | The canonical payload entry stream against shared golden vectors, including byte ordering above the BMP, newline framing, link/file discrimination, parsing refusals, and the collector's self-exclusion |

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  isCargoAvailable,
   isCondaAvailable,
   installPythonConsumerDependency,
   installRustConsumerDependency,
@@ -8,6 +9,24 @@ import {
 } from '../../src/build/consumer-setup.mjs';
 
 describe('consumer template dependency setup', () => {
+  it('detects whether Cargo can start from the workspace root', () => {
+    const runResult = vi.fn(() => ({ status: 0, stdout: 'cargo 1.95', stderr: '' }));
+
+    expect(isCargoAvailable({ root: '/work/project', runResult })).toBe(true);
+    expect(runResult).toHaveBeenCalledWith(
+      'cargo',
+      ['--version'],
+      { capture: true, cwd: '/work/project' },
+    );
+  });
+
+  it('reports Cargo as unavailable when the executable cannot start', () => {
+    expect(isCargoAvailable({
+      root: '/work/project',
+      runResult: () => ({ status: null, error: new Error('spawnSync cargo ENOENT') }),
+    })).toBe(false);
+  });
+
   it('detects whether Conda can start from the workspace root', () => {
     const runResult = vi.fn(() => ({ status: 0, stdout: 'conda 25', stderr: '' }));
 

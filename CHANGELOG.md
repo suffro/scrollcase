@@ -30,6 +30,11 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Fixed
 
+- Keep interactive `scrollcase init` successful when the generated Rust consumer is requested on a
+  machine without Cargo. The Rust template is still written, its install prompt is skipped, and the
+  CLI prints the exact `cargo add` command to run after Rust is installed instead of aborting with
+  `spawnSync cargo ENOENT`.
+
 - Keep `scrollcase build` visibly moving after the `conda-pack` progress bar reaches 100%. That bar
   describes only creation of the relocatable tarball; the CLI now reports extraction and relocation,
   payload preparation and self-test, deterministic archiving and hashing, and document signing

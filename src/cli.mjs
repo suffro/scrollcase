@@ -24,6 +24,7 @@ import {
 } from './build/authoring.mjs';
 import { buildBox } from './build/box.mjs';
 import {
+  isCargoAvailable,
   isCondaAvailable,
   installPythonConsumerDependency,
   installRustConsumerDependency,
@@ -186,8 +187,15 @@ async function init(flags) {
 
   const always = Boolean(flags.get('install-toolchain'));
   const never = Boolean(flags.get('no-install-toolchain'));
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const cargoAvailable = !example || !interactive || isCargoAvailable({ root: workspace.root });
+  if (example && interactive && !cargoAvailable) {
+    warning('Cargo was not found; kept the Rust consumer template without adding its dependency.');
+    info('Install Rust, then run `cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer`.');
+  }
   const setup = await runInitDependencySetup({
     hasExample: Boolean(example),
+    rustAvailable: cargoAvailable,
     confirmTypeScript: () => confirm(
       `Install scrollcase, TypeScript, and tsx in ${workspace.root}?`,
     ),

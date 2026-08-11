@@ -111,7 +111,8 @@ use scrollcase_consumer::run::run_box;
 
 Like the Python package it builds and downloads nothing. When `scrollcase init` creates its
 non-publishable template crate, it can run the same `cargo add` command against that crate's own
-manifest after asking `Install scrollcase-consumer for Rust?`.
+manifest after asking `Install scrollcase-consumer for Rust?`. If Cargo is not installed, `init`
+keeps the template, skips the question, and prints the command to run later instead of failing.
 
 </Tab>
 </Tabs>

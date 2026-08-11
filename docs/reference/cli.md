@@ -117,7 +117,8 @@ externally managed interpreter, `init` retries as a user-scoped installation and
 files outside the managed prefix. The conda-forge path checks Conda before installation and offers
 the PyPI fallback when it is missing. Accepting the Rust prompt runs
 `cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer`, modifying only
-the generated template crate.
+the generated template crate. If Cargo is unavailable, `init` skips that prompt without failing,
+keeps the Rust template, and prints the same command so it can be run after Rust is installed.
 
 The example follows Scrollcase's supported box target matrix. On another host, initialize with
 `--no-example`. Toolchain-only setup can still use any host for which pixi publishes a build.

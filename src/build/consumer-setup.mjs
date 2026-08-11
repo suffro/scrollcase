@@ -56,6 +56,14 @@ export function installRustConsumerDependency({
   return { command: 'cargo' };
 }
 
+export function isCargoAvailable({
+  root,
+  runResult = defaultRunResult,
+}) {
+  const result = runResult('cargo', ['--version'], { capture: true, cwd: root });
+  return !result.error && result.status === 0;
+}
+
 function findPython({ root, runResult }) {
   for (const command of ['python', 'python3', 'py']) {
     const result = runResult(command, ['--version'], { capture: true, cwd: root });

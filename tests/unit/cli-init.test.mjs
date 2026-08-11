@@ -123,4 +123,26 @@ describe('init dependency setup', () => {
     expect(installPython).not.toHaveBeenCalled();
     expect(installRust).not.toHaveBeenCalled();
   });
+
+  it('skips the Rust question and install when Cargo is unavailable', async () => {
+    const confirmRust = vi.fn();
+    const installRust = vi.fn();
+
+    const result = await runInitDependencySetup({
+      hasExample: true,
+      rustAvailable: false,
+      confirmTypeScript: async () => false,
+      confirmPython: async () => false,
+      confirmRust,
+      choosePythonSource: vi.fn(),
+      installToolchain: async () => ({ installed: [] }),
+      installTypeScript: vi.fn(),
+      installPython: vi.fn(),
+      installRust,
+    });
+
+    expect(confirmRust).not.toHaveBeenCalled();
+    expect(installRust).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ rustAvailable: false, installRust: false, rust: null });
+  });
 });

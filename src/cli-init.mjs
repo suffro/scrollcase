@@ -23,6 +23,7 @@ export async function resolvePythonConsumerSource({
 
 export async function runInitDependencySetup({
   hasExample,
+  rustAvailable = true,
   confirmTypeScript,
   confirmPython,
   confirmRust,
@@ -39,7 +40,7 @@ export async function runInitDependencySetup({
   if (hasExample) {
     shouldInstallTypeScript = await confirmTypeScript();
     if (await confirmPython()) pythonSource = await choosePythonSource();
-    shouldInstallRust = await confirmRust();
+    if (rustAvailable) shouldInstallRust = await confirmRust();
   }
 
   const toolchain = await installToolchain();
@@ -50,6 +51,7 @@ export async function runInitDependencySetup({
   return {
     installTypeScript: shouldInstallTypeScript,
     pythonSource,
+    rustAvailable,
     installRust: shouldInstallRust,
     toolchain,
     typescript,
