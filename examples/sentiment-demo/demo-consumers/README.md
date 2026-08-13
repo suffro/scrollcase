@@ -32,21 +32,48 @@ curl -o keys/example-signing-public.json \
 
 ## 2. Run it
 
-Any one of these three. They perform the same checks in the same order.
+You can use any one of these three:
+
+### CLI
 
 ```sh
-# Terminal
 npm install -g scrollcase
+```
+
+```sh
 scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 scrollcase run    box/*.release.json --public-key keys/example-signing-public.json \
   -- This product is surprisingly easy to use.
+```
 
-# Node
-npm install && npx tsx run-box.ts "This product is surprisingly easy to use."
+---
 
-# Python
+### Node consumer
+
+```sh
+npm install
+```
+
+```sh
+npx tsx run-box.ts "This product is surprisingly easy to use."
+```
+
+---
+
+### Python consumer
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+```sh
 python -m pip install scrollcase-consumer && python run_box.py "This product is surprisingly easy to use."
 ```
+
+---
+
+<br>
 
 The box classifies one sentence and prints two lines:
 
