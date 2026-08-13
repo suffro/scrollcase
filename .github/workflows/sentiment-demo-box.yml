@@ -152,7 +152,10 @@ jobs:
     name: publish
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # These three archives total roughly 790 MB, against hello-box's 282 MB, and the upload is the
+    # slow half of this job. Generous on purpose: the per-asset bound below is what actually keeps a
+    # stalled upload from running the clock out.
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -237,7 +240,28 @@ jobs:
               --notes-file .github/sentiment-demo-release-notes.md \
               ${{ inputs.draft && '--draft' || '' }}
           fi
-          gh release upload "${{ inputs.tag }}" wrapped/* --clobber
+          # One asset per call, each bounded and retried. A single `gh release upload wrapped/*`
+          # uploaded all three in one invocation, and when it stalled it produced no output, no
+          # partial asset and no failure — just fifteen minutes of silence and a cancelled job.
+          # Uploading one at a time means the log says which archive is in flight and every finished
+          # one stays finished; `timeout` turns a stall into a non-zero exit, which is the only thing
+          # that makes a retry useful, since a hang would otherwise sit there until the job dies.
+          for archive in wrapped/*.zip; do
+            name=$(basename "$archive")
+            echo "Uploading $name ($(du -h "$archive" | cut -f1))"
+            attempt=1
+            until timeout 600 gh release upload "${{ inputs.tag }}" "$archive" --clobber; do
+              status=$?
+              if [ "$attempt" -ge 3 ]; then
+                echo "Upload of $name failed after $attempt attempts (last exit $status)." >&2
+                exit 1
+              fi
+              attempt=$((attempt + 1))
+              echo "Upload of $name exited $status; retrying (attempt $attempt of 3)." >&2
+              sleep 15
+            done
+            echo "Uploaded $name"
+          done
           # Deleted only after the upload succeeded: a failed upload must leave the previous boxes
           # in place rather than empty the release.
           for asset in $(gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'); do
