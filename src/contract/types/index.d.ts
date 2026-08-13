@@ -67,7 +67,7 @@ export interface PythonModule {
 
 export type Identifier = string;
 /**
- * The platform, architecture and accelerator a box is built for. The supported combinations are closed: a target outside this matrix has no defined identifier and cannot be built, signed, or routed.
+ * The (platform, arch, accelerator) triple this box is built for. Required in every scroll a build reads, and absent from a base: a base holds what its targets share, so declaring one there would name a target the box does not build. Enforced when the scroll is read rather than here, so a base file still validates in an editor.
  */
 export type PayloadPath = string;
 export type Sha256 = string;
@@ -80,6 +80,10 @@ export interface BoxScroll {
    */
   $schema?: 'https://scrollcase.dev/schema/v2/scroll.schema.json';
   /**
+   * Marks this file as one target's fragment of a box whose shared declarations live in scrolls/<boxId>/scroll.json. The value is fixed: a base is always the box directory's own scroll.json, so there is no path to get wrong and no chain to follow. The base and the fragment are joined into one effective scroll before anything else happens, and that effective scroll is what the build reads and what provenance records.
+   */
+  extends?: '../scroll.json';
+  /**
    * Scrollcase wire version. Version 2 is the only active format.
    */
   schemaVersion: 2;
@@ -88,9 +92,9 @@ export interface BoxScroll {
    */
   scrollId?: string;
   /**
-   * Version of this declarative build input, recorded in provenance.
+   * Version of this declarative build input, recorded in provenance. Defaults to 1.0.0, which is what an authoring version means before anyone has had reason to change it.
    */
-  scrollVersion: string;
+  scrollVersion?: string;
   boxId: Identifier;
   modelId: Identifier;
   runtimeId: Identifier;
@@ -102,11 +106,11 @@ export interface BoxScroll {
    * Upstream revision of the packaged source, recorded verbatim into provenance.
    */
   sourceRevision: string;
-  target: BoxTarget;
+  target?: BoxTarget;
   /**
-   * Constraints the installing host must satisfy. Copied through into the release manifest verbatim and never interpreted by the builder, so a project may declare its own alongside these.
+   * Constraints the installing host must satisfy. Copied through into the release manifest verbatim and never interpreted by the builder, so a project may declare its own alongside these. Defaults to empty: declaring no constraint is a legitimate answer, and inventing one would be a claim the project never made.
    */
-  compatibility: {
+  compatibility?: {
     /**
      * Lowest version of the installing application this box supports.
      */
@@ -130,10 +134,13 @@ export interface BoxScroll {
    */
   condaDependencyLicenseAudit?: string;
   /**
-   * Interpreter path relative to the box root. Must match the target adapter's layout.
+   * Interpreter path relative to the box root. The target adapter's layout admits exactly one value, so this is derived from the target when omitted and still checked against it when declared.
    */
-  pythonEntryPoint: string;
-  modelCacheSubdir: string;
+  pythonEntryPoint?: string;
+  /**
+   * Payload directory the box's model files live under. Defaults to model-cache/<boxId>.
+   */
+  modelCacheSubdir?: string;
   /**
    * Environment variables the box requires when its interpreter runs. The declaration is copied into box.json and the signed release; its values override both the inherited host environment and caller-supplied values.
    */
@@ -145,9 +152,9 @@ export interface BoxScroll {
    */
   assetBaseUrl?: string;
   /**
-   * Files fetched during the build. Every entry is size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of silently changing the box. May be empty.
+   * Files fetched during the build. Every entry is size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of silently changing the box. May be empty, and defaults to empty.
    */
-  assets: {
+  assets?: {
     url: string;
     relativePath: PayloadPath;
     sizeBytes: number;
@@ -164,12 +171,15 @@ export interface BoxScroll {
     removeAfterExtract?: boolean;
   }[];
   /**
-   * Files copied from the consumer's own repository into the payload, each verified against a declared hash so a licence notice or runtime shim cannot drift from what was reviewed.
+   * Files copied from the consumer's own repository into the payload. A file already under the project's own version control needs no second copy of its identity here, and what ships is hashed into the signed release either way; declaring sha256 pins one that must not change without review, which suits a licence notice and not a script still being written.
    */
   localFiles?: {
     sourcePath: string;
     relativePath: PayloadPath;
-    sha256: Sha256;
+    /**
+     * Optional pin. When present the build refuses a file whose contents no longer match.
+     */
+    sha256?: string;
   }[];
   /**
    * Payload paths deleted before packing, to keep the box to what it actually needs at run time. Pruning a distribution the lock requires is rejected.
@@ -188,13 +198,17 @@ export interface BoxScroll {
      */
     imports: [string, ...string[]];
     /**
-     * Files that must still exist after pruning, which is what stops an over-aggressive prune from shipping a broken box.
+     * Files that must still exist after pruning, which is what stops an over-aggressive prune from shipping a broken box. Defaults to empty.
      */
-    files: PayloadPath[];
+    files?: PayloadPath[];
     /**
-     * Extra Python executed after the imports succeed, for checks a bare import cannot make.
+     * Extra Python executed after the imports succeed, for checks a bare import cannot make. Anything longer than an assertion belongs in pythonFile, where an editor can see it is Python.
      */
     pythonCode?: string;
+    /**
+     * Project path to a Python file executed after the imports succeed, in place of pythonCode. The file is read at build time and run from the payload root, so a real self-test keeps its syntax highlighting, its linter, and its diffs instead of living inside a JSON string.
+     */
+    pythonFile?: string;
   };
   /**
    * Whether assets are packed into the archive (embed, the default: the box installs with no network and works air-gapped) or left out for the caller to materialize from descriptors in the signed release (on-demand). Consumers verify materialized assets before execution and do not download them. A build may override this.

@@ -5,6 +5,11 @@
  * the nested layout, the meaningful declarations police the path: `boxId` names the parent and the
  * canonical target names the child. Python layout is checked against the target before the scroll
  * reaches any tool discovery or build mutation.
+ *
+ * Reading is also where a scroll becomes complete. A split scroll's two halves are joined, fields
+ * the target or the identity already determine are derived, and the result — the *effective* scroll
+ * — is the single object the rest of the build and the provenance record see. Nothing downstream
+ * has to ask which file a value came from or whether it was written down at all.
  */
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -26,6 +31,168 @@ async function loadScrollSchemas() {
   return scrollSchemas;
 }
 
+/**
+ * The only value `extends` may take. A base is always the box directory's own `scroll.json`, so
+ * there is no path to validate, no traversal to screen, and no chain of bases to follow.
+ */
+const SCROLL_BASE_REFERENCE = '../scroll.json';
+
+/**
+ * Lists of payload entries: joined base-first.
+ *
+ * Whether two of them end up claiming one path is checked later, on the joined scroll, so that one
+ * rule covers a conflict between a base and a fragment, between two entries of one list, and
+ * between an asset and a local file alike.
+ */
+const JOINED_ENTRY_LISTS = Object.freeze(['assets', 'assetArchives', 'localFiles']);
+
+/**
+ * Lists of plain strings: joined base-first, with repeats dropped.
+ *
+ * Unlike an entry list, a repeat here is the same instruction twice. Pruning a path twice or
+ * importing a module twice is idempotent, and refusing a base and a fragment that both name `json`
+ * would be hostile for no gain.
+ */
+const JOINED_STRING_LISTS = Object.freeze(['prunePaths', 'uncompressedPaths']);
+
+/**
+ * Open maps: joined key by key, fragment winning a shared key.
+ *
+ * Both hold independent entries that a base and a target legitimately contribute to — shared
+ * variables plus a CUDA-only one, a shared floor plus a macOS-only one. Replacing the whole map
+ * would force a fragment to restate every shared key, which is the duplication `extends` exists to
+ * remove.
+ */
+const JOINED_MAPS = Object.freeze(['compatibility', 'environment']);
+
+/**
+ * Refuses two declarations that would write the same file in the box.
+ *
+ * One path in a box has one source. Two declarations for it means whichever the builder staged
+ * second silently overwrote the first, and which one that is depends on an ordering nobody chose —
+ * so it is refused rather than settled by a precedence rule. The check spans `assets`,
+ * `assetArchives` and `localFiles` together, because the conflict is about the destination and not
+ * about which list an author happened to write it in.
+ *
+ * Entries whose shape is wrong are passed over: schema validation has already reported those.
+ */
+function assertDistinctPayloadDestinations(scroll) {
+  const claimed = new Map();
+  const declarations = [
+    ...(scroll.assets ?? []).map((entry) => ['asset', entry.relativePath]),
+    ...(scroll.assetArchives ?? []).map((entry) => ['asset archive', entry.relativePath]),
+    ...(scroll.localFiles ?? []).map((entry) => ['local file', entry.relativePath]),
+  ];
+  for (const [kind, path] of declarations) {
+    if (typeof path !== 'string') continue;
+    const previous = claimed.get(path);
+    if (previous) {
+      fail(`The ${previous} and the ${kind} at ${path} both claim that path in the box; one box file has one source.`);
+    }
+    claimed.set(path, kind);
+  }
+}
+
+/**
+ * Joins the base and fragment self-tests.
+ *
+ * `imports` and `files` accumulate, because a target that needs one more module still needs the
+ * shared ones. The extra Python is one logical slot with two spellings, so a fragment naming either
+ * `pythonCode` or `pythonFile` replaces both: inheriting a base's file while the fragment declares
+ * inline code would produce a scroll the schema refuses, and silently running both would run a check
+ * the author did not ask for.
+ */
+function joinSelfTests(base = {}, fragment = {}) {
+  const joined = { ...base, ...fragment };
+  joined.imports = [...new Set([...(base.imports ?? []), ...(fragment.imports ?? [])])];
+  const files = [...new Set([...(base.files ?? []), ...(fragment.files ?? [])])];
+  if (base.files || fragment.files) joined.files = files;
+  if (fragment.pythonCode !== undefined || fragment.pythonFile !== undefined) {
+    delete joined.pythonCode;
+    delete joined.pythonFile;
+    if (fragment.pythonCode !== undefined) joined.pythonCode = fragment.pythonCode;
+    if (fragment.pythonFile !== undefined) joined.pythonFile = fragment.pythonFile;
+  }
+  return joined;
+}
+
+/**
+ * Joins a base scroll with one target's fragment into the scroll a build actually reads.
+ *
+ * The rule is per field, and stating it that way is the point: a single blanket rule is wrong in
+ * both directions. Replacing everything would make a fragment that adds one asset lose the shared
+ * ones; merging everything would leave `execution` half from each half, producing a `python-script`
+ * kind that inherited a `module` from the base.
+ *
+ * | Shape | Rule |
+ * | --- | --- |
+ * | Scalars, and the cohesive objects `target`, `execution`, `parity` | The fragment replaces the base |
+ * | `assets`, `assetArchives`, `localFiles` | Joined base-first; a repeated `relativePath` is an error |
+ * | `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
+ * | `compatibility`, `environment` | Joined key by key, the fragment winning a shared key |
+ * | `extends` | Dropped: the joined scroll extends nothing |
+ *
+ * Order is declaration order, base first — in the joined lists and in the joined maps' keys alike.
+ * Nothing is sorted, because sorting would buy nothing a rebuild needs: determinism requires that
+ * one pair of files always produce one result, which declaration order already gives. It does mean
+ * a split scroll and a hand-written whole one can serialise a joined map's keys in a different
+ * order while holding the same entries; the two are equal in content, not necessarily byte for
+ * byte. Sorting instead would change the bytes of every box whose map was not already alphabetical,
+ * to fix nothing.
+ */
+function joinScrollFragment(base, fragment) {
+  const joined = { ...base, ...fragment };
+  delete joined.extends;
+  for (const field of JOINED_MAPS) {
+    if (base[field] || fragment[field]) joined[field] = { ...base[field], ...fragment[field] };
+  }
+  for (const field of JOINED_ENTRY_LISTS) {
+    if (!base[field] && !fragment[field]) continue;
+    joined[field] = [...(base[field] ?? []), ...(fragment[field] ?? [])];
+  }
+  for (const field of JOINED_STRING_LISTS) {
+    if (!base[field] && !fragment[field]) continue;
+    joined[field] = [...new Set([...(base[field] ?? []), ...(fragment[field] ?? [])])];
+  }
+  if (base.selfTest || fragment.selfTest) {
+    joined.selfTest = joinSelfTests(base.selfTest, fragment.selfTest);
+  }
+  return joined;
+}
+
+/**
+ * Reads the base a fragment extends, and refuses a base that is trying to be something else.
+ *
+ * A base is not a buildable scroll and must not look like one: it declares no target, because it
+ * holds what its targets share, and it extends nothing, because one level of joining is the whole
+ * feature. Both are checked here rather than in the schema, which never sees either file alone.
+ */
+async function readScrollBase(fragment, dir, reference) {
+  if (fragment.extends !== SCROLL_BASE_REFERENCE) {
+    fail(`Scroll ${reference} extends ${JSON.stringify(fragment.extends)}; the only base is ${SCROLL_BASE_REFERENCE}.`);
+  }
+  const path = resolve(dir, '..', 'scroll.json');
+  if (!await fileExists(path)) {
+    fail(`Scroll ${reference} extends ${SCROLL_BASE_REFERENCE}, which does not exist: ${path}`);
+  }
+  let base;
+  try {
+    base = JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    return fail(`Invalid base scroll at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!base || typeof base !== 'object' || Array.isArray(base)) {
+    fail(`Invalid base scroll at ${path}: expected a JSON object.`);
+  }
+  if (base.target !== undefined) {
+    fail(`The base scroll at ${path} declares a target; each target declares its own.`);
+  }
+  if (base.extends !== undefined) {
+    fail(`The base scroll at ${path} extends another scroll; a base is one level, not a chain.`);
+  }
+  return base;
+}
+
 /** Resolves an exact scroll reference to its directory, refusing anything outside the scrolls root. */
 export function scrollDirectory(reference) {
   const root = getWorkspace().scrollsDir;
@@ -35,19 +202,56 @@ export function scrollDirectory(reference) {
   return path;
 }
 
-/** Loads one exact nested scroll reference and normalises its provenance identity. */
+/**
+ * Fills in everything a scroll does not have to say twice.
+ *
+ * A hand-written scroll should carry decisions, not restatements: the interpreter path is the only
+ * one the target admits, the model cache directory follows the box identity, and an empty list means
+ * the same thing whether or not it was typed. Deriving here rather than at each use keeps one
+ * effective scroll — the object the rest of the build, and the provenance record, actually see.
+ */
+function effectiveScroll(scroll, adapter, targetId) {
+  return {
+    ...scroll,
+    // Provenance needs a stable source identity. It is derived when the scroll does not name one,
+    // so the directory layout remains checked context rather than a second wire identity.
+    scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
+    scrollVersion: scroll.scrollVersion ?? '1.0.0',
+    compatibility: scroll.compatibility ?? {},
+    pythonEntryPoint: scroll.pythonEntryPoint ?? adapter.python.entryPoint,
+    modelCacheSubdir: scroll.modelCacheSubdir ?? `model-cache/${scroll.boxId}`,
+    assets: scroll.assets ?? [],
+    selfTest: { ...scroll.selfTest, files: scroll.selfTest.files ?? [] },
+  };
+}
+
+/** Loads one exact nested scroll reference, then joins, validates and completes it. */
 async function readExactScroll(reference) {
   const normalized = safeRelativePath(reference);
   const parts = normalized.split('/');
   if (parts.length !== 2) fail(`Invalid scroll reference ${reference}; use <boxId>/<targetId>.`);
   const dir = scrollDirectory(normalized);
-  const scroll = JSON.parse(await readFile(resolve(dir, 'scroll.json'), 'utf8'));
+  const fragment = JSON.parse(await readFile(resolve(dir, 'scroll.json'), 'utf8'));
+  // Joining comes first: neither half of a split scroll is a complete document, so validating either
+  // one alone would report the other half's fields as missing.
+  const extended = fragment.extends !== undefined;
+  const declared = extended
+    ? joinScrollFragment(await readScrollBase(fragment, dir, normalized), fragment)
+    : fragment;
   const [scrollSchema, targetSchema, executionSchema] = await loadScrollSchemas();
-  const validationError = schemaValidationError(scroll, scrollSchema, [targetSchema, executionSchema]);
-  if (validationError) fail(`Invalid scroll ${normalized}: ${validationError}.`);
-  if (scroll.weights === 'on-demand' && (scroll.assetArchives ?? []).length > 0) {
+  const validationError = schemaValidationError(declared, scrollSchema, [targetSchema, executionSchema]);
+  if (validationError) {
+    fail(`Invalid scroll ${normalized}${extended ? ' joined with its base' : ''}: ${validationError}.`);
+  }
+  if (declared.weights === 'on-demand' && (declared.assetArchives ?? []).length > 0) {
     fail('on-demand weights cannot be combined with assetArchives, which are expanded at build time.');
   }
+  // Checked here rather than in the schema: a base legitimately has no target, and requiring one
+  // there would make every base file light up in an editor.
+  if (declared.target === undefined) fail(`Scroll ${normalized} declares no target.`);
+  const adapter = boxTargetAdapter(declared.target);
+  const targetId = boxTargetId(declared.target);
+  const scroll = effectiveScroll(declared, adapter, targetId);
   const payloadPaths = [
     scroll.modelCacheSubdir,
     ...scroll.assets.map((asset) => asset.relativePath),
@@ -56,35 +260,22 @@ async function readExactScroll(reference) {
     ...(scroll.prunePaths ?? []),
     ...(scroll.uncompressedPaths ?? []),
     ...scroll.selfTest.files,
+    ...(scroll.selfTest.pythonFile ? [scroll.selfTest.pythonFile] : []),
     ...(scroll.execution?.kind === 'python-script' ? [scroll.execution.script] : []),
     ...(scroll.parity ? [scroll.parity.script] : []),
     ...(scroll.condaDependencyLicenseAudit ? [scroll.condaDependencyLicenseAudit] : []),
   ];
   for (const path of payloadPaths) safeRelativePath(path);
-  const adapter = boxTargetAdapter(scroll.target);
-  const targetId = boxTargetId(scroll.target);
-  if (parts.length === 2) {
-    const [boxDirectory, targetDirectory] = parts;
-    if (boxDirectory !== scroll.boxId) {
-      fail(`Nested scroll box directory ${boxDirectory} does not match scroll boxId ${scroll.boxId}.`);
-    }
-    if (targetDirectory !== targetId) {
-      fail(`Nested scroll target directory ${targetDirectory} does not match declared target ${targetId}.`);
-    }
+  assertDistinctPayloadDestinations(scroll);
+  const [boxDirectory, targetDirectory] = parts;
+  if (boxDirectory !== scroll.boxId) {
+    fail(`Nested scroll box directory ${boxDirectory} does not match scroll boxId ${scroll.boxId}.`);
+  }
+  if (targetDirectory !== targetId) {
+    fail(`Nested scroll target directory ${targetDirectory} does not match declared target ${targetId}.`);
   }
   assertPythonEntryPoint(adapter, scroll.pythonEntryPoint);
-  return {
-    adapter,
-    dir,
-    scroll: {
-      ...scroll,
-      // Provenance needs a stable source identity. It is derived when the scroll does not name one,
-      // so the directory layout remains checked context rather than a second wire identity.
-      scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
-    },
-    reference: normalized,
-    targetId,
-  };
+  return { adapter, dir, scroll, reference: normalized, targetId };
 }
 
 /**

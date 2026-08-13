@@ -2,23 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scrollcase.dev/schema/v2/scroll.schema.json",
   "title": "Box scroll",
-  "description": "The declarative input to a build: an identity, a target, a pinned dependency environment, the assets to fetch, and the self-test the result must pass. A scroll is checked into the consumer's repository next to its lock file; everything a build produces is derived from it.",
+  "description": "The declarative input to a build: an identity, a target, a pinned dependency environment, the assets to fetch, and the self-test the result must pass. A scroll is checked into the consumer's repository next to its lock file; everything a build produces is derived from it.\n\nOnly what a build cannot work out for itself is required. Anything the target or the identity already determines is optional here and filled in when the scroll is read, so a hand-written scroll declares decisions rather than restating them.\n\nOne box's targets differ in a handful of lines and agree on the rest, so a scroll may also be split: scrolls/<boxId>/scroll.json holds what they share, and each scrolls/<boxId>/<targetId>/scroll.json declares `extends` plus its own differences. Both halves are files of this shape; the joined result is what a build reads.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion",
-    "scrollVersion",
     "boxId",
     "modelId",
     "runtimeId",
     "version",
     "sourceRevision",
-    "target",
-    "compatibility",
     "pythonVersion",
-    "pythonEntryPoint",
-    "modelCacheSubdir",
-    "assets",
     "selfTest",
     "pixiVersion"
   ],
@@ -26,6 +20,10 @@
     "$schema": {
       "const": "https://scrollcase.dev/schema/v2/scroll.schema.json",
       "description": "Associates this file with the published Scrollcase v2 schema for editor validation, completion, and hover help."
+    },
+    "extends": {
+      "const": "../scroll.json",
+      "description": "Marks this file as one target's fragment of a box whose shared declarations live in scrolls/<boxId>/scroll.json. The value is fixed: a base is always the box directory's own scroll.json, so there is no path to get wrong and no chain to follow. The base and the fragment are joined into one effective scroll before anything else happens, and that effective scroll is what the build reads and what provenance records."
     },
     "schemaVersion": {
       "const": 2,
@@ -42,7 +40,8 @@
     "scrollVersion": {
       "type": "string",
       "minLength": 1,
-      "description": "Version of this declarative build input, recorded in provenance.",
+      "description": "Version of this declarative build input, recorded in provenance. Defaults to 1.0.0, which is what an authoring version means before anyone has had reason to change it.",
+      "default": "1.0.0",
       "examples": [
         "1.0.0"
       ]
@@ -67,7 +66,8 @@
       "description": "Upstream revision of the packaged source, recorded verbatim into provenance."
     },
     "target": {
-      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json",
+      "description": "The (platform, arch, accelerator) triple this box is built for. Required in every scroll a build reads, and absent from a base: a base holds what its targets share, so declaring one there would name a target the box does not build. Enforced when the scroll is read rather than here, so a base file still validates in an editor."
     },
     "compatibility": {
       "type": "object",
@@ -95,7 +95,7 @@
           "minLength": 1
         }
       },
-      "description": "Constraints the installing host must satisfy. Copied through into the release manifest verbatim and never interpreted by the builder, so a project may declare its own alongside these."
+      "description": "Constraints the installing host must satisfy. Copied through into the release manifest verbatim and never interpreted by the builder, so a project may declare its own alongside these. Defaults to empty: declaring no constraint is a legitimate answer, and inventing one would be a claim the project never made."
     },
     "pythonVersion": {
       "type": "string",
@@ -118,11 +118,12 @@
     "pythonEntryPoint": {
       "type": "string",
       "minLength": 1,
-      "description": "Interpreter path relative to the box root. Must match the target adapter's layout."
+      "description": "Interpreter path relative to the box root. The target adapter's layout admits exactly one value, so this is derived from the target when omitted and still checked against it when declared."
     },
     "modelCacheSubdir": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Payload directory the box's model files live under. Defaults to model-cache/<boxId>."
     },
     "environment": {
       "type": "object",
@@ -143,7 +144,7 @@
     },
     "assets": {
       "type": "array",
-      "description": "Files fetched during the build. Every entry is size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of silently changing the box. May be empty.",
+      "description": "Files fetched during the build. Every entry is size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of silently changing the box. May be empty, and defaults to empty.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -207,14 +208,13 @@
     },
     "localFiles": {
       "type": "array",
-      "description": "Files copied from the consumer's own repository into the payload, each verified against a declared hash so a licence notice or runtime shim cannot drift from what was reviewed.",
+      "description": "Files copied from the consumer's own repository into the payload. A file already under the project's own version control needs no second copy of its identity here, and what ships is hashed into the signed release either way; declaring sha256 pins one that must not change without review, which suits a licence notice and not a script still being written.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "sourcePath",
-          "relativePath",
-          "sha256"
+          "relativePath"
         ],
         "properties": {
           "sourcePath": {
@@ -225,7 +225,8 @@
             "$ref": "#/$defs/payloadPath"
           },
           "sha256": {
-            "$ref": "#/$defs/sha256"
+            "$ref": "#/$defs/sha256",
+            "description": "Optional pin. When present the build refuses a file whose contents no longer match."
           }
         }
       }
@@ -248,9 +249,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "imports",
-        "files"
+        "imports"
       ],
+      "not": {
+        "required": [
+          "pythonCode",
+          "pythonFile"
+        ]
+      },
       "description": "Builder checks run with the payload's own interpreter before archiving. Schema version 2 signs only the import subset for a consumer to repeat; file and optional Python-code assertions remain builder-only.",
       "properties": {
         "imports": {
@@ -263,7 +269,7 @@
         },
         "files": {
           "type": "array",
-          "description": "Files that must still exist after pruning, which is what stops an over-aggressive prune from shipping a broken box.",
+          "description": "Files that must still exist after pruning, which is what stops an over-aggressive prune from shipping a broken box. Defaults to empty.",
           "items": {
             "$ref": "#/$defs/payloadPath"
           }
@@ -271,7 +277,12 @@
         "pythonCode": {
           "type": "string",
           "minLength": 1,
-          "description": "Extra Python executed after the imports succeed, for checks a bare import cannot make."
+          "description": "Extra Python executed after the imports succeed, for checks a bare import cannot make. Anything longer than an assertion belongs in pythonFile, where an editor can see it is Python."
+        },
+        "pythonFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project path to a Python file executed after the imports succeed, in place of pythonCode. The file is read at build time and run from the payload root, so a real self-test keeps its syntax highlighting, its linter, and its diffs instead of living inside a JSON string."
         }
       }
     },

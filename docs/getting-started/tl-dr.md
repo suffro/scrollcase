@@ -53,7 +53,8 @@ flowchart TB
 2. run `scrollcase init` to create the workspace and runnable native example
 3. optionally run `scrollcase new scroll` for real project metadata
 4. review the selected [scroll](/reference/scroll)
-5. define the **dependencies**
+5. define the **dependencies** with `scrollcase add dep <box> <name>`, and declare the model files
+   with `scrollcase add asset <box> <url>`
 6. run `scrollcase lock <boxId>/<targetId>`
 7. generate or configure the [signing key](/guides/signing-and-custody)
 8. run `scrollcase build <boxId>/<targetId>`

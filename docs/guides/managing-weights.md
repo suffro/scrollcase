@@ -24,13 +24,17 @@ Every asset carries a URL, a destination inside the payload, a size, and a SHA-2
 ]
 ```
 
-Get the size and hash from the file you reviewed:
+Do not fill those two in by hand. `add asset` fetches the URL once and records the size and hash it
+actually found:
 
 ```sh
-curl -fL -o model.safetensors "https://…/model.safetensors"
-shasum -a 256 model.safetensors     # sha256sum on Linux
-wc -c < model.safetensors
+scrollcase add asset my-model https://…/model.safetensors
 ```
+
+It also adds the payload path to `selfTest.files`, so an over-eager `prunePaths` cannot quietly drop
+it. Use `--to <payload path>` to land it somewhere other than the box's model cache, and `--target`
+to give it to one target only. If you would rather write the entry yourself, the two values come
+from `shasum -a 256 model.safetensors` and `wc -c < model.safetensors`.
 
 Nothing enters the payload before **both** match. That is what makes a box reproducible even
 though its inputs live on servers outside anyone's control: if an upstream file is moved,
@@ -102,16 +106,28 @@ still do.
 ## Files from your own repository
 
 Runtime shims, licence notices, a parity check script — anything you maintain yourself — go in
-`localFiles`, each with a hash so it cannot drift from what was reviewed:
+`localFiles`:
+
+```sh
+scrollcase add file my-model runtime/entrypoint.py
+```
 
 ```jsonc
 "localFiles": [
-  { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py", "sha256": "…" },
+  { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py" },
   { "sourcePath": "legal/MODEL_LICENSE.txt", "relativePath": "MODEL_LICENSE.txt", "sha256": "…" }
 ]
 ```
 
 `sourcePath` is relative to the project root; `relativePath` is inside the payload.
+
+`sha256` here is an optional **pin**, and the difference from an asset's is the point. An asset
+arrives over a network nobody controls, so its hash is what stands between a substituted file and a
+silently different box. A local file comes out of your own checkout, where git already records what
+changed, and what ships is hashed into the signed release either way. So pin what must not change
+without review — a licence notice, a reviewed shim — and leave the pin off the shim you are still
+writing, which would otherwise fail your next build over an edit you meant to make.
+[`scrollcase refresh`](/reference/cli#refresh) recomputes a pin after a reviewed change.
 
 ## Embed or defer
 

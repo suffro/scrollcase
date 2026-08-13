@@ -75,13 +75,21 @@ export async function downloadVerified(asset, destination, options = {}) {
   await rename(partPath, destination);
 }
 
-/** Copies a file from the project into the payload after verifying its declared hash. */
+/**
+ * Copies a file from the project into the payload, verifying its hash when the scroll pins one.
+ *
+ * The pin is optional because these files come from the project's own checkout, where git already
+ * records what changed, and because what ships is hashed into the signed release either way. A
+ * project pins the files it wants frozen against edits — a licence notice, a reviewed shim — and
+ * leaves the pin off the ones it is still writing, rather than recomputing a digest by hand after
+ * every keystroke.
+ */
 export async function copyVerifiedLocalFile(file, payloadDir, projectRoot) {
   const source = join(projectRoot, safeRelativePath(file.sourcePath));
   if (!await fileExists(source) || !(await stat(source)).isFile()) {
     fail(`Local box file is missing: ${file.sourcePath}`);
   }
-  if (await sha256File(source) !== file.sha256) {
+  if (file.sha256 !== undefined && await sha256File(source) !== file.sha256) {
     fail(`Local box file SHA-256 mismatch: ${file.sourcePath}`);
   }
   const destination = join(payloadDir, safeRelativePath(file.relativePath));

@@ -2012,21 +2012,38 @@ both directions.
 
 #### The scroll
 
-The largest schema, and the only one describing *input* rather than output. Fifteen fields are
-required: `schemaVersion`, `scrollVersion`, `boxId`, `modelId`, `runtimeId`, `version`,
-`sourceRevision`, `target`, `compatibility`, `pythonVersion`, `pixiVersion`, `pythonEntryPoint`,
-`modelCacheSubdir`, `assets` and `selfTest`.
+The largest schema, and the only one describing *input* rather than output. Nine fields are
+required: `schemaVersion`, `boxId`, `modelId`, `runtimeId`, `version`, `sourceRevision`,
+`pythonVersion`, `pixiVersion` and `selfTest`. A tenth, `target`, is required of every scroll a
+build reads but not by the schema, because the base of a split scroll legitimately has none; the
+reader enforces it, so a base file still validates in an editor.
+
+That list is shorter than the format needs, because a scroll is a file someone writes by hand and
+several of its fields were only ever restatements of others. `pythonEntryPoint` is the clearest
+case: the target adapter admits exactly one value and the reader rejected any other, so requiring it
+obliged the author to type the single string that was already implied. Those fields are now derived
+when the scroll is read, in one place, so every consumer of a scroll still sees a complete object:
+
+| Field | Derived value |
+| --- | --- |
+| `scrollVersion` | `1.0.0` |
+| `compatibility` | `{}` — declaring no constraint is an answer, and inventing one would be a claim the project never made |
+| `pythonEntryPoint` | The target adapter's interpreter path; still checked against the target when declared |
+| `modelCacheSubdir` | `model-cache/<boxId>` |
+| `assets` | `[]` |
+| `selfTest.files` | `[]` |
 
 The optional fields are where a scroll expresses intent:
 
 | Field | Purpose |
 | --- | --- |
 | `$schema` | Associates the file with the published schema, for editor validation and hover help |
+| `extends` | `../scroll.json`, marking this file as one target's half of a split scroll |
 | `scrollId` | Provenance identity; derived deterministically as `<boxId>-<targetId>` when omitted |
 | `condaDependencyLicenseAudit` | Path to the reviewed licence inventory the build must still match |
 | `assetBaseUrl` | Base URL the built archive and its objects are published under |
 | `assetArchives` | Downloaded archives to expand into the payload, with `stripComponents` and `removeAfterExtract` |
-| `localFiles` | Files copied from the project's own repository, each verified against a declared hash |
+| `localFiles` | Files copied from the project's own repository, optionally pinned to a declared hash |
 | `prunePaths` | Payload paths deleted before packing |
 | `weights` | `embed` (default) or `on-demand` |
 | `execution` | The application entry point |
@@ -2034,10 +2051,20 @@ The optional fields are where a scroll expresses intent:
 
 Three of these carry a rule worth stating explicitly. `assets` may be empty, but every entry is
 size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of
-silently changing the box. `localFiles` are hashed for the same reason applied inward: a licence
-notice or runtime shim cannot drift from what was reviewed. And `selfTest.files` lists what must
-still exist *after* pruning, which is what stops an over-aggressive `prunePaths` from shipping a
-broken box.
+silently changing the box. `localFiles` may carry the same pin applied inward, and here it is
+**optional**: an asset arrives over a network nobody controls, whereas a local file comes out of the
+project's own checkout, where git already records what changed, and what ships is hashed into the
+signed release either way. Making the pin mandatory did not buy a guarantee so much as a chore —
+every edit to a generated entry point failed the next build until its digest was recomputed by hand
+— so a project now pins what it wants frozen, such as a licence notice or a reviewed shim, and
+leaves the pin off what it is still writing. And `selfTest.files` lists what must still exist
+*after* pruning, which is what stops an over-aggressive `prunePaths` from shipping a broken box.
+
+`selfTest` carries one more choice: the extra Python it runs after the imports may be given inline
+as `pythonCode` or, mutually exclusively, as `pythonFile` — a path to a file in the project, read at
+build time and executed from the payload root. A self-test that is worth writing outgrows a JSON
+string almost immediately, and in a file it keeps its syntax highlighting, its linter and a readable
+diff.
 
 `parity` requires a script, at least two accelerators, and at least one tolerance. The first
 accelerator listed is the reference the others are compared against — conventionally `cpu`, being
@@ -2437,21 +2464,25 @@ installed.
 
 </div>
 
-`readExactScroll()` performs six checks in order:
+`readExactScroll()` performs seven checks in order:
 
 1. **The reference is well formed**: exactly `<boxId>/<targetId>`, screened by `safeRelativePath`.
 2. **The document validates** against the scroll, target and execution schemas, using the internal
-   validator described in 6.4.
-3. **Weights and archives are compatible**: `on-demand` with `assetArchives` is refused, because
+   validator described in 6.4 — after a split scroll has been joined with its base, so what is
+   validated is what the build will read.
+3. **A target is declared.** Required of the joined scroll rather than by the schema, so that the
+   base of a split scroll still validates on its own.
+4. **Weights and archives are compatible**: `on-demand` with `assetArchives` is refused, because
    those archives are expanded at build time and cannot be deferred.
-4. **Every declared path is safe.** One sweep screens `modelCacheSubdir`, every asset path, both
+5. **Every declared path is safe.** One sweep screens `modelCacheSubdir`, every asset path, both
    ends of every asset archive, both ends of every local file, every prune path, every self-test
-   file, the execution script, the parity script and the licence audit path.
-5. **The directory names agree with the declarations.** The parent directory must equal `boxId` and
+   file, the self-test Python file, the execution script, the parity script and the licence audit
+   path.
+6. **The directory names agree with the declarations.** The parent directory must equal `boxId` and
    the child must equal the canonical [target ID](#target-id).
-6. **The entry point agrees with the adapter**, via `assertPythonEntryPoint`.
+7. **The entry point agrees with the adapter**, via `assertPythonEntryPoint`.
 
-Check 5 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
+Check 6 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
 are *checked context*, not identity: the scroll declares both facts, and the filesystem is required
 to agree. That makes every target variant of one box visible together without making a directory
 name the source of the box's identity.
@@ -2467,6 +2498,61 @@ scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
 **Rejected:** requiring `scrollId` to repeat the directory name. That made the filesystem a second
 identity layer, and encouraged product-plus-machine directory names even though the scroll already
 declares both facts.
+
+<div class="h4-section">
+
+#### One effective scroll
+
+Reading is also where a scroll becomes complete. `effectiveScroll()` runs between validation and the
+path sweep, filling in every field the target or the identity already determines — the interpreter
+path, `model-cache/<boxId>`, a `scrollVersion` of `1.0.0`, and the empty collections. Everything
+downstream, including the provenance record, sees that one object and never has to ask whether a
+field was written down.
+
+A split scroll is completed the same way, one step earlier. `joinScrollFragment()` runs *before*
+validation, because neither half of a split scroll is a complete document: validating the fragment
+alone would report every field the base holds as missing. The joined result is what the schema sees,
+what the build reads, and what provenance records.
+
+The join rule is stated per field rather than as one blanket behaviour, and that is the whole
+substance of the feature:
+
+| Fields | Rule |
+| --- | --- |
+| Scalars, and the cohesive objects `target`, `execution`, `parity` | The fragment replaces the base |
+| `assets`, `assetArchives`, `localFiles` | Joined base-first; a repeated `relativePath` is an error |
+| `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
+| `compatibility`, `environment` | Joined key by key, the fragment winning a shared key |
+| `selfTest.pythonCode` / `selfTest.pythonFile` | One slot; a fragment naming either replaces both |
+| `extends` | Dropped — the joined scroll extends nothing |
+
+Each row is a rejection of the two obvious alternatives. Replace-everything would make a fragment
+that adds one asset lose the shared ones. Merge-everything would leave `execution` half from each
+half — a `python-script` kind carrying a `module` inherited from the base, which no author wrote and
+the schema would then have to catch. The two list rules differ for the same reason: a repeated prune
+path is one instruction twice and is dropped, while a repeated `relativePath` is two sources
+claiming one file in the box, which is refused rather than settled by a precedence rule nobody would
+remember.
+
+Order is declaration order, base first, in both the joined lists and a joined map's keys. Nothing is
+sorted, because determinism asks only that one pair of files always produce one result. The
+consequence is stated rather than hidden: a split scroll and a hand-written whole one hold the same
+entries, and a joined map may serialise its keys in a different order. Sorting instead would change
+the bytes of every box whose map was not already alphabetical, to fix nothing.
+
+`extends` takes exactly one value, `../scroll.json`. A path parameter would have invited traversal
+screening, base chains, and a scroll that reaches outside its workspace; a fixed value costs nothing
+and forecloses all three. A base declares no `target` — it holds what its targets share — and no
+`extends` of its own. Both are checked in the reader, which is the only place that sees either file
+on its own.
+
+Deriving in the reader rather than at each use is the whole point. The alternative — a `??` at every
+call site — spreads the definition of "what this field means when absent" across the builder, where
+two of them eventually disagree. Here there is one place to read, and a scroll that spells a derived
+field out explicitly produces exactly the same object as one that omits it; `assertPythonEntryPoint`
+still runs either way, so declaring the wrong interpreter is as much an error as it ever was.
+
+</div>
 
 <div class="h4-section">
 
@@ -3395,9 +3481,23 @@ execution intent. Its guarantees are atomicity and non-destruction:
   single `rename`, so an interrupted run leaves no half-written scroll.
 - An existing scroll directory is a hard error, and a generated starter script is written with the
   exclusive `wx` flag.
-- A generated script's hash is computed **from the exact bytes written to disk**, so the
-  `localFiles` declaration cannot describe something other than what was created.
 - The generated scroll is validated against the schemas before anything is written at all.
+
+What it generates is deliberately short. Every field the reader can derive is left out, so the file
+reads as the decisions its author made rather than a form they filled in; the generated starter
+script is recorded in `localFiles` **without a hash pin**, because the first thing an author does
+with a starter is edit it; and the self-test is written as a real `self_test.py` beside the scroll,
+with `selfTest.pythonFile` pointing at it.
+
+Two constants live here rather than in a lookup: `DEFAULT_PYTHON_VERSION`, one minor behind the
+newest Python conda-forge publishes, and `LATEST_PYTHON_VERSION`, what `--python-version latest`
+resolves to. Both are committed and moved deliberately at release time by
+`scripts/bump-python-version.mjs`, which asks conda-forge what it has built. The alternative —
+resolving the newest Python on each invocation — would make the same command produce different
+scrolls in different months, which is the failure a scroll exists to prevent; and defaulting to the
+very newest would hand a first-time user a solve that cannot succeed, because conda-forge builds the
+heavy compiled packages for a new minor months after the interpreter lands. `latest` therefore
+resolves once, at authoring time, and the resolved number is what the scroll records.
 
 Execution intent is a closed set at this level too — `python-script`, `python-module` or
 `library-only` — and a `library-only` scroll declaring a script, a module or default arguments is
@@ -3412,6 +3512,70 @@ starter or any consumer template.
 **Rejected:** treating setup metadata as the project's real scroll, and equally, leaving a newcomer
 with an empty directory. The example is explicitly disposable onboarding material; real inputs are
 created independently rather than edited from guessed product metadata.
+
+</div>
+
+<div class="h4-section">
+
+#### `scroll-edit.mjs` — changing a scroll that exists
+
+`authoring.mjs` creates one scroll from nothing; this module changes one already checked in, which
+is a different problem in one specific way. A box may be split across a base and several target
+fragments, so every edit answers **which file** before it answers what — and that question has one
+answer here rather than one per command.
+
+Two guarantees cover every edit. It is **atomic**: new bytes go to a staging file beside the
+original and move into place with a single rename, so an interrupted run leaves no half-written
+scroll. And it is **verified**: afterwards every target of the box is read back through `readScroll`,
+the same path a build uses, and the originals are restored if any of them no longer loads. The
+verification deliberately covers the whole box rather than the edited file, because a base and its
+fragments only mean anything together — an entry added to the base can collide with one a fragment
+already declared, which is exactly the case worth catching before it is saved.
+
+`addAsset` fetches a URL once and records the size and hash it found. Those are the two values a
+scroll cannot omit and no author can know without downloading the file, which is what made writing
+one by hand a matter of `curl | shasum` and careful pasting. Recording them here weakens nothing:
+the guarantee has always been that they are pinned once and checked on every build.
+
+`addFile` writes no `sha256`, for the reason given in the schema section — the file being added is
+usually the one about to be edited. `removeScrollEntry` is the exact inverse of both, `selfTest.files`
+line included, and a path that matched nothing is an error rather than a quiet success.
+
+`refreshScroll` recomputes the pins a project asked for. Its restraint is the interesting part: a
+remote asset's hash is what stands between a replaced upstream file and a silently different box, so
+re-fetching is opt-in, a difference is reported and refused, and accepting it takes a separate
+`repin`. **Rejected:** refreshing remote hashes by default. That would make every upstream
+substitution disappear into the next `refresh`, and the build would go green — which is the whole
+protection, removed by the command meant to maintain it.
+
+`editableScrollFields` reads the field list out of the schema rather than keeping one in step by
+hand, minus an explicit set the format does not let a person change: structural values, values the
+layout or target fixes, and the collections, which have their own commands.
+
+</div>
+
+<div class="h4-section">
+
+#### `dependencies.mjs` — the `[dependencies]` table
+
+`pixi.toml` is the second-most tedious part of authoring a box and, unlike the scroll, it has to be
+edited once per target. This module changes every manifest of a box at once, so a dependency is one
+command rather than three edits that have to agree.
+
+It edits **text**, not a parsed document. A TOML parser would be a new runtime dependency for a job
+whose whole scope is one table of `name = "spec"` lines, and re-emitting would rewrite the comments
+and spacing the project chose; the check is that the table's boundaries are found by its header and
+the next one, so nothing is written into a `[target.…]` table below it.
+
+No version is looked up. An added dependency defaults to `*` and the committed `pixi.lock` records
+what was actually solved. **Rejected:** asking the network for a "latest" to write into the manifest,
+which would put a second, weaker pin beside the real one and leave the two to drift.
+
+`readRequirements` translates a pip `requirements.txt`. The table of PyPI names whose conda-forge
+package is called something else is deliberately short — every entry is one this project can state
+with confidence — and **every rename and every skip is reported**, because a name guessed wrongly
+produces a lock that resolves and a box that cannot import what it was built for. That failure
+arrives long after the command that caused it, which is why the command is loud.
 
 </div>
 
@@ -5098,17 +5262,55 @@ them is what happens without a terminal:
 | Helper | With a terminal | Without |
 | --- | --- | --- |
 | `required(flag, …)` | Prompts, optionally with a default | Fails, naming the missing flag |
-| `optional(flag, …)` | Prompts, empty answer accepted | Returns null — an omitted optional is not an error |
+| `derived(flag, default)` | Never asks — takes the flag, or settles the default | Identical |
 | `finite(flag, …, choices)` | Menu | Fails, naming the flag *and its allowed values* |
 
-Some questions are asked only when they can apply: `--min-macos-version` only for a macOS target,
-`--min-nvidia-driver-version` only for a CUDA one, and the CUDA ABI version only after CUDA has been
-chosen — which is why `cliTargetFamilies()` lists CUDA without a version and the complete target ID
-is assembled afterwards. A question that cannot apply is not asked, rather than asked and discarded.
+`derived` is the one that decides how long the session is. The wizard once asked nine questions to
+produce a file whose answers were nearly all forced — an identity that follows from the box name, a
+version whose only sensible starting point is `1.0.0`, a pixi version that `findPixi` will refuse
+unless it matches the pixi already installed — and then asked four more optional host constraints
+that most projects leave empty. Four questions remain, and each is one nobody else can answer: the
+target, the box id, the upstream revision of what is being packaged, and the base URL boxes will be
+published under. The rest are flags for the caller who cares.
+
+`sourceRevision` stays a question for a specific reason. It names the version of the thing being
+packaged, it goes verbatim into the box's provenance, and there is nothing to derive it from — a
+default there would be a fabricated claim about where a box came from, which the tool refuses to
+make anywhere else.
+
+`promptText` repeats a required question rather than aborting on a blank answer. Aborting discarded
+every value already typed and sent the user back to the first question, punishing a slip out of all
+proportion to it; the repeat is bounded, so an input stream that only ever yields blank lines ends
+in an error rather than a loop nobody can interrupt.
+
+The CUDA ABI version is still asked only after CUDA has been chosen — which is why
+`cliTargetFamilies()` lists CUDA without a version and the complete target ID is assembled
+afterwards. A question that cannot apply is not asked, rather than asked and discarded.
 
 `--default-args` is parsed as a JSON array of strings and rejected as a whole if it is anything else,
 including an array containing one number. Those strings end up in a signed document and then in an
 argument vector; a silently coerced value there would be a signed lie about what the box runs.
+
+</div>
+
+<div class="h4-section">
+
+#### Where an edit goes — `cli-edit.mjs`
+
+`add`, `remove`, `edit` and `refresh` all ask one question `new scroll` never has to: which of a
+box's scrolls does this change? A box with a base and per-target fragments has two right answers,
+and the wrong one is silent — a declaration lands on one target instead of all three, and nothing
+complains until a build somewhere is missing a file.
+
+So it is never guessed. `--target all` writes what the targets share; a target ID writes only that
+one; a box with a single target uses it; a box with several asks, with "every target" first in the
+menu. Without a terminal and without the flag the command stops. **Rejected:** defaulting to `all`.
+It is the commoner intent, which is exactly what makes the rare case — a file specific to one
+accelerator — worth a question rather than a silent default.
+
+`chooseScrollEdit` builds its field menu from the schema, so a name that is not a field cannot be
+typed at all. That is a better shape than accepting one and explaining afterwards, and it keeps the
+menu honest as the format changes.
 
 </div>
 
@@ -5838,6 +6040,8 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/verify.mjs` | `verifyBox` — a consumer's install-time checks, run locally | 6.15 |
 | `src/build/project.mjs` | `init` and `doctor`: scaffolding, and diagnosis that writes nothing | 6.16 |
 | `src/build/authoring.mjs` | Atomic creation of one target-specific scroll | 6.16 |
+| `src/build/scroll-edit.mjs` | Changing a scroll that exists: which file, atomically, verified | 6.16 |
+| `src/build/dependencies.mjs` | The `[dependencies]` table of a box's pixi manifests | 6.16 |
 | `src/build/consumer-setup.mjs` | The optional consumer dependencies an initialised project may want | 6.16 |
 | `src/build/toolchain.mjs` | Checksum-verified installation of pixi and conda-pack, only on consent | 4.2 |
 | `src/build/process.mjs` | `fail`, `run` and `runResult` — the one error path and the subprocess seam | 6.17 |
@@ -5871,6 +6075,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/cli-menu.mjs` | The raw-key menu, and the policy that turns a flag or a terminal into a choice | 9.4 |
 | `src/cli-targets.mjs` | Target and scroll selection, including the host defaults | 9.4 |
 | `src/cli-authoring.mjs` | Input collection for `new scroll`, from flags or prompts | 9.4 |
+| `src/cli-edit.mjs` | Which box, which target, which field: the questions an edit asks | 9.4 |
 | `src/cli-init.mjs` | The order of `init`'s optional work: every answer before any installer | 9.4 |
 | `src/cli-signing.mjs` | The read-only signing preflight | 7.6 |
 | `src/cli-run.mjs` | Translating a child's terminal result into this process's own | 8.8 |

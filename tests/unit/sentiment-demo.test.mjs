@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readScroll } from '../../src/build/scroll.mjs';
+import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const example = join(root, 'examples', 'sentiment-demo');
@@ -26,11 +28,17 @@ function pythonCommand() {
 
 const python = pythonCommand();
 
+/** The effective scroll of each target: base joined with fragment, exactly as a build reads it. */
 async function scrolls() {
-  return Promise.all(targets.map(async (target) => ({
-    target,
-    scroll: JSON.parse(await readFile(join(example, target, 'scroll.json'), 'utf8')),
-  })));
+  configureWorkspace({ cwd: root, overrides: { scrolls: 'examples' } });
+  try {
+    return await Promise.all(targets.map(async (target) => ({
+      target,
+      scroll: (await readScroll(`sentiment-demo/${target}`)).scroll,
+    })));
+  } finally {
+    resetWorkspace();
+  }
 }
 
 describe('published sentiment demo box', () => {
@@ -58,10 +66,18 @@ describe('published sentiment demo box', () => {
 
   // Three targets packaging the same model must differ only in what the target itself forces, or
   // the boxes stop being the same box: a stray asset, environment variable or self-test in one of
-  // them would ship a difference nobody declared.
-  it('keeps the three scrolls identical apart from what the target dictates', async () => {
+  // them would ship a difference nobody declared. The shared half lives in one file, so this is now
+  // structural rather than a resemblance checked after the fact.
+  it('declares what the targets share once, in a base they all extend', async () => {
+    for (const target of targets) {
+      const fragment = JSON.parse(await readFile(join(example, target, 'scroll.json'), 'utf8'));
+      expect(Object.keys(fragment).sort(), target)
+        .toEqual(['condaDependencyLicenseAudit', 'extends', 'target']);
+    }
+
     const normalised = (await scrolls()).map(({ scroll }) => JSON.stringify({
       ...scroll,
+      scrollId: null,
       target: null,
       condaDependencyLicenseAudit: null,
       pythonEntryPoint: null,

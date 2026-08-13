@@ -277,12 +277,156 @@ to the canonical documentation visible in the project.
 
 `scrollcase new scroll` remains the only command that authors real project identity, target,
 versions, compatibility, weights, and execution intent. A non-terminal authoring call must provide
-every material value and fails before writing when one is missing; an interactive terminal uses the
-same finite-choice menus as the rest of the CLI.
+every value that has no default and fails before writing when one is missing; an interactive
+terminal uses the same finite-choice menus as the rest of the CLI.
 
 **Rejected:** either treating setup metadata as the project's real scroll or leaving a newcomer with
 only an empty directory. The fixed example is explicitly disposable onboarding material; real
 inputs are created independently rather than edited from guessed product metadata.
+
+## A scroll declares decisions, not restatements
+
+A scroll is a file a person writes and maintains by hand, and several of its fields were only ever
+restating something the file already said. `pythonEntryPoint` is the clearest case: a target admits
+exactly one interpreter path and the reader rejected every other value, so requiring the field
+obliged the author to type the one string that was already implied — and to type it again for every
+target of the same box. `scrollVersion`, `compatibility`, `modelCacheSubdir`, `assets` and
+`selfTest.files` were the same kind of obligation in weaker form.
+
+Those fields are now optional and derived when the scroll is read. Derivation happens in one place,
+so everything downstream — including the provenance record — still sees a complete object, and a
+scroll that spells a derived field out produces an identical result. A declared `pythonEntryPoint`
+that disagrees with its target is still refused.
+
+**Rejected:** a `??` fallback at each point of use. That spreads the meaning of an absent field
+across the builder, where two of them eventually disagree and the disagreement is invisible.
+
+**Rejected also:** deriving `condaDependencyLicenseAudit` from a file sitting next to the scroll.
+That field carries enforcement — declaring it means the build fails when the lock no longer matches
+what was reviewed — and a guarantee that switches itself on because of a file's presence is a
+guarantee nobody decided to make. It stays explicit; it costs one line.
+
+### The hash on a local file is a pin, not a checksum
+
+`assets` arrive over a network nobody controls, so their size and hash are mandatory: that check is
+the only thing standing between a replaced upstream file and a silently different box.
+`localFiles` come out of the project's own checkout, where git already records what changed, and
+what ships is hashed into the signed release regardless. Requiring a hash there bought little and
+cost a great deal: every edit to a generated entry point failed the next build until its digest was
+recomputed by hand, which taught authors to distrust the check rather than rely on it.
+
+`sha256` on a local file is therefore optional, and means *pin this*. A project pins what must not
+change without review — a licence notice, a reviewed shim — and leaves the pin off what it is still
+writing. A pinned file that drifts still fails the build.
+
+### A self-test belongs in a file
+
+`selfTest.pythonCode` puts Python inside a JSON string, with escaped newlines and no syntax
+highlighting, no linter and no readable diff. It suits a single assertion and nothing more.
+`selfTest.pythonFile` names a file in the project instead; it is read at build time and executed
+from the payload root, so it can read what the box ships and import what it packs. The two are
+mutually exclusive, and `new scroll` generates the file rather than leaving the field empty.
+
+### One box's targets share a scroll
+
+Three targets of one box agreed about ninety-odd lines and differed in four. Every change had to be
+made three times, correctly, and a divergence nobody intended stayed invisible until a user hit it.
+
+A scroll may now be split: `scrolls/<boxId>/scroll.json` holds what the targets share, and each
+`scrolls/<boxId>/<targetId>/scroll.json` declares `extends` plus its own differences. The two halves
+are joined before anything else happens, and that joined result — the effective scroll — is what the
+schema validates, what the build reads, and what provenance records.
+
+**Rejected:** a free path for `extends`. A path parameter invites traversal screening, chains of
+bases, and a scroll that reaches outside its workspace. The value is fixed at `"../scroll.json"`, so
+the base is always the box directory's own file: nothing to get wrong, and one level rather than a
+hierarchy.
+
+**Rejected also:** generating the target files from one command and leaving them independent
+afterwards. That solves writing them once and nothing else; the duplication returns at the first
+edit, which is where it actually hurts.
+
+#### The join rule is per field
+
+A single blanket rule is wrong in both directions. Replacing everything makes a fragment that adds
+one asset lose the shared ones. Merging everything leaves `execution` half from each half — a
+`python-script` carrying a `module` inherited from the base, an object no author wrote.
+
+So: scalars and the cohesive objects (`target`, `execution`, `parity`) are replaced. Payload entry
+lists and string lists are joined base-first. `compatibility` and `environment` are joined key by
+key, because both hold independent entries that a base and a target legitimately contribute to — a
+shared floor plus a macOS-only one, shared variables plus a CUDA-only one. The extra self-test Python
+is one slot with two spellings, so a fragment naming either replaces both.
+
+The two list rules differ deliberately. A prune path or an import repeated by both halves is the same
+instruction twice, so the repeat is dropped. A `relativePath` claimed by both is two different
+sources for one file in the box — the second would silently overwrite the first — so it is an error.
+**Rejected:** resolving that conflict by precedence. A rule saying which source wins is a rule
+nobody remembers at the moment it matters, and the loser vanishes without a word.
+
+Order is declaration order, base first, and nothing is sorted. Determinism asks that one pair of
+files always produce one result, which declaration order already gives. The visible consequence is
+stated rather than hidden: a split scroll and a hand-written whole one hold the same entries, while a
+joined map may serialise its keys in a different order. **Rejected:** sorting the joined keys, which
+would change the bytes of every box whose map was not already alphabetical, to fix nothing.
+
+### The values nobody can type are not typed
+
+An asset's `sizeBytes` and `sha256` cannot be known without fetching the file, so writing a scroll by
+hand meant downloading it, hashing it and pasting two values per asset — for every target. `add
+asset` fetches once and records what it found. This does not weaken the check it feeds: the
+guarantee has always been that those values are pinned once and verified on every build, and that is
+unchanged. What changes is who does the transcription.
+
+`add file`, `add dep`, `remove` and `edit scroll` follow from the same idea. **Rejected:** commands
+that only add. A tool where arriving is a command and leaving is a hand edit has not removed the
+hand edit, it has moved it.
+
+Every edit is atomic and then verified against the whole box, not just the file it touched: a base
+and its fragments only mean something together, so an entry added to the base can collide with one a
+fragment already declares. If the result would not load, the originals go back. **Rejected:** writing
+first and reporting afterwards, which turns one bad command into a box nobody can build until
+someone works out what changed.
+
+### `refresh` maintains pins; it does not launder them
+
+A `localFiles` pin says "this must not change without review". After a reviewed change the digest has
+to move, and doing that by hand is the toil the pin never meant to impose — so `refresh` recomputes
+it.
+
+A remote asset's hash is a different thing: it is what stands between a replaced upstream file and a
+silently different box. **Rejected:** refreshing those the same way. If `refresh` re-fetched and
+rewrote them, every substitution upstream would be adopted without a word and the next build would go
+green — the protection removed by the command meant to maintain it. So the network is untouched
+unless asked, a difference is reported and refused, and accepting it takes a separate, explicit
+`--repin`.
+
+### A dependency is added to the manifest; the lock still pins it
+
+`add dep` writes `name = "*"` and lets `pixi.lock` — committed and reviewed — record the version
+actually solved. **Rejected:** looking up the newest version and writing it into the manifest. That
+puts a second, weaker pin beside the real one and leaves the two to drift, and it makes the same
+command produce different manifests on different days.
+
+Importing a `requirements.txt` translates PyPI names to conda-forge where the tool is sure and
+lowercases otherwise, and reports every rename and every skip. **Rejected:** a large mapping table
+applied silently. A name guessed wrongly gives a lock that resolves and a box that cannot import what
+it was built for — a failure that arrives long after the command that caused it.
+
+### Two committed Python versions instead of a lookup
+
+`new scroll` defaults to one minor behind the newest Python conda-forge publishes, and
+`--python-version latest` resolves to the newest itself. Both are constants in the repository, moved
+deliberately at release time by `npm run python:bump`.
+
+**Rejected:** resolving the newest Python on each invocation. That would make the same command
+produce different scrolls in different months, which is precisely the variability a scroll exists to
+eliminate. `latest` resolves once, at authoring time, and the resolved number — never the word — is
+what the file records.
+
+**Rejected also:** defaulting to the newest release. conda-forge builds the heavy compiled packages
+for a new minor months after the interpreter lands, so that default hands a first-time user a solve
+that cannot succeed, with an error that says nothing about why.
 
 ## Scrolls are grouped by box, then target
 

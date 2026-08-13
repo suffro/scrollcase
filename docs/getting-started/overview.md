@@ -110,9 +110,20 @@ Run:
 scrollcase new scroll
 ```
 
-This optional guided command creates one target-specific `scroll.json` and `pixi.toml` with real
-project metadata, without overwriting existing source or scroll files. The generated example can
-instead be used for the first walkthrough.
+This optional guided command asks four questions — the target, the box id, the upstream revision of
+what is being packaged, and where boxes will be published — and creates one target-specific
+`scroll.json`, its `pixi.toml` and a starter `self_test.py`, without overwriting existing source or
+scroll files. The generated example can instead be used for the first walkthrough.
+
+What the scroll then declares is added by command rather than by hand:
+
+```bash
+scrollcase add asset my-model https://…/model.safetensors   # downloads once, records size and hash
+scrollcase add file my-model runtime/entrypoint.py
+scrollcase add dep my-model onnxruntime
+```
+
+See [the CLI reference](/reference/cli#add) for `remove`, `edit scroll` and `refresh`.
 
 ### 4. Generate a Signing Key
 
@@ -153,7 +164,7 @@ Version: 1.0.0
 Operating system: macOS
 Architecture: Apple Silicon
 Accelerator: Metal
-Python: 3.11
+Python: 3.14
 Dependencies: PyTorch, NumPy, model-x library
 Weights: URL, file size, SHA-256
 Tests: import torch, import model_x
@@ -171,7 +182,7 @@ Conceptual example:
 # pixi.toml
 
 [dependencies]
-python = "3.11.*"
+python = "3.14.*"
 pytorch = "2.*"
 numpy = "2.*"
 ```

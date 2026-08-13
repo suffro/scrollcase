@@ -130,13 +130,17 @@ scrollcase new scroll
 ```
 
 The generated example is already ready for the remaining walkthrough steps, so you can skip this
-command for a first build. Use the wizard for real project metadata: it asks for
-box/model/runtime identity, the complete target, versions, compatibility, asset base URL, weights
-mode, and execution kind. It creates `scrolls/<boxId>/<targetId>/scroll.json` and the matching
-`pixi.toml`, then prints the exact reference to use next.
+command for a first build. Use the wizard for real project metadata. It asks four questions — the
+complete target, the box id, the upstream revision of what you are packaging, and the base URL
+boxes will be published under — plus menus for weights mode and execution kind. Each one prints a
+line saying what the field is before asking for it. Everything else has a default and is available
+as a flag. A blank answer to a required question repeats it rather than ending the session.
+
+It creates `scrolls/<boxId>/<targetId>/` with `scroll.json`, the matching `pixi.toml` and a starter
+`self_test.py`, then prints the exact reference to use next.
 
 For CI or another non-terminal caller, provide the equivalent flags shown by
-`scrollcase help`. Missing material input fails before any file is written.
+`scrollcase help`. Missing input that has no default fails before any file is written.
 
 ## 5. `doctor` — check the machine
 
@@ -252,5 +256,7 @@ on the builder but are not carried by the signed release.
 - See how the whole pipeline fits together: [Architecture](/concepts/architecture).
 
 The repository also ships a proven example,
-[`examples/hello-box/macos-aarch64-metal`](https://github.com/suffro/scrollcase/tree/main/examples/hello-box/macos-aarch64-metal),
-with a committed lock — the same walkthrough with nothing left to fill in.
+[`examples/hello-box`](https://github.com/suffro/scrollcase/tree/main/examples/hello-box), with a
+committed lock per target — the same walkthrough with nothing left to fill in, and a worked
+[split scroll](/reference/scroll#one-box-several-targets): one base file plus a short fragment for
+each of its three targets.

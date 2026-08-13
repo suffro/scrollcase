@@ -62,7 +62,7 @@ describe('CLI target selection', () => {
     expect(selected.targetId).toBe('macos-aarch64-cpu');
     expect(menu).toHaveBeenCalledWith(
       ['macos-aarch64-cpu', 'macos-aarch64-metal'],
-      { initialIndex: 1 },
+      { hint: null, initialIndex: 1 },
     );
   });
 
@@ -349,7 +349,7 @@ describe('CLI build choices', () => {
     expect(menu).toHaveBeenCalledWith(
       'channel',
       ['beta', 'stable', 'nightly'],
-      { initialIndex: 0 },
+      { hint: null, initialIndex: 0 },
     );
   });
 

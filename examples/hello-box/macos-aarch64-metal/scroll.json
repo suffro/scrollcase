@@ -1,28 +1,19 @@
 {
-  "schemaVersion": 2,
-  "scrollVersion": "1.0.0",
-  "boxId": "hello-box",
-  "modelId": "example-org-hello",
-  "runtimeId": "hello-box-runtime",
-  "version": "1.0.0",
-  "sourceRevision": "example-hello-v1",
-  "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
-  "compatibility": { "minHostAppVersion": "1.0.0", "minMacosVersion": "13.0", "minRamGb": 1 },
-  "pythonVersion": "3.11",
-  "pixiVersion": "0.73.0",
+  "extends": "../scroll.json",
+  "target": {
+    "platform": "macos",
+    "arch": "aarch64",
+    "accelerator": "metal"
+  },
+  "compatibility": {
+    "minMacosVersion": "13.0"
+  },
   "condaDependencyLicenseAudit": "examples/hello-box/macos-aarch64-metal/conda-licenses.json",
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/hello",
-  "environment": {},
-  "assetBaseUrl": "https://assets.example.org/boxes",
-  "assets": [],
   "localFiles": [
     {
       "sourcePath": "examples/hello-box/macos-aarch64-metal/entrypoint.py",
       "relativePath": "entrypoint.py",
       "sha256": "9267859ac54e0e2f866113e10a872f3cfd745d7c247dc196d14b3a093f4636f2"
     }
-  ],
-  "selfTest": { "imports": ["json", "sqlite3"], "files": ["entrypoint.py"] },
-  "execution": { "kind": "python-script", "script": "entrypoint.py", "defaultArgs": [] }
+  ]
 }

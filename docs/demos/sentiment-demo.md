@@ -148,16 +148,29 @@ stdout and keep preparation output on stderr.
 
 ## What you write
 
-Two files, created by `scrollcase new scroll` and then filled in:
+Three CPU targets that package the same model agree about everything except the target itself, so
+the demo is a [split scroll](/reference/scroll#one-box-several-targets):
 
-- **`scroll.json`** — identity and target, the three model files as commit-pinned assets with
-  their sizes and SHA-256, the offline environment, the self-test, and the licence files to carry
-  into the box.
-- **`pixi.toml`** — four conda dependencies: `python`, `onnxruntime`, `tokenizers`, `numpy`.
+```text
+examples/sentiment-demo/
+  scroll.json                      # everything the three targets share
+  shared/                          # entrypoint, model notice, Apache-2.0 text
+  linux-x86_64-cpu/scroll.json     # extends + target + its licence audit path
+  macos-aarch64-cpu/scroll.json
+  windows-x86_64-cpu/scroll.json
+```
 
-`lock` and `audit` then write `pixi.lock` and `conda-licenses.json` next to them. The entrypoint,
-the model notice and the Apache-2.0 licence text already sit in the repository; `--script` hashes
-the entrypoint into the scroll for you, so no hash is ever typed by hand.
+The base carries the identity, the three model files as commit-pinned assets with their sizes and
+SHA-256, the offline environment, the self-test and the licence files to carry into the box. Each
+target file is nine lines. A change to the model is one edit, not three.
+
+Beside every target sits its own **`pixi.toml`** — four conda dependencies: `python`,
+`onnxruntime`, `tokenizers`, `numpy` — because the solved environment is what genuinely differs.
+`lock` and `audit` then write `pixi.lock` and `conda-licenses.json` next to it.
+
+No hash is typed by hand anywhere. `scrollcase add asset` fetches each model file once and records
+the size and SHA-256 it found; the notices and the entrypoint are pinned, and
+[`scrollcase refresh`](/reference/cli#refresh) moves those digests after a reviewed change.
 
 The scroll declares `weights: embed`, a 2 GB RAM floor, and `execution` as a `python-script`.
 

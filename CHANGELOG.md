@@ -8,6 +8,45 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added
 
+- **Six commands for changing a scroll that already exists**, so the fields nobody can write by
+  hand are no longer written by hand. `add asset <box> <url>` downloads the URL once and records the
+  `sizeBytes` and `sha256` it found; `add file <box> <path>` records a file from the project;
+  `add dep <box> <name>` writes into the `[dependencies]` table of every one of the box's pixi
+  manifests, with `--from-requirements` to import an existing pip file; `remove asset|file` is the
+  exact inverse of the two adds, self-test entry included; `edit scroll` changes one field, choosing
+  it from a menu built out of the schema; and `refresh` recomputes the pins a project asked for.
+  Every edit is atomic and then read back through the same path a build uses, restoring the
+  originals if the result would not load.
+
+- Refuse two declarations that would write the same file in the box — an asset and a local file
+  pointing at one payload path, or the same path claimed by a base and by a fragment. Whichever the
+  builder staged second silently overwrote the first, and which one that is depended on an ordering
+  nobody chose.
+
+- **Split a scroll across the targets of one box.** `scrolls/<boxId>/scroll.json` holds what the
+  targets share and each `scrolls/<boxId>/<targetId>/scroll.json` declares `extends: "../scroll.json"`
+  plus its own differences; the two halves are joined before validation, and that joined scroll is
+  what the build reads and what provenance records. Three targets that agreed about ninety lines and
+  differed in four had to be edited three times, correctly, and a divergence nobody intended stayed
+  invisible until a user hit it. The join rule is per field: scalars and the cohesive objects
+  (`target`, `execution`, `parity`) are replaced; `assets`, `assetArchives` and `localFiles` are
+  joined base-first and two entries claiming one `relativePath` is an error; `prunePaths`,
+  `uncompressedPaths`, `selfTest.imports` and `selfTest.files` are joined with repeats dropped;
+  `compatibility` and `environment` are joined key by key with the fragment winning a shared key;
+  and the extra self-test Python is one slot, so a fragment naming either spelling replaces both.
+  `extends` takes exactly one value, so a base is always the box directory's own file — no path to
+  get wrong and no chain to follow. Both shipped examples are split accordingly.
+
+- Accept `selfTest.pythonFile` in a scroll: a path to a Python file in the project, run after the
+  declared imports succeed, as an alternative to inlining the same code in `selfTest.pythonCode`.
+  The two are mutually exclusive. A self-test worth writing outgrows a JSON string almost at once,
+  and in a file it keeps its syntax highlighting, its linter and a readable diff. `new scroll`
+  generates a starter `self_test.py` beside the scroll and points the field at it.
+
+- Add `npm run python:bump` (`scripts/bump-python-version.mjs`), which moves the two committed Python
+  version constants at release time by asking conda-forge what it publishes. `--check` fails when a
+  bump is due, and `--latest <version>` sets them without touching the network.
+
 - Add the `sentiment-demo` example: a DistilBERT SST-2 classifier, quantised to INT8 in ONNX form,
   packed for Linux, macOS and Windows on CPU. It is the first example carrying a real model, so it
   exercises commit-pinned assets verified by size and SHA-256, `weights: embed`, an offline
@@ -22,6 +61,44 @@ All notable changes to Scrollcase are documented here. The format follows
   generated manifest with Cargo.
 
 ### Changed
+
+- `target` is no longer required by the scroll schema. Every scroll a build reads still declares
+  one — the reader refuses a scroll without it — but the base of a split scroll legitimately has
+  none, and requiring it in the schema would make every base file light up in an editor.
+
+- **Make a scroll declare decisions rather than restate them.** `scrollVersion`, `compatibility`,
+  `pythonEntryPoint`, `modelCacheSubdir`, `assets` and `selfTest.files` are no longer required: they
+  are derived when the scroll is read, in one place, so everything downstream still sees a complete
+  object. `pythonEntryPoint` is the clearest case — the target admits exactly one value and the
+  reader rejected any other, so requiring it obliged the author to type the string already implied.
+  Declaring a derived field remains valid and produces an identical result, and a declared
+  interpreter that disagrees with its target is still refused.
+
+- **`localFiles[].sha256` is now an optional pin.** An asset arrives over a network nobody controls;
+  a local file comes out of the project's own checkout, and what ships is hashed into the signed
+  release either way. Requiring the pin mainly meant that editing a generated entry point failed the
+  next build until its digest was recomputed by hand. Declare `sha256` on what must not change
+  without review — a licence notice, a reviewed shim — and the build still refuses a file that
+  drifted from it. `new scroll` no longer writes a pin for the script it records.
+
+- **`scrollcase new scroll` asks four questions instead of nine**, and no longer prompts for the four
+  optional host constraints. What remains is what nothing else can answer: the target, the box id,
+  the upstream revision, and the base URL boxes are published under. `modelId`, `runtimeId`,
+  `version`, `scrollVersion` and the Python version take defaults; `pixiVersion` defaults to the
+  pixi actually installed, since `build` refuses any other. Every one of them is still a flag.
+
+- Print one line above every `new scroll` question and menu saying what the field is. A label such
+  as `Upstream revision` or `Asset base URL` does not explain itself to someone meeting the tool for
+  the first time, and both answers end up in a signed document.
+
+- A blank answer to a required prompt now repeats the question instead of ending the session. Losing
+  every value already typed punished a slip out of all proportion to it.
+
+- `--python-version` accepts `latest`, resolved once at authoring time to a number that is written
+  into the scroll — never the word. The default moved to one minor behind the newest Python
+  conda-forge publishes; both are committed constants rather than a per-invocation lookup, because a
+  version that changed with the calendar would make the same command produce different scrolls in
+  different months.
 
 - Default every interactive `scrollcase init` yes/no question to yes and render it as `[Y/n]`,
   including the Node, Python, Rust, Python fallback, and managed-toolchain offers. Non-interactive

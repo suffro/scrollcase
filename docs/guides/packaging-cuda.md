@@ -42,16 +42,12 @@ only CUDA ABI the contract accepts.
     "minNvidiaDriverVersion": "550.54.14",
     "minRamGb": 16
   },
-  "pythonVersion": "3.11",
+  "pythonVersion": "3.14",
   "pixiVersion": "0.73.0",
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/my-model",
   "assetBaseUrl": "https://assets.example.org/boxes",
-  "assets": [],
   "selfTest": {
     "imports": ["torch"],
-    "files": [],
-    "pythonCode": "import torch; assert torch.cuda.is_available(), 'CUDA runtime not usable'; assert torch.version.cuda.startswith('12.4')"
+    "pythonFile": "scrolls/my-model/linux-x86_64-cuda12.4/self_test.py"
   }
 }
 ```
@@ -62,7 +58,13 @@ Three things are CUDA-specific:
    becomes part of the target ID, the archive name, and the object key.
 2. **`minNvidiaDriverVersion`** in `compatibility` — copied verbatim into the release manifest for
    the installing host to check. Scrollcase never interprets it.
-3. **A `pythonCode` self-test that actually exercises the GPU** — see below.
+3. **A self-test that actually exercises the GPU** — see below.
+
+`pythonEntryPoint`, `modelCacheSubdir` and an empty `assets` list are left out: the target and the
+box identity already determine them, and they are filled in when the scroll is read. A box that
+ships both a CUDA and a CPU target should keep what they share in one
+[base scroll](/reference/scroll#one-box-several-targets), with `cudaVersion`,
+`minNvidiaDriverVersion` and the GPU self-test in the CUDA fragment.
 
 ## The pixi manifest
 
@@ -80,7 +82,7 @@ platforms = ["linux-64"]
 cuda = "12.4"
 
 [dependencies]
-python = "3.11.*"
+python = "3.14.*"
 pytorch = { version = "2.*", build = "cuda*" }
 cuda-version = "12.4.*"
 ```
@@ -126,11 +128,19 @@ self-test to something that passes without a device, and you lose the check that
 The failure this guide exists to prevent is a box that solves, packs, installs, and then runs on
 the CPU — CPU-only wheels shipped under a CUDA target ID. Three layers catch it:
 
-**1. The self-test.** The cheapest and most direct:
+**1. The self-test.** The cheapest and most direct. It runs with the box's own interpreter, so a
+CPU-only wheel fails it:
 
-```jsonc
-"pythonCode": "import torch; assert torch.cuda.is_available(); assert torch.version.cuda.startswith('12.4')"
+```python
+# scrolls/my-model/linux-x86_64-cuda12.4/self_test.py
+import torch
+
+assert torch.cuda.is_available(), "CUDA runtime not usable inside the box"
+assert torch.version.cuda.startswith("12.4"), f"built against CUDA {torch.version.cuda}"
 ```
+
+A single assertion can also go inline as `selfTest.pythonCode`, but anything longer belongs in a
+file the editor and the linter can see — which is what `selfTest.pythonFile` names.
 
 **2. The parity gate.** Run a real computation on CPU and on CUDA and require the results to
 agree within a declared tolerance:
@@ -166,9 +176,16 @@ two boxes:
 ```text
 scrolls/
 └── my-model/
+    ├── scroll.json              # what both ABIs share
     ├── linux-x86_64-cuda12.4/
     └── linux-x86_64-cuda12.8/
 ```
+
+Two ABIs of one model agree about everything except the ABI, so this is the case a
+[split scroll](/reference/scroll#one-box-several-targets) is for: the base holds the identity, the
+dependencies and the self-test, and each fragment declares its `cudaVersion` and its
+`minNvidiaDriverVersion`. The `pixi.toml` and `pixi.lock` stay per target, since the solve is what
+differs.
 
 They share a `boxId` and `version` and differ in target, so they publish under distinct object
 keys and a client picks the one matching its driver:
@@ -186,8 +203,8 @@ the box does not need at run time, and let the self-test guard the prune:
 ```jsonc
 "prunePaths": [
   "venv/share/doc",
-  "venv/lib/python3.11/site-packages/torch/test",
-  "venv/lib/python3.11/site-packages/torch/include"
+  "venv/lib/python3.14/site-packages/torch/test",
+  "venv/lib/python3.14/site-packages/torch/include"
 ],
 "selfTest": { "imports": ["torch"], "files": [], "pythonCode": "import torch; assert torch.cuda.is_available()" }
 ```

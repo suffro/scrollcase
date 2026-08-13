@@ -50,11 +50,26 @@ import { getWorkspace } from './workspace.mjs';
 const SELF_TEST_TIMEOUT_SECONDS = 180;
 const sha256Hex = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+/**
+ * The extra self-test Python a scroll declares, read from the file it names or taken inline.
+ *
+ * A real self-test outgrows a JSON string quickly, so `pythonFile` points at a file in the project
+ * that an editor, a linter and a diff can all see. It is read here rather than at scroll-read time
+ * because it is build input, not part of the box format.
+ */
+async function selfTestExtraCode(scroll, projectRoot) {
+  const { pythonCode, pythonFile } = scroll.selfTest;
+  if (!pythonFile) return pythonCode ?? null;
+  const path = join(projectRoot, safeRelativePath(pythonFile));
+  if (!await fileExists(path)) fail(`Self-test Python file is missing: ${pythonFile}`);
+  return readFile(path, 'utf8');
+}
+
 /** Runs the scroll's self-test with the payload's own interpreter, under the target's environment. */
-function runSelfTest({ interpreter, adapter, scroll, payloadDir, run }) {
+function runSelfTest({ interpreter, adapter, scroll, payloadDir, run, extraCode = null }) {
   const imports = `import ${scroll.selfTest.imports.join(', ')}`;
-  const code = scroll.selfTest.pythonCode
-    ? `${adapter.selfTestPython}\n${imports}\n${scroll.selfTest.pythonCode}`
+  const code = extraCode
+    ? `${adapter.selfTestPython}\n${imports}\n${extraCode}`
     : `${adapter.selfTestPython}\n${imports}`;
   run(interpreter, ['-c', code], {
     cwd: payloadDir,
@@ -216,7 +231,14 @@ export async function buildBox(name, options = {}) {
     files: new Set(await collectFiles(payloadDir)),
   });
   log('Running self-test');
-  runSelfTest({ interpreter, adapter, scroll, payloadDir, run });
+  runSelfTest({
+    interpreter,
+    adapter,
+    scroll,
+    payloadDir,
+    run,
+    extraCode: await selfTestExtraCode(scroll, workspace.root),
+  });
   // Parity runs after the self-test, on the same payload: there is no point comparing accelerators
   // in a box that cannot import its dependencies in the first place.
   if (scroll.parity) log('Running parity gate');

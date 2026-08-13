@@ -15,7 +15,8 @@
  */
 
 import { createInterface } from 'node:readline/promises';
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { auditScroll } from './build/audit.mjs';
 import {
   createScroll,
@@ -31,10 +32,22 @@ import {
   installTypeScriptConsumerDependencies,
   SCROLLCASE_NPM_VERSION,
 } from './build/consumer-setup.mjs';
+import { addDependency, readRequirements } from './build/dependencies.mjs';
 import { findPixi, pixiLockArguments } from './build/pixi.mjs';
 import { fail, run } from './build/process.mjs';
 import { diagnose, ensureToolchain, initProject } from './build/project.mjs';
 import { scrollCandidates, readScroll } from './build/scroll.mjs';
+import {
+  ALL_TARGETS,
+  addAsset,
+  addFile,
+  editableScrollFields,
+  readScrollFamily,
+  refreshScroll,
+  removeScrollEntry,
+  setScrollField,
+} from './build/scroll-edit.mjs';
+import { chooseBox, chooseEditTarget, chooseScrollEdit } from './cli-edit.mjs';
 import { verifyBox } from './build/verify.mjs';
 import {
   configureWorkspace,
@@ -42,7 +55,7 @@ import {
   SCROLLCASE_CONFIG_FILENAME,
   workspaceOverridesFromFlags,
 } from './build/workspace.mjs';
-import { collectNewScrollOptions } from './cli-authoring.mjs';
+import { collectNewScrollOptions, promptText } from './cli-authoring.mjs';
 import { parseArgs } from './cli-args.mjs';
 import {
   defaultYesConfirmation,
@@ -285,6 +298,124 @@ async function newScroll(flags) {
   step(`Next: scrollcase lock ${result.scrollRef}`);
 }
 
+/** Every box the workspace holds, for the commands that act on one. */
+async function boxIds() {
+  const candidates = await scrollCandidates();
+  return [...new Set(candidates.map(({ reference }) => reference.split('/')[0]))];
+}
+
+/** Box and target, resolved the same way for every editing command. */
+async function editScope(name, flags) {
+  const boxId = await chooseBox({ name: name ?? null, boxIds: await boxIds() });
+  const target = await chooseEditTarget({ boxId, requested: text(flags, 'target') });
+  return { boxId, target };
+}
+
+const reportWritten = (written) => {
+  for (const path of written) info(path);
+};
+
+/** `add asset|file|dep` — record something in a scroll, or in a box's pixi manifests. */
+async function add(kind, positional, flags) {
+  const [name, value] = positional;
+  if (kind === 'dep') return addDep(name, value, flags);
+  if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--target <targetId>|all]`);
+  const { boxId, target } = await editScope(name, flags);
+  const to = text(flags, 'to');
+  const result = kind === 'asset'
+    ? await addAsset({ boxId, target, url: value, to, log: (message) => step(message) })
+    : await addFile({ boxId, target, sourcePath: value, to });
+  success(`Added ${result.entry.relativePath} to ${boxId}${target === ALL_TARGETS ? '' : `/${target}`}`);
+  if (kind === 'asset') info(`${result.entry.sizeBytes} bytes, sha256 ${result.entry.sha256}`);
+  reportWritten(result.written);
+}
+
+/** `add dep` — one dependency, or a whole `requirements.txt`, into every manifest of a box. */
+async function addDep(name, dependency, flags) {
+  const requirements = text(flags, 'from-requirements');
+  if (!dependency && !requirements) {
+    fail('Usage: scrollcase add dep <box> <name> [--version <spec>] | scrollcase add dep <box> --from-requirements <file>');
+  }
+  // A dependency is per environment: every target has its own manifest and its own lock, so where
+  // it goes is the same question the other editing commands ask, answered the same way.
+  const { boxId, target } = await editScope(name, flags);
+  const family = await readScrollFamily(boxId);
+  const manifests = (target === ALL_TARGETS
+    ? family.targets
+    : family.targets.filter(({ targetId }) => targetId === target))
+    .map(({ path }) => join(dirname(path), 'pixi.toml'));
+
+  const wanted = [];
+  if (dependency) wanted.push({ name: dependency, spec: text(flags, 'version') || '*' });
+  if (requirements) {
+    const parsed = readRequirements(await readFile(resolve(getWorkspace().root, requirements), 'utf8'));
+    wanted.push(...parsed.dependencies);
+    // Reported, never silent: a name translated wrongly gives a lock that resolves and a box that
+    // cannot import what it was built for.
+    for (const { from, to } of parsed.renamed) info(`Renamed ${from} to its conda-forge name ${to}`);
+    for (const { line, reason } of parsed.skipped) warning(`Skipped ${line}: ${reason}`);
+  }
+  if (wanted.length === 0) fail(`Nothing to add from ${requirements}.`);
+
+  const written = new Set();
+  for (const { name: packageName, spec } of wanted) {
+    const result = await addDependency({ manifests, name: packageName, spec });
+    for (const path of result.written) written.add(path);
+    success(`${result.replaced ? 'Updated' : 'Added'} ${packageName} = "${spec}"`);
+  }
+  reportWritten([...written]);
+  step(`Next: scrollcase lock ${boxId}`);
+}
+
+/** `remove asset|file` — the inverse of `add`, so leaving is as easy as arriving. */
+async function remove(kind, positional, flags) {
+  const [name, value] = positional;
+  if (!value) fail(`Usage: scrollcase remove ${kind} <box> <payload path> [--target <targetId>|all]`);
+  const { boxId, target } = await editScope(name, flags);
+  const { written, removed } = await removeScrollEntry({
+    boxId,
+    target,
+    field: kind === 'asset' ? 'assets' : 'localFiles',
+    relativePath: value,
+  });
+  success(`Removed ${removed} ${kind}${removed === 1 ? '' : 's'} at ${value}`);
+  reportWritten(written);
+}
+
+/** `edit scroll` — change one field of an existing scroll, with the same checks a build applies. */
+async function editScroll(positional, flags) {
+  if (positional[0] !== 'scroll' || positional.length > 2) {
+    fail('Usage: scrollcase edit scroll [<box>] [--field <name> --value <value>] [--target <targetId>|all]');
+  }
+  const { boxId, target } = await editScope(positional[1], flags);
+  const { field, value } = await chooseScrollEdit({
+    fields: await editableScrollFields(),
+    requestedField: text(flags, 'field'),
+    requestedValue: flags.has('value') ? text(flags, 'value') : null,
+    ask: promptText,
+  });
+  const result = await setScrollField({ boxId, target, field, value });
+  success(`Set ${result.field} to ${result.value}`);
+  reportWritten(result.written);
+}
+
+/** `refresh` — recompute what a scroll pins about the project, and report what upstream changed. */
+async function refresh(name, flags) {
+  const boxId = await chooseBox({ name: name ?? null, boxIds: await boxIds() });
+  const repin = Boolean(flags.get('repin'));
+  const result = await refreshScroll({
+    boxId,
+    repin,
+    checkAssets: Boolean(flags.get('check-assets')),
+    log: (message) => step(message),
+  });
+  for (const sourcePath of result.updated) success(`Re-pinned ${sourcePath}`);
+  for (const relativePath of result.repinned) warning(`Accepted a changed upstream asset: ${relativePath}`);
+  if (result.checked > 0) info(`Checked ${result.checked} remote asset(s)`);
+  if (result.written.length === 0) success(`${boxId} is already in step with the project`);
+  reportWritten(result.written);
+}
+
 /** `doctor` — report whether this machine can build a box. Reads only; never writes. */
 async function doctor(flags) {
   let pixiVersion = text(flags, 'pixi-version');
@@ -421,6 +552,13 @@ function usage() {
 Commands:
   init                       Initialize a workspace with a runnable example
   new scroll                 Create one guided target-specific scroll
+  add asset|file|dep <box> <value>
+                             Record a remote file with the size and hash it has, a file from
+                             this project, or a dependency in the box's pixi manifests
+  remove asset|file <box> <payload path>
+                             Drop what add recorded
+  edit scroll [<box>]        Change one field of an existing scroll
+  refresh [<box>]            Re-pin what the scroll declares about this project
   doctor                     Report whether this machine can build a box
   keygen                     Create a local ed25519 signing key
   lock [<scroll>]            Resolve the scroll's pixi manifest into pixi.lock
@@ -441,17 +579,20 @@ Init options:
                              root. Missing Conda offers a PyPI fallback.
 
 New scroll options:
+                             Interactively it asks four things — target, box id, upstream
+                             revision, and where boxes will be published — and derives the
+                             rest. Every derived value below is still a flag.
   --target <targetId>        Complete target, including the CUDA ABI when applicable
   --box-id <id>              Box identity
-  --model-id <id>            Packaged model identity
-  --runtime-id <id>          Runtime identity
-  --version <version>        Box version
-  --scroll-version <version> Scroll authoring version
   --source-revision <rev>    Upstream source revision recorded in provenance
-  --python-version <version> Python dependency version
-  --pixi-version <version>   pixi resolver version
-  --min-host-app-version <v> Minimum compatible host application version
   --asset-base-url <url>     Base URL used in built release documents
+  --model-id <id>            Packaged model identity (default: the box id)
+  --runtime-id <id>          Runtime identity (default: <box-id>-runtime)
+  --version <version>        Box version (default 1.0.0)
+  --scroll-version <version> Scroll authoring version (default 1.0.0)
+  --python-version <version> Python dependency version, or latest
+  --pixi-version <version>   pixi resolver version (default: the installed pixi)
+  --min-host-app-version <v> Minimum compatible host application version
   --weights <mode>           embed or on-demand
   --execution <kind>         python-script, python-module, or library-only
   --script <path>            Existing project script for python-script
@@ -464,7 +605,25 @@ New scroll options:
   --min-macos-version <v>
   --min-ram-gb <number>
   --min-nvidia-driver-version <v>
-                             Without a terminal, every material value must be supplied.
+                             Without a terminal, every value without a default must be supplied.
+
+Add, remove and edit options:
+  --target <targetId>|all    Which of the box's scrolls to change. "all" means what the targets
+                             share: the base of a split scroll, or every target file when there
+                             is no base. Without it, a box with one target uses that one and a
+                             box with several asks; without a terminal it stops instead.
+  --to <payload path>        Where the file lands inside the box. Defaults to the URL's last
+                             segment under the model cache, or the file's own name at the root.
+  --version <spec>           Version constraint for add dep (default *, letting the lock pin it)
+  --from-requirements <file> Read dependencies from a pip requirements.txt instead
+  --field <name>             Field for edit scroll; without it, a menu built from the schema
+  --value <value>            Its new value
+
+Refresh options:
+  --check-assets             Also re-fetch remote assets and report any that changed. Off by
+                             default because it downloads every one of them.
+  --repin                    Accept those changes into the scroll. Check why upstream changed
+                             before using it: a hash is what makes a substituted file fail.
 
 Doctor options:
   --scroll <name>            Take the required pixi version from this scroll
@@ -557,6 +716,22 @@ async function main() {
     }
     return newScroll(flags);
   }
+  if (command === 'add') {
+    const [kind, ...rest2] = positional;
+    if (!['asset', 'file', 'dep'].includes(kind)) {
+      fail('Usage: scrollcase add asset|file|dep <box> <value> [options]');
+    }
+    return add(kind, rest2, flags);
+  }
+  if (command === 'remove') {
+    const [kind, ...rest2] = positional;
+    if (!['asset', 'file'].includes(kind)) {
+      fail('Usage: scrollcase remove asset|file <box> <payload path> [options]');
+    }
+    return remove(kind, rest2, flags);
+  }
+  if (command === 'edit') return editScroll(positional, flags);
+  if (command === 'refresh') return refresh(positional[0], flags);
   if (command === 'doctor') return doctor(flags);
   if (command === 'keygen') return keygen(flags);
   if (command === 'audit') return audit(positional[0] || fail('audit requires a scroll name.'), flags);

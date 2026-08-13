@@ -158,8 +158,8 @@ what is missing. Silence is not consent.
 ::: tip Pin the version you want
 `--pixi-version 0.73.0` uses exactly that release for both the generated example and an approved
 managed install. With `--no-example`, omitting the flag uses the installed release or newest
-available release for the workspace toolchain. `new scroll` asks which exact version each project
-scroll requires.
+available release for the workspace toolchain. `new scroll` pins the pixi it finds installed, since
+`build` refuses any other; pass `--pixi-version` to pin a different one.
 :::
 
 ## Install the toolchain yourself

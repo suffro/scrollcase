@@ -195,12 +195,22 @@ describe('the build pipeline', () => {
     commit = true,
     dirName = null,
     projectFiles = {},
+    base = null,
   } = {}) {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'scrollcase-build-')));
     created.push(root);
-    const resolvedDirName = dirName ?? `${scroll.boxId}/${boxTargetId(scroll.target)}`;
+    // With a base, `scroll` is the target's fragment: the identity that names the directories comes
+    // from the two halves together, exactly as the reader will join them.
+    const identity = base ? { ...base, ...scroll } : scroll;
+    const resolvedDirName = dirName ?? `${identity.boxId}/${boxTargetId(identity.target)}`;
     const scrollDir = join(root, 'scrolls', resolvedDirName);
     await mkdir(scrollDir, { recursive: true });
+    if (base) {
+      await writeFile(
+        join(root, 'scrolls', identity.boxId, 'scroll.json'),
+        `${JSON.stringify(base, null, 2)}\n`,
+      );
+    }
     await writeFile(join(scrollDir, 'scroll.json'), `${JSON.stringify(scroll, null, 2)}\n`);
     await writeFile(join(scrollDir, 'pixi.toml'), '[project]\nname = "example-model"\n');
     await writeFile(join(scrollDir, 'pixi.lock'), 'version: 6\n');
@@ -221,7 +231,7 @@ describe('the build pipeline', () => {
       publicPath: join(root, '.scrollcase', 'keys', 'signing-public.json'),
     };
     await generateSigningKey(keys);
-    const scrollId = scroll.scrollId ?? `${scroll.boxId}-${boxTargetId(scroll.target)}`;
+    const scrollId = identity.scrollId ?? `${identity.boxId}-${boxTargetId(identity.target)}`;
     return { root, scrollDir, keys, payloadDir: join(root, '.scrollcase', 'build', scrollId, 'payload') };
   }
 
@@ -302,6 +312,15 @@ describe('the build pipeline', () => {
       }],
     }],
     ['empty imports', { ...SCROLL, selfTest: { imports: [], files: [] } }],
+    ['a self-test that is both inline and in a file', {
+      ...SCROLL,
+      selfTest: {
+        imports: ['json'],
+        files: [],
+        pythonCode: 'assert True',
+        pythonFile: 'checks/self_test.py',
+      },
+    }],
     ['an escaping payload path', {
       ...SCROLL,
       assets: [{
@@ -853,6 +872,39 @@ describe('the build pipeline', () => {
     expect(second.archiveSha256).toBe(first.archiveSha256);
   });
 
+  it('rebuilds a split scroll byte-identically', async () => {
+    const { scrollId: _scrollId, target, ...shared } = SCROLL;
+    const { keys, payloadDir } = await makeProject(
+      { extends: '../scroll.json', target },
+      { base: shared },
+    );
+    const first = await buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} });
+    const second = await buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} });
+
+    expect(second.archiveSha256).toBe(first.archiveSha256);
+  });
+
+  it('builds and signs a split scroll from the joined declarations, not one half', async () => {
+    // Comparing a split build's archive against a whole build's is not available: the two live in
+    // different checkouts, so their provenance differs by construction. What can be proved is that
+    // every value reaching the signed release came from the join. `readScroll` equivalence is
+    // covered separately in scroll-extends.test.mjs.
+    const { scrollId: _scrollId, target, ...shared } = SCROLL;
+    const { keys, payloadDir } = await makeProject(
+      { extends: '../scroll.json', target, version: '2.0.0' },
+      { base: { ...shared, scrollVersion: '3.1.0' } },
+    );
+    const built = await buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} });
+    const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
+
+    // One value from each half, so a record built from either file alone would be wrong.
+    expect(release.version).toBe('2.0.0');
+    expect(release.provenance.scrollVersion).toBe('3.1.0');
+    expect(release.provenance.sourceRevision).toBe(SCROLL.sourceRevision);
+    expect(release.provenance.scrollId).toBe(`${SCROLL.boxId}-${boxTargetId(target)}`);
+    expect(release.target).toEqual(target);
+  });
+
   it('keeps execution metadata byte-identical across rebuilds', async () => {
     const execution = {
       kind: 'python-module',
@@ -893,6 +945,37 @@ describe('the build pipeline', () => {
     const { keys, payloadDir } = await makeProject(SCROLL, { commit: false });
     await expect(buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} }))
       .rejects.toThrow(/git checkout/);
+  });
+
+  it('runs the self-test Python a scroll keeps in a file', async () => {
+    const source = 'assert 2 + 2 == 4, "arithmetic is broken"\n';
+    const scroll = {
+      ...SCROLL,
+      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+    };
+    const { keys, payloadDir } = await makeProject(scroll, {
+      projectFiles: { 'checks/self_test.py': source },
+    });
+    let executed = null;
+    await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir, { onSelfTest: ({ args }) => { executed = args[1]; } }),
+      log: () => {},
+    });
+
+    // The file's own bytes reach the interpreter: reading it and never running it would leave the
+    // check green while the box shipped untested.
+    expect(executed).toContain(source.trim());
+  });
+
+  it('fails the build when the self-test file a scroll names is gone', async () => {
+    const scroll = {
+      ...SCROLL,
+      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+    };
+    const { keys, payloadDir } = await makeProject(scroll);
+    await expect(buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} }))
+      .rejects.toThrow(/Self-test Python file is missing/);
   });
 
   it('fails the build when pruning removed a file the self-test needs', async () => {

@@ -4,12 +4,55 @@
  * This is a CLI-edge module: finite decisions use the shared navigable menu, free-form values use
  * explicit text prompts, and a non-terminal process must provide every material value as a flag.
  * The build layer receives one complete object and never reads a terminal.
+ *
+ * Only what nobody else can answer is asked. An identity that follows from the box name, a version
+ * with an obvious starting point, and the pixi already installed are defaults, not questions —
+ * every one of them is still a flag for the caller who cares. A session that asked nine questions to
+ * produce a file whose answers were nearly all forced is a session that taught the user the tool is
+ * tedious.
  */
 
 import { createInterface } from 'node:readline/promises';
+import {
+  DEFAULT_PYTHON_VERSION,
+  EXAMPLE_PIXI_VERSION,
+  resolvePythonVersion,
+} from './build/authoring.mjs';
+import { probePixi } from './build/pixi.mjs';
 import { fail } from './build/process.mjs';
 import { chooseCliValue } from './cli-menu.mjs';
 import { chooseTarget, cliTargetFamilies, parseCliTarget } from './cli-targets.mjs';
+
+const MAX_PROMPT_ATTEMPTS = 5;
+
+/**
+ * One line of prose per question, printed above it.
+ *
+ * A field name is a label, not an explanation. `sourceRevision` and `assetBaseUrl` in particular
+ * mean nothing to someone meeting the tool for the first time, and a wrong answer to either is
+ * recorded in a signed document. Kept to a single line each: a paragraph in front of every prompt
+ * is skipped as reliably as no help at all.
+ */
+const HINTS = Object.freeze({
+  target: 'The OS, architecture and accelerator this box is built for. One box, one target.',
+  cudaVersion: 'The CUDA ABI to build against. It is part of the box identity, so 12.4 and 12.8 are different boxes.',
+  boxId: 'Name of the box across all its versions. Used in its directory, its archives and its channel pointer.',
+  sourceRevision: 'Which version of the thing you are packaging this is — a model commit, a release tag. Recorded verbatim in the box provenance.',
+  assetBaseUrl: 'Where you will publish built boxes. The signed release points at it; it does not have to exist yet.',
+  weights: 'embed packs the model inside the box. on-demand leaves it out for the consumer to fetch and verify.',
+  execution: 'What `scrollcase run` starts inside the box: a script file, an importable module, or nothing at all.',
+  scriptSource: 'Point at a Python file you already have, or start from a generated stub.',
+  scriptPath: 'Path from the project root to the Python file the box should run.',
+  module: 'Dotted name of a module importable inside the box, run with python -m.',
+});
+
+/** Host-constraint flags, and the `compatibility` field each one sets. */
+const COMPATIBILITY_FLAGS = Object.freeze({
+  'min-host-app-version': 'minHostAppVersion',
+  'max-host-app-version-exclusive': 'maxHostAppVersionExclusive',
+  'min-macos-version': 'minMacosVersion',
+  'min-nvidia-driver-version': 'minNvidiaDriverVersion',
+});
 
 const flagText = (flags, name) => {
   if (!flags.has(name)) return null;
@@ -18,8 +61,16 @@ const flagText = (flags, name) => {
   return value.trim();
 };
 
-async function promptText(question, {
+/**
+ * Asks once, and keeps asking until a required answer arrives.
+ *
+ * Aborting on an empty answer threw away every value already typed and sent the user back to the
+ * first question, which punishes a slip far out of proportion to it. Repeating the question costs
+ * one line and keeps the session's work.
+ */
+export async function promptText(question, {
   defaultValue = null,
+  hint = null,
   optional = false,
   input = process.stdin,
   output = process.stdout,
@@ -27,10 +78,18 @@ async function promptText(question, {
   const readline = createInterface({ input, output });
   try {
     const suffix = defaultValue === null ? '' : ` [${defaultValue}]`;
-    const value = (await readline.question(`${question}${suffix}: `)).trim();
-    if (value) return value;
-    if (defaultValue !== null) return defaultValue;
-    if (optional) return null;
+    // Printed once, above the prompt: a field name alone rarely says what the field is for, and
+    // repeating the explanation on every retry would bury the answer the user is being asked for.
+    if (hint) output.write(`${hint}\n`);
+    // Bounded, so an input stream that only ever yields blank lines ends in an error rather than a
+    // loop nobody can interrupt.
+    for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt += 1) {
+      const value = String(await readline.question(`${question}${suffix}: `)).trim();
+      if (value) return value;
+      if (defaultValue !== null) return defaultValue;
+      if (optional) return null;
+      output.write(`${question} is required.\n`);
+    }
     fail(`${question} is required.`);
   } finally {
     readline.close();
@@ -56,9 +115,12 @@ async function collectTarget(flags, { terminal, ask, chooseTargetValue }) {
   if (requested) return parseCliTarget(requested);
   if (!terminal) fail('new scroll requires --target <targetId> without a terminal.');
 
-  const selected = await chooseTargetValue(cliTargetFamilies(), { terminal: true });
+  const selected = await chooseTargetValue(cliTargetFamilies(), {
+    terminal: true,
+    hint: HINTS.target,
+  });
   if (selected.target.accelerator !== 'cuda') return parseCliTarget(selected.targetId);
-  const cudaVersion = await ask('CUDA version (major.minor)');
+  const cudaVersion = await ask('CUDA version (major.minor)', { hint: HINTS.cudaVersion });
   return parseCliTarget(`${selected.targetId}${cudaVersion}`);
 }
 
@@ -74,70 +136,60 @@ export async function collectNewScrollOptions(flags, {
   ask = promptText,
   choose = chooseCliValue,
   chooseTargetValue = chooseTarget,
+  probe = probePixi,
 } = {}) {
-  const required = async (flag, question, defaultValue = null) => {
+  const required = async (flag, question, hint) => {
     const supplied = flagText(flags, flag);
     if (supplied !== null) return supplied;
     if (!terminal) fail(`new scroll requires --${flag} <value> without a terminal.`);
-    return ask(question, { defaultValue });
+    return ask(question, { hint });
   };
-  const optional = async (flag, question) => {
-    const supplied = flagText(flags, flag);
-    if (supplied !== null) return supplied;
-    if (!terminal) return null;
-    return ask(question, { optional: true });
-  };
-  const finite = async (flag, question, choices) => {
+  /** A value with a defensible default: taken from the flag, otherwise settled without asking. */
+  const derived = (flag, defaultValue) => flagText(flags, flag) ?? defaultValue;
+  const finite = async (flag, question, choices, hint) => {
     const supplied = flagText(flags, flag);
     if (!supplied && !terminal) {
       fail(`new scroll requires --${flag} <${choices.join('|')}> without a terminal.`);
     }
-    return choose(question, choices, { flag: supplied, terminal });
+    return choose(question, choices, { flag: supplied, hint, terminal });
   };
 
   const target = await collectTarget(flags, { terminal, ask, chooseTargetValue });
-  const boxId = await required('box-id', 'Box ID');
-  const modelId = await required('model-id', 'Model ID');
-  const runtimeId = await required('runtime-id', 'Runtime ID');
-  const version = await required('version', 'Box version', '1.0.0');
-  const scrollVersion = await required('scroll-version', 'Scroll version', '1.0.0');
-  const sourceRevision = await required('source-revision', 'Upstream source revision');
-  const pythonVersion = await required('python-version', 'Python version', '3.11');
-  const pixiVersion = await required('pixi-version', 'pixi version');
-  const minHostAppVersion = await required(
-    'min-host-app-version',
-    'Minimum host application version',
-    '1.0.0',
-  );
-  const compatibility = { minHostAppVersion };
-  const maxHostAppVersionExclusive = await optional(
-    'max-host-app-version-exclusive',
-    'Maximum host application version (exclusive, optional)',
-  );
-  if (maxHostAppVersionExclusive) compatibility.maxHostAppVersionExclusive = maxHostAppVersionExclusive;
-  if (target.platform === 'macos') {
-    const minMacosVersion = await optional('min-macos-version', 'Minimum macOS version (optional)');
-    if (minMacosVersion) compatibility.minMacosVersion = minMacosVersion;
+  const boxId = await required('box-id', 'Box ID', HINTS.boxId);
+  // The upstream revision is the one identity nothing here can supply: it names the version of the
+  // thing being packaged, and inventing it would put a false claim into the box's provenance.
+  const sourceRevision = await required('source-revision', 'Upstream revision', HINTS.sourceRevision);
+  const modelId = derived('model-id', boxId);
+  const runtimeId = derived('runtime-id', `${boxId}-runtime`);
+  const version = derived('version', '1.0.0');
+  const scrollVersion = derived('scroll-version', undefined);
+  const pythonVersion = resolvePythonVersion(derived('python-version', DEFAULT_PYTHON_VERSION));
+  // Pinning the pixi that is actually installed: `findPixi` refuses to build with any other, so a
+  // pinned version the machine does not have is a scroll that cannot be built where it was written.
+  const pixiVersion = derived('pixi-version', probe()?.version ?? EXAMPLE_PIXI_VERSION);
+  // Host constraints are flags only. They are the fields most authors leave empty, and prompting for
+  // four of them taught every user to press Enter four times before reaching the questions that
+  // matter. A project that has a constraint states it; a project that has none says nothing.
+  const compatibility = {};
+  for (const [flag, field] of Object.entries(COMPATIBILITY_FLAGS)) {
+    const value = flagText(flags, flag);
+    if (value) compatibility[field] = value;
   }
-  const minRam = await optional('min-ram-gb', 'Minimum RAM in GB (optional)');
+  const minRam = flagText(flags, 'min-ram-gb');
   if (minRam !== null) {
     const minRamGb = Number(minRam);
     if (!Number.isFinite(minRamGb) || minRamGb <= 0) fail('--min-ram-gb must be a positive number.');
     compatibility.minRamGb = minRamGb;
   }
-  if (target.accelerator === 'cuda') {
-    const minNvidiaDriverVersion = await optional(
-      'min-nvidia-driver-version',
-      'Minimum NVIDIA driver version (optional)',
-    );
-    if (minNvidiaDriverVersion) compatibility.minNvidiaDriverVersion = minNvidiaDriverVersion;
-  }
-  const assetBaseUrl = await required('asset-base-url', 'Asset base URL');
-  const weights = await finite('weights', 'weights mode', ['embed', 'on-demand']);
+  // Not derivable and not optional: the signed release names the URL the archive itself is published
+  // under, so a build has nowhere to point without it.
+  const assetBaseUrl = await required('asset-base-url', 'Asset base URL', HINTS.assetBaseUrl);
+  const weights = await finite('weights', 'weights mode', ['embed', 'on-demand'], HINTS.weights);
   const executionKind = await finite(
     'execution',
     'execution kind',
     ['python-script', 'python-module', 'library-only'],
+    HINTS.execution,
   );
   const defaultArgs = parseDefaultArgs(flagText(flags, 'default-args'));
 
@@ -158,7 +210,7 @@ export async function collectNewScrollOptions(flags, {
     defaultArgs,
   };
   if (executionKind === 'python-module') {
-    result.module = await required('module', 'Python module');
+    result.module = await required('module', 'Python module', HINTS.module);
   } else if (executionKind === 'python-script') {
     const existing = flagText(flags, 'script');
     const generateScript = Boolean(flags.get('generate-script'));
@@ -173,10 +225,10 @@ export async function collectNewScrollOptions(flags, {
       const source = await choose(
         'script source',
         ['existing project script', 'generate starter script'],
-        { terminal: true },
+        { hint: HINTS.scriptSource, terminal: true },
       );
       if (source === 'existing project script') {
-        result.scriptSourcePath = await ask('Project-relative script path');
+        result.scriptSourcePath = await ask('Script path', { hint: HINTS.scriptPath });
       } else result.generateScript = true;
     }
     result.scriptRelativePath = flagText(flags, 'script-destination') ?? 'entrypoint.py';

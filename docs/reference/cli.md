@@ -10,7 +10,7 @@ scrollcase <command> [options]
 scrollcase -v | --version
 ```
 
-Nine verbs: `init`, `new`, `doctor`, `keygen`, `lock`, `audit`, `build`, `verify`, `run`.
+Thirteen verbs: `init`, `new`, `add`, `remove`, `edit`, `refresh`, `doctor`, `keygen`, `lock`, `audit`, `build`, `verify`, `run`.
 `scrollcase help` (or no command) prints the full usage text.
 `scrollcase -v` and `scrollcase --version` print only the installed package version and do not
 require a workspace.
@@ -44,6 +44,10 @@ offered as the default; on macOS, Metal is preferred when both CPU and Metal are
 terminal, the same default is selected and reported; any other ambiguous selection fails and tells
 the caller to pass `--target`. v2 accepts only the nested
 `scrolls/<boxId>/<targetId>/scroll.json` layout.
+
+The editing verbs — `add`, `remove`, `edit` and `refresh` — take a **box**, not a scroll reference,
+because a change may belong to every target of that box or to one of them. Their `--target` answers
+that question and is described under [`add`](#where-an-edit-goes).
 
 ## `init`
 
@@ -125,24 +129,29 @@ The example follows Scrollcase's supported box target matrix. On another host, i
 
 ## `new`
 
-Create one complete `scrolls/<boxId>/<targetId>/` input. With a terminal, free-form values are
-prompted and target, weights, execution kind, and script source use navigable menus. Without a
-terminal, every material value must be supplied explicitly and missing input fails before anything
-is written.
+Create one `scrolls/<boxId>/<targetId>/` input. With a terminal it asks **four questions** — the
+target, the box id, the upstream revision, and the base URL boxes will be published under — plus
+navigable menus for weights, execution kind, and script source. Everything else has a defensible
+default and is a flag rather than a prompt. A required answer left blank repeats the question
+instead of ending the session.
+
+Each question carries one line saying what the field is, printed above the prompt:
+
+```text
+Which version of the thing you are packaging this is — a model commit, a release tag.
+Recorded verbatim in the box provenance.
+Upstream revision:
+```
+
+Without a terminal, every value that has no default must be supplied explicitly, and missing input
+fails before anything is written.
 
 ```sh
 scrollcase new scroll
 scrollcase new scroll \
   --target linux-x86_64-cpu \
   --box-id example-model \
-  --model-id example-org-example-model \
-  --runtime-id example-runtime \
-  --version 1.0.0 \
-  --scroll-version 1.0.0 \
   --source-revision upstream-v1 \
-  --python-version 3.11.15 \
-  --pixi-version 0.73.0 \
-  --min-host-app-version 1.0.0 \
   --asset-base-url https://assets.example.org/boxes \
   --weights embed \
   --execution library-only
@@ -152,19 +161,19 @@ scrollcase new scroll \
 | --- | --- |
 | `--target` | Complete canonical target; CUDA IDs include the ABI, such as `linux-x86_64-cuda12.4` |
 | `--box-id` | Box identity and parent directory |
-| `--model-id` | Packaged model identity |
-| `--runtime-id` | Runtime identity |
-| `--version` | Box version |
-| `--scroll-version` | Version of the authoring input |
 | `--source-revision` | Upstream revision recorded in provenance |
-| `--python-version` | Python dependency version written into `pixi.toml` |
-| `--pixi-version` | Exact resolver version required by `lock` and `build` |
-| `--min-host-app-version` | Required compatibility floor |
+| `--asset-base-url` | Base URL copied into built release metadata |
+| `--model-id` | Packaged model identity. Defaults to the box id |
+| `--runtime-id` | Runtime identity. Defaults to `<box-id>-runtime` |
+| `--version` | Box version. Defaults to `1.0.0` |
+| `--scroll-version` | Version of the authoring input. Defaults to `1.0.0` |
+| `--python-version` | Python dependency version written into `pixi.toml`, or `latest`. Defaults to one minor behind the newest Python conda-forge publishes |
+| `--pixi-version` | Exact resolver version required by `lock` and `build`. Defaults to the installed pixi's version |
+| `--min-host-app-version` | Optional compatibility floor |
 | `--max-host-app-version-exclusive` | Optional compatibility ceiling |
 | `--min-macos-version` | Optional macOS floor |
 | `--min-ram-gb` | Optional positive RAM requirement |
 | `--min-nvidia-driver-version` | Optional NVIDIA driver floor |
-| `--asset-base-url` | Base URL copied into built release metadata |
 | `--weights` | `embed` or `on-demand` |
 | `--execution` | `python-script`, `python-module`, or `library-only` |
 | `--script` | Existing project-relative Python script |
@@ -174,14 +183,135 @@ scrollcase new scroll \
 | `--module` | Strict dotted Python module name |
 | `--default-args` | JSON array of default application arguments |
 
-For `python-script`, choose exactly one of `--script` and `--generate-script`. Scrollcase hashes the
-exact source bytes into `localFiles`, refuses traversal and non-regular sources, and never
-overwrites an existing source or scroll. Generated defaults are grouped by both box and target;
-`library-only` omits execution metadata.
+For `python-script`, choose exactly one of `--script` and `--generate-script`. Scrollcase records the
+source in `localFiles` **without a hash pin**, so the first edit to a freshly generated script does
+not fail its own build; add `sha256` yourself for a file that must not change without review. It
+refuses traversal and non-regular sources, and never overwrites an existing source or scroll.
+Generated defaults are grouped by both box and target; `library-only` omits execution metadata.
+
+Alongside `scroll.json` and `pixi.toml`, `new scroll` writes a `self_test.py` next to them and
+points `selfTest.pythonFile` at it, so the box's own check starts life as real Python rather than
+an escaped JSON string.
+
+`--python-version latest` resolves once, at authoring time, and writes the resulting number into the
+scroll — never the word `latest`. Both it and the default are constants moved deliberately at each
+Scrollcase release by `npm run python:bump`, which asks conda-forge what it publishes: a version
+looked up on every invocation would make the same command produce different scrolls in different
+months.
 
 Execution metadata is copied into the signed release and `box.json`. Before archiving, the builder
 requires a script to remain a regular payload file or a dotted module to be discoverable in the
 built environment without importing it. Library-only scrolls omit the field.
+
+## `add`
+
+Record something in a scroll that already exists, so the fields nobody can write by hand are not
+written by hand.
+
+```sh
+scrollcase add asset <box> <url>  [--to <payload path>] [--target <targetId>|all]
+scrollcase add file  <box> <path> [--to <payload path>] [--target <targetId>|all]
+scrollcase add dep   <box> <name> [--version <spec>] [--target <targetId>|all]
+scrollcase add dep   <box> --from-requirements requirements.txt
+```
+
+`add asset` **downloads the URL once** and records the `sizeBytes` and `sha256` it actually found,
+which are the two values a scroll cannot be written without and no author can know without fetching
+the file. Recording them here changes nothing about the guarantee: they are pinned once and checked
+on every build, exactly as before. `--to` is optional and defaults to the URL's last path segment
+under the box's `modelCacheSubdir`.
+
+`add file` records a file from the project. `--to` defaults to the file's own name at the payload
+root. No `sha256` is written — see [`localFiles`](/reference/scroll#localfiles) — so the first edit
+to a file you just added does not fail your next build.
+
+Both also add the payload path to `selfTest.files`, so an over-eager `prunePaths` cannot quietly
+drop what you just declared.
+
+`add dep` writes into the `[dependencies]` table of the box's `pixi.toml` files, editing the text
+rather than re-emitting the manifest, so comments and spacing survive. The default constraint is
+`*`: `pixi.lock` is the pin that matters and it records the exact version solved, so a second,
+weaker pin in the manifest would only be something else to keep in step. Pass `--version ">=2,<3"`
+when a project wants a bound.
+
+`--from-requirements` reads a pip `requirements.txt` instead. Names are translated to conda-forge
+where Scrollcase is sure and lowercased otherwise, and **every translation and every skip is
+reported** rather than applied quietly: a name translated wrongly gives a lock that resolves and a
+box that cannot import what it was built for. Extras, pip options and direct URLs are skipped with a
+reason.
+
+### Where an edit goes
+
+A box may keep its shared declarations in a base and its differences in per-target fragments (see
+[one box, several targets](/reference/scroll#one-box-several-targets)), so every one of these
+commands has to know which file to write:
+
+| `--target` | Writes to |
+| --- | --- |
+| `all` | What the targets share: the base of a split scroll, or every target file when there is no base |
+| A target ID | Only that target's scroll |
+| Omitted, box has one target | That target |
+| Omitted, box has several, terminal | A menu, with "every target" first |
+| Omitted, box has several, no terminal | Nothing — the command stops and asks for `--target` |
+
+It is never guessed. Both answers are reasonable, only the author knows which was meant, and a
+declaration that lands on one target instead of all of them is silent until a build somewhere is
+missing a file.
+
+Every edit is atomic and verified: the new bytes go to a staging file and are moved into place with
+one rename, then the whole box is read back through the same path a build uses. If the result would
+not load — a payload path claimed twice, a value the schema refuses — the originals are put back and
+the command fails.
+
+## `remove`
+
+The exact inverse of `add`, because a tool where arriving is a command and leaving is a hand edit
+has not removed the hand edit.
+
+```sh
+scrollcase remove asset <box> <payload path> [--target <targetId>|all]
+scrollcase remove file  <box> <payload path> [--target <targetId>|all]
+```
+
+The entry is dropped and so is its `selfTest.files` line. A path that matched nothing is an error,
+not a quiet success.
+
+## `edit`
+
+Change one field of a scroll that exists.
+
+```sh
+scrollcase edit scroll [<box>] [--field <name> --value <value>] [--target <targetId>|all]
+```
+
+With a terminal and no flags, the field comes from a **menu built out of the schema** — so a name
+that is not a field cannot be typed in the first place — and an enum field offers its values.
+Without a terminal, `--field` and `--value` are required.
+
+Three kinds of field are not offered: structural values a project does not choose (`schemaVersion`,
+`extends`), values the layout or the target fixes (`boxId` and `target` name the directories,
+`pythonEntryPoint` has one legal value per target), and the collections, which have `add`/`remove`
+or a file of their own.
+
+## `refresh`
+
+Bring a scroll back into agreement with the project it describes.
+
+```sh
+scrollcase refresh [<box>] [--check-assets] [--repin]
+```
+
+By default it recomputes only the pins a project asked for: a `localFiles` entry that declares
+`sha256` means "this must not change without review", and after a reviewed change the digest has to
+move with it. That is the edit worth automating; nothing else is touched and the network is not
+used.
+
+Remote assets are deliberately different. Their hashes are what stands between a replaced upstream
+file and a silently different box. If `refresh` re-fetched and rewrote them, then every time someone
+swapped a file on that server the next `refresh` would adopt it without a word and the build would
+go green — the protection would be gone. So `--check-assets` is opt-in (it downloads every asset), a
+difference is **reported and refused**, and accepting it takes a separate `--repin`. Find out why
+upstream changed before you use it.
 
 ## `doctor`
 

@@ -40,11 +40,13 @@ portable [box](https://scrollcase.dev/reference/box-format) for one [target](htt
 
 Run \`npm install scrollcase\` to install Scrollcase CLI. Then:
 
-1. \`scrollcase init\`
-2. \`scrollcase lock <boxId>/<targetId>\`
-3. \`scrollcase keygen\`
-4. \`scrollcase build <boxId>/<targetId>\`
-5. \`scrollcase verify <release.json> --self-test\` or \`scrollcase run <release.json>\`
+1. \`scrollcase init\`, then \`scrollcase new scroll\` for your own box
+2. \`scrollcase add dep <boxId> <name>\` and \`scrollcase add asset <boxId> <url>\` to declare what
+   the box contains — the download size and hash are recorded for you
+3. \`scrollcase lock <boxId>/<targetId>\`
+4. \`scrollcase keygen\`
+5. \`scrollcase build <boxId>/<targetId>\`
+6. \`scrollcase verify <release.json> --self-test\` or \`scrollcase run <release.json>\`
 
 See the [CLI reference](https://scrollcase.dev/reference/cli) and
 [signing guidance](https://scrollcase.dev/guides/signing-and-custody). The \`consumer-templates/\`

@@ -24,11 +24,37 @@ value is written twice inside `scroll.json`. Flat source directories are not acc
 The machine-readable definition is [`scroll.schema.json`](/schema/v2/scroll.schema.json), also shipped
 through the package export. See [JSON Schemas](/reference/schemas).
 
-Create a new target-specific input with `scrollcase new scroll`. The interactive wizard and its
-non-terminal flags derive the target layout and Python entry point, generate the matching
-`pixi.toml`, and refuse to overwrite an existing scroll.
+Create a new target-specific input with `scrollcase new scroll`. Interactively it asks four
+things — the target, the box id, the upstream revision, and where boxes will be published — and
+derives everything else, generating the matching `pixi.toml` and a starter `self_test.py`. It
+refuses to overwrite an existing scroll.
 
-## A complete example
+## The shortest scroll that builds
+
+Anything the target or the identity already determines may be left out; it is filled in when the
+scroll is read. Write the decisions, not the restatements:
+
+```json
+{
+  "$schema": "https://scrollcase.dev/schema/v2/scroll.schema.json",
+  "schemaVersion": 2,
+  "boxId": "hello-box",
+  "modelId": "example-org-hello",
+  "runtimeId": "hello-box-runtime",
+  "version": "1.0.0",
+  "sourceRevision": "example-hello-v1",
+  "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
+  "pythonVersion": "3.14",
+  "pixiVersion": "0.73.0",
+  "assetBaseUrl": "https://assets.example.org/boxes",
+  "selfTest": { "imports": ["json", "sqlite3"] }
+}
+```
+
+## The same scroll, fully spelled out
+
+Identical in every respect — this is what the file above becomes when it is read. Declaring a
+derived field is never wrong; `pythonEntryPoint` is still checked against the target either way.
 
 ```json
 {
@@ -42,11 +68,11 @@ non-terminal flags derive the target layout and Python entry point, generate the
   "sourceRevision": "example-hello-v1",
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
   "compatibility": { "minHostAppVersion": "1.0.0", "minMacosVersion": "13.0", "minRamGb": 1 },
-  "pythonVersion": "3.11",
+  "pythonVersion": "3.14",
   "pixiVersion": "0.73.0",
   "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/hello",
-  "environment": { "MODEL_ROOT": "model-cache/hello", "HF_HUB_OFFLINE": "1" },
+  "modelCacheSubdir": "model-cache/hello-box",
+  "environment": { "MODEL_ROOT": "model-cache/hello-box", "HF_HUB_OFFLINE": "1" },
   "assetBaseUrl": "https://assets.example.org/boxes",
   "assets": [],
   "selfTest": { "imports": ["json", "sqlite3"], "files": [] }
@@ -59,12 +85,16 @@ non-terminal flags derive the target layout and Python entry point, generate the
 | --- | --- | --- |
 | `schemaVersion` | yes | Always `2`. See [versioning](/reference/box-format#versioning) |
 | `scrollId` | no | Provenance identity. When omitted, Scrollcase derives `<boxId>-<targetId>` |
-| `scrollVersion` | yes | Version of the scroll itself — bump it when you change how the box is built |
+| `scrollVersion` | no | Version of the scroll itself — bump it when you change how the box is built. Defaults to `1.0.0` |
 | `boxId` | yes | Identity of the box across versions. Appears in archive names, object keys, and the channel pointer |
 | `modelId` | yes | Identity of the packaged model |
 | `runtimeId` | yes | Identity of the runtime environment the box provides |
 | `version` | yes | Version of the box this scroll produces, as it appears in the release manifest |
 | `sourceRevision` | yes | Upstream revision of the packaged source, recorded verbatim into provenance |
+| `extends` | no | `"../scroll.json"`, marking this file as one target's half of a [split scroll](#one-box-several-targets) |
+
+"Required" here means required of the scroll a build reads. In a split scroll that is the two halves
+joined, so either half may carry any given field.
 
 `boxId`, `modelId` and `runtimeId` are lowercase identifiers (`^[a-z0-9]+(?:[-.][a-z0-9]+)*$`) in
 the published manifests — keep them to that shape.
@@ -99,14 +129,81 @@ of the box's identity, so a CUDA 12.4 build can never be mistaken for a 12.8 one
 [The Box Format](/reference/box-format#targets) for the resulting target IDs, and
 [Packaging CUDA Boxes](/guides/packaging-cuda) for what a CUDA scroll declares.
 
+Every scroll a build reads declares a target. The one exception is the base of a split scroll,
+below, which holds what its targets share and so names none of them.
+
+## One box, several targets
+
+The targets of a box agree about almost everything and differ in a handful of lines. Repeating the
+agreement in each of them means every change has to be made three times, correctly, and a
+divergence nobody intended is invisible until a user finds it.
+
+A scroll may therefore be split. `scrolls/<boxId>/scroll.json` holds what the targets share, and
+each `scrolls/<boxId>/<targetId>/scroll.json` declares `extends` plus its own differences:
+
+```text
+scrolls/hello-box/
+  scroll.json                     ← everything the targets share
+  macos-aarch64-metal/scroll.json ← extends + what this target changes
+  linux-x86_64-cpu/scroll.json
+  windows-x86_64-cpu/scroll.json
+```
+
+```json
+{
+  "extends": "../scroll.json",
+  "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
+  "compatibility": { "minMacosVersion": "13.0" },
+  "condaDependencyLicenseAudit": "scrolls/hello-box/macos-aarch64-metal/conda-licenses.json"
+}
+```
+
+`extends` has exactly one legal value, `"../scroll.json"`. A base is always the box directory's own
+`scroll.json` — there is no path to get wrong, nothing to point outside the workspace, and no chain
+of bases to follow. A base declares no `target` (it holds what its targets share) and no `extends`
+of its own (joining is one level, not a hierarchy); both are refused.
+
+Only `scroll.json` is split. `pixi.toml` and `pixi.lock` stay in each target directory, because the
+solved environment is what differs most between targets.
+
+### How the two halves are joined
+
+The rule is stated per field, because a single blanket rule is wrong in both directions. Replacing
+everything would make a fragment that adds one asset lose the shared ones; merging everything would
+leave `execution` half from each half, producing a `python-script` that inherited a `module`.
+
+| Fields | Rule |
+| --- | --- |
+| Scalars, and the cohesive objects `target`, `execution`, `parity` | The fragment replaces the base |
+| `assets`, `assetArchives`, `localFiles` | Joined, base entries first. Two entries claiming one `relativePath` is an **error** |
+| `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined, base first, repeats dropped |
+| `compatibility`, `environment` | Joined key by key; on a shared key the fragment wins |
+| `selfTest.pythonCode` / `selfTest.pythonFile` | One slot: a fragment naming either replaces both |
+| `extends` | Dropped — the joined scroll extends nothing |
+
+The distinction between the two list rules is deliberate. A repeated prune path or import is the
+same instruction twice and is harmless, so it is dropped. A repeated `relativePath` means two
+different sources claiming one file in the box, which is a conflict — the second would silently
+overwrite the first — so it is refused rather than resolved by a precedence rule nobody would
+remember. That is why a file each target ships its own copy of belongs in the **fragments**, not the
+base: three sources for `entrypoint.py` cannot be one declaration.
+
+Order is declaration order, base first — for the joined lists and for a joined map's keys. Nothing
+is sorted, and nothing needs to be: one pair of files always produces one result, which is what
+rebuilding byte-identically requires. A split scroll and a hand-written whole one hold the same
+entries; a joined map may serialise its keys in a different order.
+
+The result of the join is the **effective scroll** — the object schema validation runs against, the
+build reads, and provenance records. Nothing downstream can tell which half a value came from.
+
 ## Environment
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `pythonVersion` | yes | Python version the box carries, recorded into provenance |
 | `pixiVersion` | yes | The exact pixi release used to solve and install. `lock` and `build` refuse any other version |
-| `pythonEntryPoint` | yes | Interpreter path relative to the box root. Fixed per target: `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows — a mismatch is rejected |
-| `modelCacheSubdir` | yes | Directory relative to the box root holding model assets |
+| `pythonEntryPoint` | no | Interpreter path relative to the box root. Fixed per target: `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows. Derived from the target when omitted, and a mismatch is still rejected when declared |
+| `modelCacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `model-cache/<boxId>` |
 | `environment` | no | String environment variables required whenever Scrollcase runs the box interpreter |
 | `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory. When declared, the build fails if the lock no longer matches what was reviewed |
 
@@ -119,11 +216,14 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
 [dependencies]
-python = "3.11.*"
+python = "3.14.*"
 ```
 
 `platforms` must equal the target's conda subdirectory — `osx-arm64`, `linux-64`, or `win-64` —
 or the solve produces an environment that cannot run on the machine the box is for.
+
+[`scrollcase add dep <box> <name>`](/reference/cli#add) writes into every target's manifest at once,
+so they cannot drift apart, and `--from-requirements` imports an existing pip file.
 
 ### Declared runtime environment
 
@@ -187,8 +287,10 @@ before an optional self-test can run box code.
 
 ## Compatibility
 
-Constraints the installing host must satisfy. Scrollcase copies them into the release manifest
-**verbatim and never interprets them**, so a project may add its own fields alongside these:
+Constraints the installing host must satisfy. The whole object is optional — declaring no
+constraint is a legitimate answer, and Scrollcase will not invent one on your behalf. What you do
+declare is copied into the release manifest **verbatim and never interpreted**, so a project may
+add its own fields alongside these:
 
 | Field | Meaning |
 | --- | --- |
@@ -206,7 +308,11 @@ A consumer that cannot evaluate a constraint must refuse the box rather than ass
 
 Files fetched over the network during the build. Every entry is size- and hash-checked before it
 enters the payload, so a moved or replaced upstream file fails the build instead of quietly
-producing a different box under the same version.
+producing a different box under the same version. The list is optional and defaults to empty.
+
+Do not write these by hand: [`scrollcase add asset <box> <url>`](/reference/cli#add) fetches the URL
+once and records the `sizeBytes` and `sha256` it found, which are the only two fields here that
+cannot be known without downloading the file.
 
 ```jsonc
 "assets": [
@@ -247,23 +353,32 @@ materialises.
 
 ### `localFiles`
 
-Files copied from your own repository into the payload, each verified against a declared hash so
-a licence notice or runtime shim cannot drift from what was reviewed.
+Files copied from your own repository into the payload. Added and removed with
+[`scrollcase add file`](/reference/cli#add) and [`remove file`](/reference/cli#remove).
 
 ```jsonc
 "localFiles": [
-  { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py", "sha256": "4c7e…9a" }
+  { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py" },
+  { "sourcePath": "legal/MODEL_NOTICE.md", "relativePath": "THIRD_PARTY_NOTICES/MODEL_NOTICE.md", "sha256": "4c7e…9a" }
 ]
 ```
 
-The hash covers the file's bytes, so anything that rewrites them between commit and build breaks
-it. The usual culprit is Git's line-ending conversion: on Windows a text file is checked out with
-CRLF by default and no longer matches the hash the scroll declares, and the build stops on a
-checkout that looks clean. Mark the paths a scroll names in `.gitattributes` so they are never
-converted:
+`sha256` is an optional **pin**: when it is present, the build refuses a file whose contents no
+longer match. Leave it off the files you are still writing — a script you edit every day would
+otherwise fail its own build until you recomputed a digest by hand. Add it to the files that must
+not change without review, such as a licence notice or a reviewed runtime shim. Either way, what
+ships is hashed into the signed release, so the box's contents are always accounted for.
+
+[`scrollcase refresh`](/reference/cli#refresh) recomputes a pin after a reviewed change, so keeping
+one does not mean recomputing digests by hand.
+
+A pin covers the file's bytes, so anything that rewrites them between commit and build breaks it.
+The usual culprit is Git's line-ending conversion: on Windows a text file is checked out with CRLF
+by default and no longer matches the hash the scroll declares, and the build stops on a checkout
+that looks clean. Mark the pinned paths in `.gitattributes` so they are never converted:
 
 ```text
-runtime/entrypoint.py -text
+legal/MODEL_NOTICE.md -text
 ```
 
 ### `prunePaths`
@@ -316,21 +431,28 @@ version 2 signs the import subset for a consumer to repeat; it does not carry th
 "selfTest": {
   "imports": ["torch", "transformers"],
   "files": ["model-cache/hello/model.safetensors"],
-  "pythonCode": "import torch; assert torch.backends.mps.is_available()"
+  "pythonFile": "scrolls/hello-box/macos-aarch64-metal/self_test.py"
 }
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `imports` | yes | One or more modules imported with the box's interpreter. These names are signed and repeated by `verify --self-test` |
-| `files` | yes | Files that must still exist after pruning — this is what stops an over-aggressive prune from shipping a broken box. May be empty |
-| `pythonCode` | no | Extra Python executed after the imports succeed, for checks a bare import cannot make |
+| `files` | no | Files that must still exist after pruning — this is what stops an over-aggressive prune from shipping a broken box. Defaults to empty |
+| `pythonFile` | no | Project path to a Python file run after the imports succeed |
+| `pythonCode` | no | The same thing inline, for a single assertion. Mutually exclusive with `pythonFile` |
+
+Prefer `pythonFile` for anything longer than one line. A self-test is real code and deserves an
+editor that knows it: in a file it keeps its syntax highlighting, its linter, and a readable diff,
+where inline it is a JSON string with escaped newlines. `scrollcase new scroll` generates one next
+to the scroll and points the field at it.
 
 The target's own platform assertion is prepended automatically, and the run happens under the
-accelerator's validation environment. A file listed in `files` that is a deliberately deferred
-on-demand asset is not required to be present. After pruning, the builder checks required files,
-then runs the target assertion, imports, optional `pythonCode`, and finally optional parity. A
-consumer runs the target assertion and signed imports only.
+accelerator's validation environment. The file is read at build time and executed from the payload
+root, so it can read what the box ships and import what it packs. A file listed in `files` that is
+a deliberately deferred on-demand asset is not required to be present. After pruning, the builder
+checks required files, then runs the target assertion, imports, the extra Python, and finally
+optional parity. A consumer runs the target assertion and signed imports only.
 
 ## Weights mode
 
@@ -374,11 +496,12 @@ is acceptable, belong to your project. Full treatment in
 Validation is ordered so malformed input cannot trigger a process, fetch, or build-directory
 mutation:
 
-1. Parse `scroll.json` and validate its complete nested structure against the shipped scroll and
-   target schemas.
-2. For a nested scroll, require the parent and child directories to match `boxId` and the
-   canonical target; reject invalid target/entry-point combinations and default on-demand weights
-   with `assetArchives`. Flat scrolls skip only the path-shape check.
+1. Parse `scroll.json` and, when it declares `extends`, read and join its base first — neither half
+   of a split scroll is a complete document, so validating one alone would report the other half's
+   fields as missing. Validate the joined result against the shipped scroll and target schemas.
+2. For a nested scroll, require a target, and require the parent and child directories to match
+   `boxId` and the canonical target; reject invalid target/entry-point combinations and default
+   on-demand weights with `assetArchives`.
 3. Resolve a build-time `--weights` override and repeat the archive/policy check.
 4. Require a matching native host, discover the exact tools, and require `pixi.lock`.
 5. Record Git provenance and reject a dirty tree unless `--allow-dirty` was explicit.

@@ -45,11 +45,19 @@ rejected.
 The script ships inside the box — either produced by the environment, or copied in through
 [`localFiles`](/reference/scroll#localfiles):
 
+```sh
+scrollcase add file my-model checks/parity.py --to checks/parity.py
+```
+
 ```jsonc
 "localFiles": [
   { "sourcePath": "checks/parity.py", "relativePath": "checks/parity.py", "sha256": "…" }
 ]
 ```
+
+The `sha256` is optional, and a parity check is a good candidate for one: it decides whether a box
+is numerically sound, so freezing it against an unreviewed edit is worth the pin.
+[`scrollcase refresh`](/reference/cli#refresh) moves the digest after a reviewed change.
 
 It must print **a JSON array of numbers**, or an object with a `values` array:
 

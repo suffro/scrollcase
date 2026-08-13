@@ -9,8 +9,15 @@
 import { emitKeypressEvents } from 'node:readline';
 import { fail } from './build/process.mjs';
 
-/** Shows a raw-key menu and resolves to the selected index. */
+/**
+ * Shows a raw-key menu and resolves to the selected index.
+ *
+ * `hint` is one line of prose printed under the question, for a choice whose option names do not
+ * say what the choice decides. It sits outside the redrawn frame, so arrowing through the options
+ * never scrolls it away.
+ */
 export function selectCliMenu(question, choices, {
+  hint = null,
   initialIndex = null,
   input = process.stdin,
   output = process.stdout,
@@ -66,7 +73,9 @@ export function selectCliMenu(question, choices, {
     input.on('keypress', onKeypress);
     input.setRawMode(true);
     input.resume();
-    output.write(`Which ${question}?\n\x1b[?25l`);
+    output.write(`Which ${question}?\n`);
+    if (hint) output.write(`${hint}\n`);
+    output.write('\x1b[?25l');
     render();
   });
 }
@@ -78,6 +87,7 @@ export function selectCliMenu(question, choices, {
  */
 export async function chooseCliValue(question, choices, {
   flag = null,
+  hint = null,
   open = false,
   terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY),
   menu = selectCliMenu,
@@ -94,7 +104,7 @@ export async function chooseCliValue(question, choices, {
     log(`scrollcase: no terminal to ask which ${question}; using ${fallback}.`);
     return fallback;
   }
-  const selectedIndex = await menu(question, choices, { initialIndex: 0 });
+  const selectedIndex = await menu(question, choices, { hint, initialIndex: 0 });
   if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= choices.length) {
     fail(`${question} menu returned an invalid selection.`);
   }

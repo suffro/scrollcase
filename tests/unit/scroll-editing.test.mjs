@@ -1,0 +1,394 @@
+/**
+ * The commands that change a scroll that already exists.
+ *
+ * Each one is exercised against a real workspace and read back through `readScroll`, because the
+ * thing worth proving is not that a JSON key was set but that the box still loads afterwards —
+ * these commands write the only input a build accepts.
+ */
+
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { addDependency, readRequirements, withDependency } from '../../src/build/dependencies.mjs';
+import { sha256File } from '../../src/build/filesystem.mjs';
+import { readScroll } from '../../src/build/scroll.mjs';
+import {
+  ALL_TARGETS,
+  addAsset,
+  addFile,
+  editableScrollFields,
+  refreshScroll,
+  removeScrollEntry,
+  setScrollField,
+} from '../../src/build/scroll-edit.mjs';
+import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
+import { chooseEditTarget } from '../../src/cli-edit.mjs';
+
+const TARGET_ID = 'macos-aarch64-metal';
+const OTHER_TARGET_ID = 'macos-aarch64-cpu';
+const TARGET = { platform: 'macos', arch: 'aarch64', accelerator: 'metal' };
+const OTHER_TARGET = { platform: 'macos', arch: 'aarch64', accelerator: 'cpu' };
+const REFERENCE = `example-model/${TARGET_ID}`;
+
+const SHARED = {
+  $schema: 'https://scrollcase.dev/schema/v2/scroll.schema.json',
+  schemaVersion: 2,
+  boxId: 'example-model',
+  modelId: 'example-org-example-model',
+  runtimeId: 'example-model-runtime',
+  version: '1.0.0',
+  sourceRevision: 'upstream-v1',
+  pythonVersion: '3.14',
+  pixiVersion: '0.73.0',
+  assetBaseUrl: 'https://assets.example.org/boxes',
+  selfTest: { imports: ['json'] },
+};
+
+/** A fetch that serves fixed bytes, so nothing here touches the network. */
+const servingBytes = (bytes) => async () => ({
+  ok: true,
+  status: 200,
+  body: (async function* stream() { yield Buffer.from(bytes); }()),
+});
+
+describe('editing an existing scroll', () => {
+  const created = [];
+
+  afterEach(async () => {
+    resetWorkspace();
+    await Promise.all(created.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  });
+
+  /** A split box: a base plus two target fragments, the layout the commands have to reason about. */
+  async function splitBox({ base = SHARED, fragments = null } = {}) {
+    const root = await mkdtemp(join(tmpdir(), 'scrollcase-editing-'));
+    created.push(root);
+    const boxDir = join(root, 'scrolls', 'example-model');
+    const targets = fragments ?? [
+      [TARGET_ID, { extends: '../scroll.json', target: TARGET }],
+      [OTHER_TARGET_ID, { extends: '../scroll.json', target: OTHER_TARGET }],
+    ];
+    await mkdir(boxDir, { recursive: true });
+    await writeFile(join(boxDir, 'scroll.json'), `${JSON.stringify(base, null, 2)}\n`);
+    for (const [targetId, fragment] of targets) {
+      await mkdir(join(boxDir, targetId), { recursive: true });
+      await writeFile(join(boxDir, targetId, 'scroll.json'), `${JSON.stringify(fragment, null, 2)}\n`);
+      await writeFile(join(boxDir, targetId, 'pixi.toml'),
+        '[workspace]\nname = "example-model"\n\n[dependencies]\npython = "3.14.*"\n');
+    }
+    configureWorkspace({ cwd: root });
+    return { root, boxDir };
+  }
+
+  it('records an asset with the size and hash the URL actually served', async () => {
+    await splitBox();
+    const { entry } = await addAsset({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      url: 'https://assets.example.org/weights.bin',
+      fetchImpl: servingBytes('weights'),
+    });
+
+    // The two values nobody can write by hand, taken from the bytes rather than from the author.
+    expect(entry).toEqual({
+      url: 'https://assets.example.org/weights.bin',
+      relativePath: 'model-cache/example-model/weights.bin',
+      sizeBytes: 7,
+      sha256: createHash('sha256').update('weights').digest('hex'),
+    });
+    const { scroll } = await readScroll(REFERENCE);
+    expect(scroll.assets).toHaveLength(1);
+    // Both targets share it, and the self-test now guards it against an over-eager prune.
+    expect(scroll.selfTest.files).toContain('model-cache/example-model/weights.bin');
+    const other = await readScroll(`example-model/${OTHER_TARGET_ID}`);
+    expect(other.scroll.assets).toHaveLength(1);
+  });
+
+  it('records an asset for one target only when asked', async () => {
+    await splitBox();
+    await addAsset({
+      boxId: 'example-model',
+      target: TARGET_ID,
+      url: 'https://assets.example.org/metal.bin',
+      fetchImpl: servingBytes('metal'),
+    });
+
+    expect((await readScroll(REFERENCE)).scroll.assets).toHaveLength(1);
+    expect((await readScroll(`example-model/${OTHER_TARGET_ID}`)).scroll.assets).toEqual([]);
+  });
+
+  it('records a project file without pinning a hash to it', async () => {
+    const { root } = await splitBox();
+    await writeFile(join(root, 'entrypoint.py'), 'print("hello")\n');
+    const { entry } = await addFile({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      sourcePath: 'entrypoint.py',
+    });
+
+    // No sha256: the file just added is the one about to be edited.
+    expect(entry).toEqual({ sourcePath: 'entrypoint.py', relativePath: 'entrypoint.py' });
+    expect((await readScroll(REFERENCE)).scroll.localFiles).toEqual([entry]);
+  });
+
+  it('refuses a file the project does not have', async () => {
+    await splitBox();
+
+    await expect(addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'missing.py' }))
+      .rejects.toThrow(/Project file is missing/);
+  });
+
+  it('removes exactly what add recorded, self-test entry included', async () => {
+    const { root } = await splitBox();
+    await writeFile(join(root, 'entrypoint.py'), 'print("hello")\n');
+    await addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'entrypoint.py' });
+    const before = (await readScroll(REFERENCE)).scroll;
+    expect(before.selfTest.files).toContain('entrypoint.py');
+
+    await removeScrollEntry({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      field: 'localFiles',
+      relativePath: 'entrypoint.py',
+    });
+    const after = (await readScroll(REFERENCE)).scroll;
+
+    expect(after.localFiles).toBeUndefined();
+    expect(after.selfTest.files).not.toContain('entrypoint.py');
+  });
+
+  it('reports a removal that matched nothing instead of succeeding quietly', async () => {
+    await splitBox();
+
+    await expect(removeScrollEntry({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      field: 'assets',
+      relativePath: 'model-cache/absent.bin',
+    })).rejects.toThrow(/No asset at model-cache\/absent\.bin/);
+  });
+
+  it('restores every file when an edit would leave the box unreadable', async () => {
+    const { boxDir } = await splitBox();
+    const basePath = join(boxDir, 'scroll.json');
+    const before = await readFile(basePath, 'utf8');
+    // The fragment already claims this path, so adding it to the base is a conflict the reader
+    // refuses — and the refusal has to leave the scroll exactly as it was.
+    await writeFile(join(boxDir, TARGET_ID, 'scroll.json'), `${JSON.stringify({
+      extends: '../scroll.json',
+      target: TARGET,
+      assets: [{
+        url: 'https://assets.example.org/other.bin',
+        relativePath: 'model-cache/example-model/weights.bin',
+        sizeBytes: 4,
+        sha256: 'a'.repeat(64),
+      }],
+    }, null, 2)}\n`);
+
+    await expect(addAsset({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      url: 'https://assets.example.org/weights.bin',
+      fetchImpl: servingBytes('weights'),
+    })).rejects.toThrow(/both claim that path/);
+
+    expect(await readFile(basePath, 'utf8')).toBe(before);
+  });
+
+  it('sets a field, and refuses one the format does not let a person change', async () => {
+    await splitBox();
+    await setScrollField({
+      boxId: 'example-model',
+      target: ALL_TARGETS,
+      field: 'version',
+      value: '2.0.0',
+    });
+
+    expect((await readScroll(REFERENCE)).scroll.version).toBe('2.0.0');
+    await expect(setScrollField({
+      boxId: 'example-model', target: ALL_TARGETS, field: 'pythonEntryPoint', value: 'venv/python.exe',
+    })).rejects.toThrow(/not an editable scroll field/);
+    await expect(setScrollField({
+      boxId: 'example-model', target: ALL_TARGETS, field: 'weights', value: 'maybe',
+    })).rejects.toThrow(/Unsupported weights/);
+  });
+
+  it('offers editable fields from the schema, never the derived or structural ones', async () => {
+    const names = (await editableScrollFields()).map(({ name }) => name);
+
+    expect(names).toContain('version');
+    expect(names).toContain('assetBaseUrl');
+    for (const excluded of ['boxId', 'target', 'pythonEntryPoint', 'schemaVersion', 'extends', 'assets']) {
+      expect(names, excluded).not.toContain(excluded);
+    }
+  });
+
+  it('re-pins a local file the project changed, and reports nothing when nothing moved', async () => {
+    const { root, boxDir } = await splitBox();
+    const source = join(root, 'NOTICE.md');
+    await writeFile(source, 'first\n');
+    await addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'NOTICE.md' });
+    // A project pins what must not change without review; after a reviewed change the digest moves.
+    const base = JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
+    base.localFiles[0].sha256 = await sha256File(source);
+    await writeFile(join(boxDir, 'scroll.json'), `${JSON.stringify(base, null, 2)}\n`);
+    await writeFile(source, 'reviewed second\n');
+
+    const first = await refreshScroll({ boxId: 'example-model' });
+    expect(first.updated).toEqual(['NOTICE.md']);
+    expect((await readScroll(REFERENCE)).scroll.localFiles[0].sha256).toBe(await sha256File(source));
+
+    const second = await refreshScroll({ boxId: 'example-model' });
+    expect(second.written).toEqual([]);
+  });
+
+  it('never touches the network unless refresh is asked to', async () => {
+    const { root, boxDir } = await splitBox();
+    await writeFile(join(root, 'NOTICE.md'), 'first\n');
+    await addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'NOTICE.md' });
+    const base = JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
+    base.assets = [{
+      url: 'https://assets.example.org/weights.bin',
+      relativePath: 'model-cache/example-model/weights.bin',
+      sizeBytes: 7,
+      sha256: 'a'.repeat(64),
+    }];
+    await writeFile(join(boxDir, 'scroll.json'), `${JSON.stringify(base, null, 2)}\n`);
+
+    // Re-fetching every asset means downloading the whole box, so it happens only on request.
+    const refused = () => { throw new Error('refresh reached the network'); };
+    await expect(refreshScroll({ boxId: 'example-model', fetchImpl: refused })).resolves.toBeTruthy();
+  });
+
+  it('stops on an upstream asset that changed, and needs an explicit repin to accept it', async () => {
+    const { boxDir } = await splitBox();
+    const base = JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
+    base.assets = [{
+      url: 'https://assets.example.org/weights.bin',
+      relativePath: 'model-cache/example-model/weights.bin',
+      sizeBytes: 7,
+      sha256: 'a'.repeat(64),
+    }];
+    await writeFile(join(boxDir, 'scroll.json'), `${JSON.stringify(base, null, 2)}\n`);
+    const fetchImpl = servingBytes('changed');
+
+    // Adopting a substituted upstream file in silence would remove the protection the hash exists
+    // for, so the difference is refused and the scroll is left alone.
+    await expect(refreshScroll({ boxId: 'example-model', checkAssets: true, fetchImpl }))
+      .rejects.toThrow(/no longer match what the scroll pins/);
+    expect((await readScroll(REFERENCE)).scroll.assets[0].sha256).toBe('a'.repeat(64));
+
+    const accepted = await refreshScroll({ boxId: 'example-model', repin: true, fetchImpl });
+    expect(accepted.repinned).toEqual(['model-cache/example-model/weights.bin']);
+    expect((await readScroll(REFERENCE)).scroll.assets[0].sha256).not.toBe('a'.repeat(64));
+  });
+
+  it('asks where an edit goes, and refuses to guess without a terminal', async () => {
+    await splitBox();
+
+    expect(await chooseEditTarget({ boxId: 'example-model', requested: ALL_TARGETS })).toBe(ALL_TARGETS);
+    expect(await chooseEditTarget({ boxId: 'example-model', requested: TARGET_ID })).toBe(TARGET_ID);
+    await expect(chooseEditTarget({ boxId: 'example-model', requested: 'linux-x86_64-cpu' }))
+      .rejects.toThrow(/is not one of example-model's targets/);
+    // Both answers are reasonable and only the author knows which was meant.
+    await expect(chooseEditTarget({ boxId: 'example-model', terminal: false }))
+      .rejects.toThrow(/pass --target/);
+    expect(await chooseEditTarget({
+      boxId: 'example-model',
+      terminal: true,
+      menu: async () => 0,
+    })).toBe(ALL_TARGETS);
+  });
+
+  it('uses the only target of a single-target box without asking', async () => {
+    await splitBox({ fragments: [[TARGET_ID, { extends: '../scroll.json', target: TARGET }]] });
+
+    expect(await chooseEditTarget({ boxId: 'example-model', terminal: false })).toBe(TARGET_ID);
+  });
+});
+
+describe('a box pixi manifest', () => {
+  const created = [];
+
+  afterEach(async () => {
+    await Promise.all(created.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  });
+
+  const MANIFEST = '[workspace]\nname = "demo"\n\n[dependencies]\npython = "3.14.*"\n';
+
+  it('adds a dependency to the dependencies table, leaving the rest of the file alone', () => {
+    const { text, replaced } = withDependency(MANIFEST, 'onnxruntime', '*');
+
+    expect(replaced).toBe(false);
+    expect(text).toBe('[workspace]\nname = "demo"\n\n[dependencies]\npython = "3.14.*"\nonnxruntime = "*"\n');
+  });
+
+  it('replaces a dependency it already declares rather than adding it twice', () => {
+    const once = withDependency(MANIFEST, 'numpy', '*').text;
+    const { text, replaced } = withDependency(once, 'numpy', '>=2,<3');
+
+    expect(replaced).toBe(true);
+    expect(text.match(/numpy/g)).toHaveLength(1);
+    expect(text).toContain('numpy = ">=2,<3"');
+  });
+
+  it('creates the table when a manifest has none', () => {
+    const { text } = withDependency('[workspace]\nname = "demo"\n', 'numpy', '*');
+
+    expect(text).toBe('[workspace]\nname = "demo"\n\n[dependencies]\nnumpy = "*"\n');
+  });
+
+  it('does not write past the dependencies table into a later one', () => {
+    const manifest = `${MANIFEST}\n[target.linux-64.dependencies]\ncuda-version = "12.4"\n`;
+    const { text } = withDependency(manifest, 'numpy', '*');
+
+    expect(text).toBe('[workspace]\nname = "demo"\n\n[dependencies]\npython = "3.14.*"\nnumpy = "*"\n\n[target.linux-64.dependencies]\ncuda-version = "12.4"\n');
+  });
+
+  it('writes every manifest of a box, so its targets cannot disagree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'scrollcase-manifests-'));
+    created.push(root);
+    const manifests = [join(root, 'a.toml'), join(root, 'b.toml')];
+    for (const path of manifests) await writeFile(path, MANIFEST);
+
+    const { written } = await addDependency({ manifests, name: 'onnxruntime' });
+
+    expect(written).toEqual(manifests);
+    for (const path of manifests) {
+      expect(await readFile(path, 'utf8')).toContain('onnxruntime = "*"');
+    }
+  });
+
+  it('refuses a name that is not a conda package name', async () => {
+    await expect(addDependency({ manifests: [], name: 'OpenCV Python' }))
+      .rejects.toThrow(/Not a conda package name/);
+  });
+
+  it('translates the pip names it is sure of, and reports every one it changed', () => {
+    const { dependencies, renamed, skipped } = readRequirements([
+      'onnxruntime>=1.20',
+      'torch',
+      'opencv-python==4.9',
+      '# a comment',
+      '-r other.txt',
+      'requests[socks]>=2',
+      'private @ git+https://example.org/private.git',
+    ].join('\n'));
+
+    expect(dependencies).toEqual([
+      { name: 'onnxruntime', spec: '>=1.20' },
+      { name: 'pytorch', spec: '*' },
+      { name: 'opencv', spec: '==4.9' },
+      { name: 'requests', spec: '>=2' },
+    ]);
+    // A rename the author never sees is a lock that resolves and a box that cannot import.
+    expect(renamed).toEqual([{ from: 'torch', to: 'pytorch' }, { from: 'opencv-python', to: 'opencv' }]);
+    expect(skipped.map(({ line }) => line)).toEqual([
+      '-r other.txt',
+      'requests[socks]',
+      'private @ git+https://example.org/private.git',
+    ]);
+  });
+});
