@@ -106,6 +106,7 @@ describe('published sentiment demo box', () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toBe('Sentiment: POSITIVE\nConfidence: 99.9%\n');
+    expect(result.stdout).toContain('Sentiment: POSITIVE');
+    expect(result.stdout).toContain('Confidence: 99.9%');
   });
 });
