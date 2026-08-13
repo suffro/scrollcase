@@ -8,6 +8,7 @@
 
 import { emitKeypressEvents } from 'node:readline';
 import { fail } from './build/process.mjs';
+import { promptHeading } from './cli-output.mjs';
 
 /**
  * Shows a raw-key menu and resolves to the selected index.
@@ -73,8 +74,7 @@ export function selectCliMenu(question, choices, {
     input.on('keypress', onKeypress);
     input.setRawMode(true);
     input.resume();
-    output.write(`Which ${question}?\n`);
-    if (hint) output.write(`${hint}\n`);
+    output.write(promptHeading(`Which ${question}?`, { hint, stream: output }));
     output.write('\x1b[?25l');
     render();
   });

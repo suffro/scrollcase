@@ -21,6 +21,7 @@ import {
 import { probePixi } from './build/pixi.mjs';
 import { fail } from './build/process.mjs';
 import { chooseCliValue } from './cli-menu.mjs';
+import { promptHeading, promptMarker } from './cli-output.mjs';
 import { chooseTarget, cliTargetFamilies, parseCliTarget } from './cli-targets.mjs';
 
 const MAX_PROMPT_ATTEMPTS = 5;
@@ -39,7 +40,7 @@ const HINTS = Object.freeze({
   boxId: 'Name of the box across all its versions. Used in its directory, its archives and its channel pointer.',
   sourceRevision: 'Which version of the thing you are packaging this is — a model commit, a release tag. Recorded verbatim in the box provenance.',
   assetBaseUrl: 'Where you will publish built boxes. The signed release points at it; it does not have to exist yet.',
-  weights: 'embed packs the model inside the box. on-demand leaves it out for the consumer to fetch and verify.',
+  weights: '`embed` packs the model inside the box. `on-demand` leaves it out for the consumer to fetch and verify.',
   execution: 'What `scrollcase run` starts inside the box: a script file, an importable module, or nothing at all.',
   scriptSource: 'Point at a Python file you already have, or start from a generated stub.',
   scriptPath: 'Path from the project root to the Python file the box should run.',
@@ -77,14 +78,16 @@ export async function promptText(question, {
 } = {}) {
   const readline = createInterface({ input, output });
   try {
-    const suffix = defaultValue === null ? '' : ` [${defaultValue}]`;
-    // Printed once, above the prompt: a field name alone rarely says what the field is for, and
-    // repeating the explanation on every retry would bury the answer the user is being asked for.
-    if (hint) output.write(`${hint}\n`);
+    const marker = promptMarker({ stream: output });
+    const suffix = defaultValue === null ? '' : `[${defaultValue}] `;
+    // The name and its explanation are printed once, above the loop: a field name alone rarely says
+    // what the field is for, and repeating the whole explanation on every retry would bury the
+    // answer the user is being asked for. A retry restates what is required and re-marks the line.
+    output.write(promptHeading(question, { hint, stream: output }));
     // Bounded, so an input stream that only ever yields blank lines ends in an error rather than a
     // loop nobody can interrupt.
     for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt += 1) {
-      const value = String(await readline.question(`${question}${suffix}: `)).trim();
+      const value = String(await readline.question(`${marker}${suffix}`)).trim();
       if (value) return value;
       if (defaultValue !== null) return defaultValue;
       if (optional) return null;

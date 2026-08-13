@@ -5168,7 +5168,8 @@ The CLI owns interaction. Every module below it receives the *answer*, never the
 if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
 ```
 
-Both ends must be a terminal. There, the prompt is `[Y/n]`: an empty answer, `y`, or `yes` accepts;
+Both ends must be a terminal. There, `confirm(question, hint)` prints the same heading every other
+question uses (section 9.5) and the answer line is `[Y/n]`: an empty answer, `y`, or `yes` accepts;
 `n`, `no`, or unrecognised input declines. Without a terminal — a CI job, a pipe, a container build
 — the answer is still no, because **silence outside an interactive prompt must not be read as
 consent**. This is the guard that keeps `init` from downloading a toolchain in an automated
@@ -5188,6 +5189,9 @@ terminal, so the module below still sees one uniform consent interface.
 place with `\x1b[<n>A`, hides the cursor while it runs, and its `cleanup()` restores the previous raw
 mode and shows the cursor again on **every** exit path, including the rejection. A menu that left a
 terminal in raw mode would break the shell that invoked it.
+
+Its title and hint are printed through the shared `promptHeading` and sit **outside** the redrawn
+frame, so arrowing through the options never scrolls away the line explaining what is being chosen.
 
 `chooseCliValue` wraps it with the policy:
 
@@ -5281,7 +5285,9 @@ make anywhere else.
 `promptText` repeats a required question rather than aborting on a blank answer. Aborting discarded
 every value already typed and sent the user back to the first question, punishing a slip out of all
 proportion to it; the repeat is bounded, so an input stream that only ever yields blank lines ends
-in an error rather than a loop nobody can interrupt.
+in an error rather than a loop nobody can interrupt. The heading is printed once, above the loop:
+the retry restates what is required and asks again on a fresh ` ↳ ` line, and repeating the whole
+explanation each time would bury the answer being asked for.
 
 The CUDA ABI version is still asked only after CUDA has been chosen — which is why
 `cliTargetFamilies()` lists CUDA without a version and the complete target ID is assembled
@@ -5382,13 +5388,38 @@ apart is what lets a program embed the build without inheriting a terminal aesth
 
 ```js
 // src/cli-output.mjs
-const colour = Boolean(stream.isTTY && !Object.hasOwn(env, 'NO_COLOR') && env.TERM !== 'dumb');
+const colourAvailable = (stream, env) =>
+  Boolean(stream.isTTY && !Object.hasOwn(env, 'NO_COLOR') && env.TERM !== 'dumb');
 ```
 
 `Object.hasOwn` rather than a truthiness test: `NO_COLOR=` with an empty value is still the user
 asking for no colour, and reading it as "false" would be a bug in exactly the environment that took
 the trouble to set it. The symbols survive redirection, so a captured log is still readable without
 any escape sequences in it.
+
+The same module owns the shape of every question the CLI asks. `promptHeading` and `promptMarker`
+are used by the text prompts (`cli-authoring.mjs`), the raw-key menus (`cli-menu.mjs`) and the
+yes/no consent questions (`cli.mjs`), so one layout covers all three:
+
+```text
+Upstream revision
+Which version of the thing you are packaging this is — a model commit, a release tag. Recorded
+verbatim in the box provenance:
+ ↳ upstream-v1
+```
+
+A blank line, the field's name, the line explaining it, then the answer after ` ↳ `. Before this, a
+`new scroll` session printed hint, question and answer on adjacent lines nine times running, and the
+result was a wall in which the explanations were indistinguishable from the things being asked. The
+explanation ends in a colon — replacing its full stop — because it is the line directly above the
+answer, and a line that already ends in `?` is left alone, which is what a menu title is.
+
+**Two palette colours, not two RGB values.** The title is magenta and the marker is bright black,
+both ANSI palette entries, so the terminal's own theme supplies them and the result stays legible on
+a light scheme and a dark one alike; a hard-coded colour is chosen against exactly one background.
+The explanation stays uncoloured because it is prose, not a label, and `NO_COLOR` removes both
+without changing the layout — the blank line and the marker are the structure, the colour is the
+enhancement.
 
 `buildDistributionSummary` prints the closing line of a successful build as two paths relative to
 `dist/`, with the content hashes left out — those are in the file names, and repeating a 64-character
@@ -6079,7 +6110,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/cli-init.mjs` | The order of `init`'s optional work: every answer before any installer | 9.4 |
 | `src/cli-signing.mjs` | The read-only signing preflight | 7.6 |
 | `src/cli-run.mjs` | Translating a child's terminal result into this process's own | 8.8 |
-| `src/cli-output.mjs` | Status symbols, optional colour, and the distribution summary | 9.5 |
+| `src/cli-output.mjs` | Status symbols, the shared question layout, optional colour, and the distribution summary | 9.5 |
 
 </div>
 

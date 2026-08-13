@@ -63,7 +63,12 @@ import {
   runInitDependencySetup,
 } from './cli-init.mjs';
 import { chooseCliValue } from './cli-menu.mjs';
-import { buildDistributionSummary, statusLine } from './cli-output.mjs';
+import {
+  buildDistributionSummary,
+  promptHeading,
+  promptMarker,
+  statusLine,
+} from './cli-output.mjs';
 import { runCliBox } from './cli-run.mjs';
 import { ensureBuildSigningKeys } from './cli-signing.mjs';
 import { chooseScroll, chooseTarget, nativeExampleTarget } from './cli-targets.mjs';
@@ -133,14 +138,17 @@ async function lock(name, flags) {
  * Asks a yes/no question, defaulting to yes in an interactive terminal.
  *
  * Only ever asks when both ends are a terminal. Without one — CI, a pipe — there is nobody to
- * answer, and silence must not be read as consent, so the answer is no.
+ * answer, and silence must not be read as consent, so the answer is no. `hint` is the sentence
+ * explaining why it is being asked, printed under the question like every other prompt's
+ * explanation: consent questions are laid out the same way as the rest, so a person reading a
+ * session sees one shape throughout.
  */
-async function confirm(question) {
+async function confirm(question, hint = null) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-  console.log();
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return defaultYesConfirmation(await readline.question(`${question} [Y/n] `));
+    process.stdout.write(promptHeading(question, { hint }));
+    return defaultYesConfirmation(await readline.question(`${promptMarker()}[Y/n] `));
   } finally {
     readline.close();
   }
@@ -211,15 +219,17 @@ async function init(flags) {
     rustAvailable: cargoAvailable,
     confirmTypeScript: () => confirm(
       `Install scrollcase, TypeScript, and tsx in ${workspace.root}?`,
+      'What consumer-templates/run-box.ts needs to run.',
     ),
     confirmPython: () => confirm(
       'Install scrollcase-consumer for Python?',
+      'What consumer-templates/run_box.py needs to run.',
     ),
     confirmRust: () => confirm(
       'Install scrollcase-consumer for Rust?',
+      'Added to the generated consumer-templates/rust/Cargo.toml with cargo add.',
     ),
     choosePythonSource: async () => {
-      console.log();
       const selectedSource = await chooseCliValue(
         'Python consumer package source',
         ['PyPI with pip', 'conda-forge with conda'],
@@ -229,7 +239,8 @@ async function init(flags) {
         selectedSource: source,
         condaAvailable: source === 'pypi' || isCondaAvailable({ root: workspace.root }),
         confirmPyPIFallback: () => confirm(
-          'Conda is not installed. Install scrollcase-consumer from PyPI with pip instead?',
+          'Install scrollcase-consumer from PyPI with pip instead?',
+          'Conda is not installed, so the conda-forge package cannot be installed here.',
         ),
       });
     },
@@ -239,8 +250,10 @@ async function init(flags) {
       confirm: async (missing) => {
         if (never) return false;
         if (always) return true;
-        console.log();
-        return confirm(`This project needs ${missing.join(' and ')} to build a box.\nInstall ${missing.length > 1 ? 'them' : 'it'} into ${workspace.toolchainDir}?`);
+        return confirm(
+          `Install ${missing.join(' and ')} into ${workspace.toolchainDir}?`,
+          `This project needs ${missing.length > 1 ? 'them' : 'it'} to build a box.`,
+        );
       },
     }),
     installTypeScript: () => installTypeScriptConsumerDependencies({ root: workspace.root }),

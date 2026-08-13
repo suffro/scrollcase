@@ -135,12 +135,15 @@ navigable menus for weights, execution kind, and script source. Everything else 
 default and is a flag rather than a prompt. A required answer left blank repeats the question
 instead of ending the session.
 
-Each question carries one line saying what the field is, printed above the prompt:
+Every question in the CLI has the same shape: a blank line, the field's name, one line saying what
+the field is, then the answer typed after ` ↳ `. The name is coloured and the explanation is not, so
+a session of several questions stays readable rather than running together:
 
 ```text
-Which version of the thing you are packaging this is — a model commit, a release tag.
-Recorded verbatim in the box provenance.
-Upstream revision:
+Upstream revision
+Which version of the thing you are packaging this is — a model commit, a release tag. Recorded
+verbatim in the box provenance:
+ ↳ upstream-v1
 ```
 
 Without a terminal, every value that has no default must be supplied explicitly, and missing input

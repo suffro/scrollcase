@@ -88,6 +88,9 @@ describe('CLI target selection', () => {
     expect(input.setRawMode).toHaveBeenLastCalledWith(false);
     expect(rendered).toContain('Use ↑/↓');
     expect(rendered).toContain('❯ macos-aarch64-cpu');
+    // The block opens with a blank line and its own title, so several questions in a row stay
+    // distinguishable from one another and from their explanations.
+    expect(rendered.startsWith('\nWhich target?\n')).toBe(true);
   });
 
   it('honours an explicit target and rejects one outside the available scrolls', async () => {

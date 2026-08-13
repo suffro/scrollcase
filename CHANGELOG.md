@@ -62,6 +62,15 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Changed
 
+- **Give every interactive question one legible shape.** A question is now a blank line, the field's
+  name, the line explaining it, and the answer typed after ` ↳ ` — text prompts, keyboard menus and
+  yes/no consent alike. A `new scroll` session printed hint, question and answer on adjacent lines
+  nine times running, and the result was a wall in which the explanations were indistinguishable
+  from the things being asked. The name is coloured and the marker is dimmer, both from the terminal
+  palette so they stay legible on a light scheme and a dark one; `NO_COLOR` still removes the colour
+  without changing the layout. The toolchain and Python-source consent questions were reworded so
+  the question comes first and its reason underneath.
+
 - `target` is no longer required by the scroll schema. Every scroll a build reads still declares
   one — the reader refuses a scroll without it — but the base of a split scroll legitimately has
   none, and requiring it in the schema would make every base file light up in an editor.

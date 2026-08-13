@@ -95,8 +95,9 @@ already exists:
 Then, if `pixi` or `conda-pack` is missing, `init` **asks** whether to install it:
 
 ```text
-This project needs pixi and conda-pack to build a box.
-Install them into /work/my-boxes/.scrollcase/toolchain? [Y/n]
+Install pixi and conda-pack into /work/my-boxes/.scrollcase/toolchain?
+This project needs them to build a box:
+ ↳ [Y/n]
 ```
 
 Answer yes and both land inside the project, with the pixi download checksum-verified and
@@ -132,9 +133,10 @@ scrollcase new scroll
 The generated example is already ready for the remaining walkthrough steps, so you can skip this
 command for a first build. Use the wizard for real project metadata. It asks four questions — the
 complete target, the box id, the upstream revision of what you are packaging, and the base URL
-boxes will be published under — plus menus for weights mode and execution kind. Each one prints a
-line saying what the field is before asking for it. Everything else has a default and is available
-as a flag. A blank answer to a required question repeats it rather than ending the session.
+boxes will be published under — plus menus for weights mode and execution kind. Each one is printed
+as its own block: a blank line, the field's name, one line saying what the field is, then the answer
+typed after ` ↳ `. Everything else has a default and is available as a flag. A blank answer to a
+required question repeats it rather than ending the session.
 
 It creates `scrolls/<boxId>/<targetId>/` with `scroll.json`, the matching `pixi.toml` and a starter
 `self_test.py`, then prints the exact reference to use next.

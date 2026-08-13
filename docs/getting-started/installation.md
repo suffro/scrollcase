@@ -124,8 +124,9 @@ keeps the template, skips the question, and prints the command to run later inst
 `scrollcase init` initializes a workspace and then **offers** to install what is missing:
 
 ```text
-This project needs pixi and conda-pack to build a box.
-Install them into /work/my-project/.scrollcase/toolchain? [Y/n]
+Install pixi and conda-pack into /work/my-project/.scrollcase/toolchain?
+This project needs them to build a box:
+ ↳ [Y/n]
 ```
 
 Nothing is downloaded before you answer, and the interactive default is yes. Say yes (or press

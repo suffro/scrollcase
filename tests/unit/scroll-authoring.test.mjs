@@ -139,7 +139,7 @@ describe('scroll authoring', () => {
     let asked = 0;
     output.on('data', (chunk) => {
       written.push(String(chunk));
-      if (!String(chunk).endsWith('Box ID: ')) return;
+      if (!String(chunk).endsWith('↳ ')) return;
       asked += 1;
       input.write(asked > 2 ? 'example-model\n' : '\n');
     });
@@ -147,6 +147,27 @@ describe('scroll authoring', () => {
     expect(await promptText('Box ID', { input, output })).toBe('example-model');
     // Two slips, each answered with the question again rather than with the end of the session.
     expect(written.filter((line) => line.includes('is required')).length).toBe(2);
+  });
+
+  it('lays a question out as a separated title, explanation, then the marked answer line', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let rendered = '';
+    output.on('data', (chunk) => {
+      rendered += String(chunk);
+      if (String(chunk).endsWith('↳ ')) input.write('entrypoint.py\n');
+    });
+
+    const answer = await promptText('Script path', {
+      hint: 'Path from the project root to the Python file the box should run.',
+      input,
+      output,
+    });
+
+    expect(answer).toBe('entrypoint.py');
+    expect(rendered).toBe(
+      '\nScript path\nPath from the project root to the Python file the box should run:\n ↳ ',
+    );
   });
 
   it('resolves --python-version latest to a number, never the word', async () => {
