@@ -11,13 +11,26 @@
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { boxTargetId } from '../contract/targets.mjs';
 import { compareStableStrings, fileExists, safeRelativePath } from './filesystem.mjs';
 import { createCondaDependencyLicenseAudit, validateCondaDependencyLicenseAudit } from './licenses.mjs';
 import { fail } from './process.mjs';
 import { readScroll } from './scroll.mjs';
+import { setScrollField } from './scroll-edit.mjs';
 import { getWorkspace } from './workspace.mjs';
+
+/**
+ * Where a licence audit goes when the scroll does not say: `conda-licenses.json` beside the scroll.
+ *
+ * Returns null when the scroll directory is not under the project root, since a scroll path is
+ * always expressed from there and one that escapes cannot be written down.
+ */
+function defaultAuditPath(projectRoot, scrollDir) {
+  const relativePath = relative(projectRoot, join(scrollDir, 'conda-licenses.json'));
+  if (!relativePath || relativePath.startsWith('..') || isAbsolute(relativePath)) return null;
+  return relativePath.split(sep).join('/');
+}
 
 /**
  * Produces the inventory for a scroll, and either checks it against the reviewed copy or writes it.
@@ -51,15 +64,32 @@ export async function auditScroll(name, { write = false, namespace } = {}) {
       .map(([license, count]) => ({ license, count })),
   };
 
-  if (!scroll.condaDependencyLicenseAudit) {
-    if (write) fail('The scroll declares no condaDependencyLicenseAudit path to write to.');
-    return { inventory, summary, reviewed: null };
+  // `--write` on a scroll that declares no path writes the conventional one beside the scroll and
+  // records it. Refusing instead — which is what this did — left the author to work out the path and
+  // type it in by hand, for a value that is a convention rather than a decision. What stays
+  // deliberate is the *declaration*: a build enforces the audit only for a scroll that names one,
+  // so the check is switched on by running this command, never by a file appearing on disk.
+  let declared = scroll.condaDependencyLicenseAudit;
+  if (!declared && write) {
+    declared = defaultAuditPath(workspace.root, dir);
+    if (!declared) {
+      fail(`Cannot place a licence audit for ${name}: its scroll lies outside the project root. Declare condaDependencyLicenseAudit yourself.`);
+    }
   }
-  const reviewedPath = join(workspace.root, safeRelativePath(scroll.condaDependencyLicenseAudit));
+  if (!declared) return { inventory, summary, reviewed: null };
+  const reviewedPath = join(workspace.root, safeRelativePath(declared));
   if (write) {
     await mkdir(dirname(reviewedPath), { recursive: true });
     await writeFile(reviewedPath, `${JSON.stringify(inventory, null, 2)}\n`);
-    return { inventory, summary, reviewed: reviewedPath, written: true };
+    const recorded = scroll.condaDependencyLicenseAudit
+      ? []
+      : (await setScrollField({
+        boxId: scroll.boxId,
+        target: boxTargetId(scroll.target),
+        field: 'condaDependencyLicenseAudit',
+        value: declared,
+      })).written;
+    return { inventory, summary, reviewed: reviewedPath, written: true, recorded };
   }
   if (!await fileExists(reviewedPath)) {
     fail(`Reviewed licence audit is missing: ${reviewedPath}. Run audit --write and review the result.`);

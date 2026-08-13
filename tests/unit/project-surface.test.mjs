@@ -213,6 +213,26 @@ describe('auditing dependency licences', () => {
     expect(checked.written).toBe(false);
   });
 
+  it('places and declares its own audit when the scroll names none', async () => {
+    const { root, scrollRef } = await projectWithLock({ auditPath: null });
+    const expected = `scrolls/${scrollRef}/conda-licenses.json`;
+
+    const written = await auditScroll(scrollRef, { write: true });
+
+    // The path is a convention, not a decision, so `--write` follows it instead of refusing and
+    // leaving the author to type it in. What stays deliberate is the declaration: the build checks
+    // the audit only for a scroll that names one, and running this command is what names it.
+    expect(await fileExists(join(root, expected))).toBe(true);
+    expect(written.recorded).toEqual([join(root, 'scrolls', ...scrollRef.split('/'), 'scroll.json')]);
+    const scroll = JSON.parse(await readFile(
+      join(root, 'scrolls', ...scrollRef.split('/'), 'scroll.json'),
+      'utf8',
+    ));
+    expect(scroll.condaDependencyLicenseAudit).toBe(expected);
+    // And from now on the check is on: a later run compares instead of reporting nothing.
+    expect((await auditScroll(scrollRef)).reviewed).toBe(join(root, expected));
+  });
+
   it('fails when the lock no longer matches what was reviewed', async () => {
     const { root, scrollRef } = await projectWithLock();
     await auditScroll(scrollRef, { write: true });

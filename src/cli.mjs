@@ -41,10 +41,14 @@ import {
   ALL_TARGETS,
   addAsset,
   addFile,
+  addSelfTestImport,
   editableScrollFields,
   readScrollFamily,
   refreshScroll,
+  removeEnvironmentVariable,
   removeScrollEntry,
+  removeSelfTestImport,
+  setEnvironmentVariable,
   setScrollField,
 } from './build/scroll-edit.mjs';
 import { chooseBox, chooseEditTarget, chooseScrollEdit } from './cli-edit.mjs';
@@ -332,6 +336,7 @@ const reportWritten = (written) => {
 async function add(kind, positional, flags) {
   const [name, value] = positional;
   if (kind === 'dep') return addDep(name, value, flags);
+  if (kind === 'env' || kind === 'import') return addDeclaration(kind, name, value, flags);
   if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--target <targetId>|all]`);
   const { boxId, target } = await editScope(name, flags);
   const to = text(flags, 'to');
@@ -341,6 +346,29 @@ async function add(kind, positional, flags) {
   success(`Added ${result.entry.relativePath} to ${boxId}${target === ALL_TARGETS ? '' : `/${target}`}`);
   if (kind === 'asset') info(`${result.entry.sizeBytes} bytes, sha256 ${result.entry.sha256}`);
   reportWritten(result.written);
+}
+
+/** `add env NAME=VALUE` and `add import <module>` — the two declarations that are not a file. */
+async function addDeclaration(kind, name, value, flags) {
+  if (!value) {
+    fail(`Usage: scrollcase add ${kind} <box> <${kind === 'env' ? 'NAME=VALUE' : 'module'}> [--target <targetId>|all]`);
+  }
+  const { boxId, target } = await editScope(name, flags);
+  if (kind === 'import') {
+    const result = await addSelfTestImport({ boxId, target, module: value });
+    success(`Added ${result.module} to the self-test imports`);
+    return reportWritten(result.written);
+  }
+  const separator = value.indexOf('=');
+  if (separator < 1) fail(`Usage: scrollcase add env <box> NAME=VALUE (got ${JSON.stringify(value)}).`);
+  const result = await setEnvironmentVariable({
+    boxId,
+    target,
+    name: value.slice(0, separator),
+    value: value.slice(separator + 1),
+  });
+  success(`Set ${result.name} in the box environment`);
+  return reportWritten(result.written);
 }
 
 /** `add dep` — one dependency, or a whole `requirements.txt`, into every manifest of a box. */
@@ -383,7 +411,18 @@ async function addDep(name, dependency, flags) {
 /** `remove asset|file` — the inverse of `add`, so leaving is as easy as arriving. */
 async function remove(kind, positional, flags) {
   const [name, value] = positional;
-  if (!value) fail(`Usage: scrollcase remove ${kind} <box> <payload path> [--target <targetId>|all]`);
+  if (!value) {
+    const argument = { env: 'NAME', import: 'module' }[kind] ?? 'payload path';
+    fail(`Usage: scrollcase remove ${kind} <box> <${argument}> [--target <targetId>|all]`);
+  }
+  if (kind === 'env' || kind === 'import') {
+    const { boxId, target } = await editScope(name, flags);
+    const result = kind === 'env'
+      ? await removeEnvironmentVariable({ boxId, target, name: value })
+      : await removeSelfTestImport({ boxId, target, module: value });
+    success(`Removed ${value} from ${boxId}`);
+    return reportWritten(result.written);
+  }
   const { boxId, target } = await editScope(name, flags);
   const { written, removed } = await removeScrollEntry({
     boxId,
@@ -454,7 +493,7 @@ async function doctor(flags) {
 async function audit(name, flags) {
   const reference = await selectScrollReference(name, flags);
   const write = Boolean(flags.get('write'));
-  const { summary, reviewed, written } = await auditScroll(reference, {
+  const { summary, reviewed, written, recorded = [] } = await auditScroll(reference, {
     write,
     namespace: text(flags, 'namespace') || undefined,
   });
@@ -462,6 +501,8 @@ async function audit(name, flags) {
   for (const entry of summary.licenses) console.log(`  ${String(entry.count).padStart(4)}  ${entry.license}`);
   if (written) success(`Wrote reviewed audit: ${reviewed}`);
   else if (reviewed) success(`Matches the reviewed audit: ${reviewed}`);
+  // Writing the audit also switches the build's check on, so say which file now declares it.
+  for (const path of recorded) success(`Declared condaDependencyLicenseAudit in ${path}`);
 }
 
 async function build(name, flags) {
@@ -565,10 +606,11 @@ function usage() {
 Commands:
   init                       Initialize a workspace with a runnable example
   new scroll                 Create one guided target-specific scroll
-  add asset|file|dep <box> <value>
+  add asset|file|dep|env|import <box> <value>
                              Record a remote file with the size and hash it has, a file from
-                             this project, or a dependency in the box's pixi manifests
-  remove asset|file <box> <payload path>
+                             this project, a dependency in the box's pixi manifests, an
+                             environment variable (NAME=VALUE), or a self-test import
+  remove asset|file|env|import <box> <value>
                              Drop what add recorded
   edit scroll [<box>]        Change one field of an existing scroll
   refresh [<box>]            Re-pin what the scroll declares about this project
@@ -731,15 +773,15 @@ async function main() {
   }
   if (command === 'add') {
     const [kind, ...rest2] = positional;
-    if (!['asset', 'file', 'dep'].includes(kind)) {
-      fail('Usage: scrollcase add asset|file|dep <box> <value> [options]');
+    if (!['asset', 'file', 'dep', 'env', 'import'].includes(kind)) {
+      fail('Usage: scrollcase add asset|file|dep|env|import <box> <value> [options]');
     }
     return add(kind, rest2, flags);
   }
   if (command === 'remove') {
     const [kind, ...rest2] = positional;
-    if (!['asset', 'file'].includes(kind)) {
-      fail('Usage: scrollcase remove asset|file <box> <payload path> [options]');
+    if (!['asset', 'file', 'env', 'import'].includes(kind)) {
+      fail('Usage: scrollcase remove asset|file|env|import <box> <value> [options]');
     }
     return remove(kind, rest2, flags);
   }

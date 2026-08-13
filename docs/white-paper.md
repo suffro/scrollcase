@@ -3552,6 +3552,13 @@ protection, removed by the command meant to maintain it.
 hand, minus an explicit set the format does not let a person change: structural values, values the
 layout or target fixes, and the collections, which have their own commands.
 
+`setEnvironmentVariable` and `addSelfTestImport` exist because those two were, for a while, the only
+parts of a scroll with no command behind them — a map and a list that a single-value prompt cannot
+edit, left to a hand edit in a file every other field had been freed from. Each sets one entry and
+leaves the rest alone. Removing the last environment variable takes the empty map with it; removing
+the last self-test import is refused, because a box has to prove it can import something and writing
+a scroll the schema would reject is not a service.
+
 </div>
 
 <div class="h4-section">

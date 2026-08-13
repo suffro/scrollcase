@@ -8,6 +8,12 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added
 
+- `scrollcase add env <box> NAME=VALUE` and `add import <box> <module>`, with the matching
+  `remove`. A map and a list are the two shapes a single-value prompt cannot edit, which left
+  `environment` and `selfTest.imports` as the only parts of a scroll still opened in an editor.
+  Removing the last environment variable takes the empty map with it; removing the last self-test
+  import is refused, because a box has to prove it can import something.
+
 - **Six commands for changing a scroll that already exists**, so the fields nobody can write by
   hand are no longer written by hand. `add asset <box> <url>` downloads the URL once and records the
   `sizeBytes` and `sha256` it found; `add file <box> <path>` records a file from the project;
@@ -61,6 +67,13 @@ All notable changes to Scrollcase are documented here. The format follows
   generated manifest with Cargo.
 
 ### Changed
+
+- `audit --write` on a scroll that declares no `condaDependencyLicenseAudit` now places
+  `conda-licenses.json` beside the scroll and records the declaration, instead of refusing and
+  leaving the author to work out the path and type it in. The path is a convention rather than a
+  decision. What stays deliberate is the declaration: a build enforces the audit only for a scroll
+  that names a path, so the check is switched on by running the command and never by a file
+  appearing on disk.
 
 - **Give every interactive question one legible shape.** A question is now a blank line, the field's
   name, the line explaining it, and the answer typed after ` ↳ ` — text prompts, keyboard menus and

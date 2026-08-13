@@ -18,9 +18,13 @@ import {
   ALL_TARGETS,
   addAsset,
   addFile,
+  addSelfTestImport,
   editableScrollFields,
   refreshScroll,
+  removeEnvironmentVariable,
   removeScrollEntry,
+  removeSelfTestImport,
+  setEnvironmentVariable,
   setScrollField,
 } from '../../src/build/scroll-edit.mjs';
 import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
@@ -195,6 +199,66 @@ describe('editing an existing scroll', () => {
     })).rejects.toThrow(/both claim that path/);
 
     expect(await readFile(basePath, 'utf8')).toBe(before);
+  });
+
+  it('declares environment variables one key at a time', async () => {
+    await splitBox();
+    await setEnvironmentVariable({
+      boxId: 'example-model', target: ALL_TARGETS, name: 'HF_HUB_OFFLINE', value: '1',
+    });
+    await setEnvironmentVariable({
+      boxId: 'example-model', target: ALL_TARGETS, name: 'LOG_LEVEL', value: 'debug',
+    });
+
+    // A map is the one shape a single-value prompt cannot edit, so it gets its own command.
+    expect((await readScroll(REFERENCE)).scroll.environment)
+      .toEqual({ HF_HUB_OFFLINE: '1', LOG_LEVEL: 'debug' });
+
+    await removeEnvironmentVariable({ boxId: 'example-model', target: ALL_TARGETS, name: 'LOG_LEVEL' });
+    expect((await readScroll(REFERENCE)).scroll.environment).toEqual({ HF_HUB_OFFLINE: '1' });
+
+    await removeEnvironmentVariable({
+      boxId: 'example-model', target: ALL_TARGETS, name: 'HF_HUB_OFFLINE',
+    });
+    // The last one takes the empty map with it rather than leaving `"environment": {}` behind.
+    expect((await readScroll(REFERENCE)).scroll.environment).toBeUndefined();
+  });
+
+  it('refuses an environment name or value the box format cannot carry', async () => {
+    await splitBox();
+
+    for (const name of ['', 'HAS=EQUALS', 'HAS\0NUL']) {
+      await expect(setEnvironmentVariable({
+        boxId: 'example-model', target: ALL_TARGETS, name, value: 'x',
+      }), name).rejects.toThrow(/Not an environment variable name/);
+    }
+    await expect(setEnvironmentVariable({
+      boxId: 'example-model', target: ALL_TARGETS, name: 'OK', value: 'has\0nul',
+    })).rejects.toThrow(/values are strings and cannot contain NUL/);
+    await expect(removeEnvironmentVariable({
+      boxId: 'example-model', target: ALL_TARGETS, name: 'ABSENT',
+    })).rejects.toThrow(/declares no environment variable ABSENT/);
+  });
+
+  it('adds and removes self-test imports, but never the last one', async () => {
+    await splitBox();
+    await addSelfTestImport({ boxId: 'example-model', target: ALL_TARGETS, module: 'onnxruntime' });
+    await addSelfTestImport({ boxId: 'example-model', target: ALL_TARGETS, module: 'numpy' });
+
+    expect((await readScroll(REFERENCE)).scroll.selfTest.imports)
+      .toEqual(['json', 'onnxruntime', 'numpy']);
+
+    await removeSelfTestImport({ boxId: 'example-model', target: ALL_TARGETS, module: 'json' });
+    expect((await readScroll(REFERENCE)).scroll.selfTest.imports).toEqual(['onnxruntime', 'numpy']);
+
+    await removeSelfTestImport({ boxId: 'example-model', target: ALL_TARGETS, module: 'numpy' });
+    // The schema requires one, so the refusal explains itself instead of writing an invalid scroll.
+    await expect(removeSelfTestImport({
+      boxId: 'example-model', target: ALL_TARGETS, module: 'onnxruntime',
+    })).rejects.toThrow(/a box must prove it can import something/);
+    await expect(addSelfTestImport({
+      boxId: 'example-model', target: ALL_TARGETS, module: 'not a module',
+    })).rejects.toThrow(/Not an importable module name/);
   });
 
   it('sets a field, and refuses one the format does not let a person change', async () => {

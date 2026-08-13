@@ -308,6 +308,99 @@ export async function removeScrollEntry({ boxId, target, field, relativePath }) 
 }
 
 /**
+ * `add env` — declares one environment variable the box needs when its interpreter runs.
+ *
+ * A map is the one shape a single field prompt cannot edit, which for a while left `environment` as
+ * the only part of a scroll with no command behind it. Setting one key at a time is what an author
+ * actually does, and it leaves the rest of the map alone.
+ *
+ * @param {{ boxId: string, target: string, name: string, value: string }} options
+ */
+export async function setEnvironmentVariable({ boxId, target, name, value }) {
+  if (typeof name !== 'string' || name === '' || /[=\0]/.test(name)) {
+    fail(`Not an environment variable name: ${JSON.stringify(name)}. Names cannot be empty or contain = or NUL.`);
+  }
+  if (typeof value !== 'string' || value.includes('\0')) {
+    fail(`Not an environment variable value for ${name}: values are strings and cannot contain NUL.`);
+  }
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
+    ...scroll,
+    environment: { ...scroll.environment, [name]: value },
+  }));
+  return { written, name, value };
+}
+
+/**
+ * `remove env` — drops one variable, and the map with it when it was the last one.
+ *
+ * @param {{ boxId: string, target: string, name: string }} options
+ */
+export async function removeEnvironmentVariable({ boxId, target, name }) {
+  let removed = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    if (scroll.environment?.[name] === undefined) return null;
+    removed += 1;
+    const { [name]: _dropped, ...rest } = scroll.environment;
+    const updated = { ...scroll };
+    if (Object.keys(rest).length > 0) updated.environment = rest;
+    else delete updated.environment;
+    return updated;
+  });
+  if (removed === 0) fail(`${boxId} declares no environment variable ${name}.`);
+  return { written, name };
+}
+
+/**
+ * `add import` — adds a module to the list the box must be able to import.
+ *
+ * These names are signed into the release and repeated by `verify --self-test`, so they are the one
+ * part of the self-test a consumer can check for itself. Adding one by command means the list stays
+ * a list rather than something an author retypes.
+ *
+ * @param {{ boxId: string, target: string, module: string }} options
+ */
+export async function addSelfTestImport({ boxId, target, module }) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(String(module))) {
+    fail(`Not an importable module name: ${module}`);
+  }
+  let added = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const imports = scroll.selfTest?.imports ?? [];
+    if (imports.includes(module)) return null;
+    added += 1;
+    return { ...scroll, selfTest: { ...scroll.selfTest, imports: [...imports, module] } };
+  });
+  if (added === 0) fail(`${boxId} already imports ${module} in its self-test.`);
+  return { written, module };
+}
+
+/**
+ * `remove import` — drops a module from the self-test list.
+ *
+ * The schema requires at least one import, so removing the last one is refused here rather than
+ * left to produce a scroll that no longer validates.
+ *
+ * @param {{ boxId: string, target: string, module: string }} options
+ */
+export async function removeSelfTestImport({ boxId, target, module }) {
+  let removed = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const imports = scroll.selfTest?.imports ?? [];
+    if (!imports.includes(module)) return null;
+    if (imports.length === 1) {
+      fail(`${module} is the only self-test import of ${boxId}; a box must prove it can import something.`);
+    }
+    removed += 1;
+    return {
+      ...scroll,
+      selfTest: { ...scroll.selfTest, imports: imports.filter((name) => name !== module) },
+    };
+  });
+  if (removed === 0) fail(`${boxId} does not import ${module} in its self-test.`);
+  return { written, module };
+}
+
+/**
  * Fields `edit scroll` refuses, and why each one is not an edit.
  *
  * Three kinds. Structural values a project does not choose (`$schema`, `schemaVersion`, `extends`).

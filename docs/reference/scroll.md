@@ -205,7 +205,7 @@ build reads, and provenance records. Nothing downstream can tell which half a va
 | `pythonEntryPoint` | no | Interpreter path relative to the box root. Fixed per target: `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows. Derived from the target when omitted, and a mismatch is still rejected when declared |
 | `modelCacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `model-cache/<boxId>` |
 | `environment` | no | String environment variables required whenever Scrollcase runs the box interpreter |
-| `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory. When declared, the build fails if the lock no longer matches what was reviewed |
+| `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory, written and declared by [`audit --write`](/reference/cli#audit). When declared, the build fails if the lock no longer matches what was reviewed |
 
 The dependencies themselves live in `pixi.toml`, not here:
 
@@ -227,7 +227,8 @@ so they cannot drift apart, and `--from-requirements` imports an existing pip fi
 
 ### Declared runtime environment
 
-`environment` is a map of names to string values:
+`environment` is a map of names to string values, one per
+[`scrollcase add env <box> NAME=VALUE`](/reference/cli#add):
 
 ```jsonc
 "environment": {
@@ -437,7 +438,7 @@ version 2 signs the import subset for a consumer to repeat; it does not carry th
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `imports` | yes | One or more modules imported with the box's interpreter. These names are signed and repeated by `verify --self-test` |
+| `imports` | yes | One or more modules imported with the box's interpreter, added with [`add import`](/reference/cli#add). These names are signed and repeated by `verify --self-test` |
 | `files` | no | Files that must still exist after pruning — this is what stops an over-aggressive prune from shipping a broken box. Defaults to empty |
 | `pythonFile` | no | Project path to a Python file run after the imports succeed |
 | `pythonCode` | no | The same thing inline, for a single assertion. Mutually exclusive with `pythonFile` |

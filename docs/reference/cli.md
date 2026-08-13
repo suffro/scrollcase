@@ -212,10 +212,12 @@ Record something in a scroll that already exists, so the fields nobody can write
 written by hand.
 
 ```sh
-scrollcase add asset <box> <url>  [--to <payload path>] [--target <targetId>|all]
-scrollcase add file  <box> <path> [--to <payload path>] [--target <targetId>|all]
-scrollcase add dep   <box> <name> [--version <spec>] [--target <targetId>|all]
-scrollcase add dep   <box> --from-requirements requirements.txt
+scrollcase add asset  <box> <url>        [--to <payload path>] [--target <targetId>|all]
+scrollcase add file   <box> <path>       [--to <payload path>] [--target <targetId>|all]
+scrollcase add dep    <box> <name>       [--version <spec>] [--target <targetId>|all]
+scrollcase add dep    <box> --from-requirements requirements.txt
+scrollcase add env    <box> NAME=VALUE   [--target <targetId>|all]
+scrollcase add import <box> <module>     [--target <targetId>|all]
 ```
 
 `add asset` **downloads the URL once** and records the `sizeBytes` and `sha256` it actually found,
@@ -236,6 +238,15 @@ rather than re-emitting the manifest, so comments and spacing survive. The defau
 `*`: `pixi.lock` is the pin that matters and it records the exact version solved, so a second,
 weaker pin in the manifest would only be something else to keep in step. Pass `--version ">=2,<3"`
 when a project wants a bound.
+
+`add env` declares one environment variable the box needs whenever its interpreter runs, leaving the
+rest of the map alone. A map is the one shape a single-value prompt cannot edit, which is why it has
+its own command rather than being left to a hand edit. The value may contain `=`; only the first one
+separates the name.
+
+`add import` adds a module to `selfTest.imports`. Those names are signed into the release and
+repeated by `verify --self-test`, so they are the part of the self-test a consumer can check for
+itself.
 
 `--from-requirements` reads a pip `requirements.txt` instead. Names are translated to conda-forge
 where Scrollcase is sure and lowercased otherwise, and **every translation and every skip is
@@ -272,12 +283,17 @@ The exact inverse of `add`, because a tool where arriving is a command and leavi
 has not removed the hand edit.
 
 ```sh
-scrollcase remove asset <box> <payload path> [--target <targetId>|all]
-scrollcase remove file  <box> <payload path> [--target <targetId>|all]
+scrollcase remove asset  <box> <payload path> [--target <targetId>|all]
+scrollcase remove file   <box> <payload path> [--target <targetId>|all]
+scrollcase remove env    <box> NAME           [--target <targetId>|all]
+scrollcase remove import <box> <module>       [--target <targetId>|all]
 ```
 
-The entry is dropped and so is its `selfTest.files` line. A path that matched nothing is an error,
-not a quiet success.
+For `asset` and `file` the entry is dropped and so is its `selfTest.files` line. Removing the last
+environment variable takes the empty map with it rather than leaving `"environment": {}` behind.
+Removing the last self-test import is refused: a box has to prove it can import something.
+
+A path, name or module that matched nothing is an error, not a quiet success.
 
 ## `edit`
 
@@ -389,6 +405,12 @@ Two modes:
 - **Write (`--write`).** Write the inventory to the scroll's declared path, for a human to review
   and commit. Writing is explicit because silently overwriting the reviewed file is exactly how
   an unreviewed licence change would slip through.
+
+A scroll that declares no path gets one: `--write` places `conda-licenses.json` beside the scroll
+and records the declaration, reporting both. The path is a convention rather than a decision, so
+there is nothing gained by making you type it. The **declaration** stays deliberate: a build
+enforces the audit only for a scroll that names a path, so the check is switched on by running this
+command and never by a file appearing on disk.
 
 `--namespace` sets the namespace of the inventory's `kind`
 (`<namespace>.dependency-license-audit`, default `scrollcase.box`).
