@@ -1,0 +1,248 @@
+# Builds, signs and publishes the public sentiment demo box for all three operating systems.
+#
+# The counterpart of `demo-box.yml`, for the example that carries a real model: a DistilBERT SST-2
+# classifier quantised to INT8 in ONNX form, embedded in the archive. It exists so a newcomer can
+# see a model-bearing box verified and executed without a toolchain, a Hugging Face download, or a
+# multi-minute build.
+#
+# A separate workflow rather than an input on `demo-box.yml`: the two examples agree on how a box is
+# published and on nothing else. The targets differ (this one is CPU on macOS, since the model runs
+# on onnxruntime's CPU provider), the release notes differ, and this box takes an argument while
+# hello-box takes none. Folding both into one file would mean a matrix of conditionals around every
+# step that matters.
+#
+# Manual only. This publishes public artefacts, and is worth running whenever the example itself
+# changes. Nothing here runs on a push.
+#
+# On signing: it reuses the demo key, which now signs both example boxes and nothing else. A Linux
+# or Windows box cannot be built on a maintainer's Mac at all, because conda-pack packs the host's
+# own environment — CI has to do the building, so it does the signing too.
+name: sentiment demo box
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish the sentiment demo box under'
+        default: 'sentiment-demo-v1'
+        required: true
+      draft:
+        description: 'Publish as a draft for review before it goes public'
+        type: boolean
+        default: true
+
+env:
+  PIXI_VERSION: '0.73.0'
+  # The example this publishes. Declared once because the build path, the artifact name and the
+  # published asset name all have to agree.
+  BOX_ID: sentiment-demo
+  BOX_VERSION: '1.0.0'
+  # The box classifies a sentence and declares no default arguments, so every execution below
+  # supplies one. This sentence is the one the guide and the shipped consumer templates use, and the
+  # model answers POSITIVE on it — which is what the run below asserts.
+  DEMO_SENTENCE: 'This product is surprisingly easy to use.'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    # Longer than hello-box's 30: this build additionally fetches 68 MB of pinned model files and
+    # installs onnxruntime, which is the largest package in the lock on every target.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64-cpu
+          - os: macos-latest
+            target: macos-aarch64-cpu
+          - os: windows-latest
+            target: windows-x86_64-cpu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Install the pinned toolchain
+        run: node src/cli.mjs init --install-toolchain --no-example --pixi-version ${{ env.PIXI_VERSION }}
+
+      # `init` scaffolds a workspace; `build` refuses a dirty tree, and that refusal is worth
+      # keeping rather than working around with --allow-dirty.
+      - name: Restore a clean tree
+        shell: bash
+        run: |
+          git clean -fd
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Tree is still dirty after cleaning up init's scaffolding:" >&2
+            git status --porcelain >&2
+            exit 1
+          fi
+
+      # Written under RUNNER_TEMP rather than into the checkout, which would both dirty the tree and
+      # risk committing a private key. Never echoed: the value reaches the file through stdin.
+      - name: Materialize the demo signing key
+        shell: bash
+        env:
+          DEMO_SIGNING_KEY: ${{ secrets.SCROLLCASE_DEMO_SIGNING_KEY }}
+        run: |
+          if [ -z "$DEMO_SIGNING_KEY" ]; then
+            echo "SCROLLCASE_DEMO_SIGNING_KEY is not set on this repository." >&2
+            exit 1
+          fi
+          printf '%s' "$DEMO_SIGNING_KEY" > "$RUNNER_TEMP/demo-signing-private.pem"
+          chmod 600 "$RUNNER_TEMP/demo-signing-private.pem"
+
+      # The build fetches the three model files by their declared size and SHA-256, embeds them, and
+      # runs the scroll's `pythonCode` self-test — real predictions with the box's own interpreter,
+      # which is what refuses to sign a box that answers wrong.
+      - name: Build and sign
+        shell: bash
+        run: |
+          node src/cli.mjs build "$BOX_ID/${{ matrix.target }}" \
+            --scrolls-dir examples \
+            --weights embed \
+            --private-key "$RUNNER_TEMP/demo-signing-private.pem" \
+            --public-key examples/keys/example-signing-public.json
+
+      # Verified against the public key committed in the repository — the same file a newcomer will
+      # pass to `verify`. If these disagree, the published box would fail for everyone who tried it.
+      #
+      # `--self-test` proves the packed environment relocates and imports; it does not execute the
+      # application. The `run` below is what proves the model actually answers, so its output is
+      # asserted rather than merely displayed: a box that starts, prints nothing useful and exits 0
+      # would otherwise publish itself.
+      - name: Verify exactly as a newcomer will
+        shell: bash
+        run: |
+          release=$(ls ".scrollcase/dist/boxes/$BOX_ID/$BOX_VERSION/${{ matrix.target }}"/*.release.json)
+          node src/cli.mjs verify "$release" --self-test \
+            --public-key examples/keys/example-signing-public.json
+          output=$(node src/cli.mjs run "$release" \
+            --public-key examples/keys/example-signing-public.json \
+            -- "$DEMO_SENTENCE")
+          printf '%s\n' "$output"
+          case "$output" in
+            *"Sentiment: POSITIVE"*) ;;
+            *)
+              echo "The box did not classify the demo sentence as POSITIVE." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Discard the key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/demo-signing-private.pem"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentiment-demo-box-${{ matrix.target }}
+          path: .scrollcase/dist/boxes/${{ env.BOX_ID }}/${{ env.BOX_VERSION }}/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # Not merged into one directory: each target's two files have to stay together to be wrapped,
+      # and merging them would leave one flat pile of hashes with nothing saying which pairs with
+      # which.
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          pattern: sentiment-demo-box-*
+
+      # A box archive must be named for its own SHA-256 and sit beside its release document, because
+      # that is how `verify` finds it. Published flat, that would give six hex names on the release
+      # page and no way to tell which three were yours before downloading them.
+      #
+      # So each target ships as one plainly named container. The pair keeps content-addressed names
+      # and stays adjacent under `box/`, which is what `verify` needs; the name outside says which
+      # machine it is for, which is what a person needs. Stored rather than compressed: the inner
+      # archive is already deflated, and recompressing it would cost minutes to save nothing.
+      #
+      # The consumer examples travel with it, so unpacking gives a folder that already runs three
+      # ways instead of source to retype. They come from `examples/sentiment-demo/demo-consumers/`
+      # rather than the hello-box set, because this box takes a sentence and those templates pass
+      # one. The trust key is deliberately absent: a signature proves nothing if the key arrives in
+      # the same package as what it signs.
+      - name: Wrap each target as one plainly named archive
+        shell: bash
+        run: |
+          # Without this an unmatched glob stays literal, and the pair check below would count a
+          # filename that does not exist as one file and wrap nothing.
+          shopt -s nullglob
+          mkdir wrapped
+          for dir in staged/sentiment-demo-box-*; do
+            target=${dir#staged/sentiment-demo-box-}
+            zips=("$dir"/*.zip)
+            releases=("$dir"/*.release.json)
+            if [ "${#zips[@]}" -ne 1 ] || [ "${#releases[@]}" -ne 1 ]; then
+              echo "Expected one archive and one release document in $dir, found:" >&2
+              ls -l "$dir" >&2
+              exit 1
+            fi
+            stage="staging/$target"
+            mkdir -p "$stage/box"
+            cp "${zips[0]}" "${releases[0]}" "$stage/box/"
+            cp examples/sentiment-demo/demo-consumers/run-box.ts \
+               examples/sentiment-demo/demo-consumers/run_box.py \
+               examples/sentiment-demo/demo-consumers/package.json \
+               examples/sentiment-demo/demo-consumers/README.md "$stage/"
+            # Entries named explicitly rather than with `.`, so the archive carries no `./` prefix
+            # and no stray dotfile the runner happens to leave in the staging directory.
+            ( cd "$stage" && zip -0 -X -r -q \
+                "$GITHUB_WORKSPACE/wrapped/$BOX_ID-$BOX_VERSION-$target.zip" \
+                box run-box.ts run_box.py package.json README.md )
+            unzip -l "wrapped/$BOX_ID-$BOX_VERSION-$target.zip"
+          done
+          ls -l wrapped
+
+      # A rebuilt box lands under a new hash and so never overwrites the one it replaces. Uploading
+      # alone would leave the previous boxes sitting beside the new ones, downloadable and stale, so
+      # anything not in this build is removed once the new set is safely up.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(ls wrapped/*.zip | wc -l)
+          if [ "$count" -ne 3 ]; then
+            echo "Expected three archives, one per target, found $count" >&2
+            exit 1
+          fi
+          # The notes are rewritten on every run, not only at creation. They name the assets and tell
+          # a reader what to do with them, so a re-publish that changed either would otherwise leave
+          # the previous instructions sitting above the new files.
+          if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release edit "${{ inputs.tag }}" \
+              --title "Sentiment demo box" \
+              --notes-file .github/sentiment-demo-release-notes.md
+          else
+            gh release create "${{ inputs.tag }}" \
+              --title "Sentiment demo box" \
+              --notes-file .github/sentiment-demo-release-notes.md \
+              ${{ inputs.draft && '--draft' || '' }}
+          fi
+          gh release upload "${{ inputs.tag }}" wrapped/* --clobber
+          # Deleted only after the upload succeeded: a failed upload must leave the previous boxes
+          # in place rather than empty the release.
+          for asset in $(gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'); do
+            if [ ! -e "wrapped/$asset" ]; then
+              echo "Removing superseded asset: $asset"
+              gh release delete-asset "${{ inputs.tag }}" "$asset" --yes
+            fi
+          done

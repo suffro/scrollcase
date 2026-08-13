@@ -82,8 +82,13 @@ export default defineConfig({
             link: "/demos",
             collapsed: true,
             items: [
-              { text: 'Box run', link: '/demos/box-run-demo' },
-              { text: 'Box development', link: '/demos/box-dev-demo' }
+              { text: 'Basic demos', items: [
+                { text: 'Box run', link: '/demos/box-run-demo' },
+                { text: 'Box development', link: '/demos/box-dev-demo' },
+              ] },
+              { text: 'Real models', items: [
+                { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
+              ]},
             ]
           }
         ]

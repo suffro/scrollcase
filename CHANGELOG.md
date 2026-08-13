@@ -8,6 +8,14 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added
 
+- Add the `sentiment-demo` example: a DistilBERT SST-2 classifier, quantised to INT8 in ONNX form,
+  packed for Linux, macOS and Windows on CPU. It is the first example carrying a real model, so it
+  exercises commit-pinned assets verified by size and SHA-256, `weights: embed`, an offline
+  environment signed into the release, third-party licence notices carried into the payload, and a
+  self-test that runs real predictions and refuses to sign a box that answers wrong. A dedicated
+  `sentiment demo box` workflow builds, verifies, runs and publishes it as one archive per operating
+  system, signed with the existing demo key.
+
 - Generate a non-overwriting Rust consumer template crate under `consumer-templates/rust/` during
   `scrollcase init`, beside the existing Node and Python templates. Interactive setup now asks
   `Install scrollcase-consumer for Rust?` and, when accepted, adds the crate dependency to that

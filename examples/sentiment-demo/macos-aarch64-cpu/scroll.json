@@ -1,0 +1,89 @@
+{
+  "$schema": "https://scrollcase.dev/schema/v2/scroll.schema.json",
+  "schemaVersion": 2,
+  "scrollVersion": "1.0.0",
+  "boxId": "sentiment-demo",
+  "modelId": "distilbert-sst2-onnx-int8",
+  "runtimeId": "onnxruntime-cpu",
+  "version": "1.0.0",
+  "sourceRevision": "fd49941c1b822846cb14970cdf430a7cfbe0f5b9",
+  "target": {
+    "platform": "macos",
+    "arch": "aarch64",
+    "accelerator": "cpu"
+  },
+  "compatibility": {
+    "minHostAppVersion": "1.0.0",
+    "minRamGb": 2
+  },
+  "pythonVersion": "3.11.*",
+  "pixiVersion": "0.73.0",
+  "condaDependencyLicenseAudit": "examples/sentiment-demo/macos-aarch64-cpu/conda-licenses.json",
+  "pythonEntryPoint": "venv/bin/python",
+  "modelCacheSubdir": "model-cache/distilbert-sst2",
+  "environment": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "TOKENIZERS_PARALLELISM": "false"
+  },
+  "assetBaseUrl": "https://assets.example.org/boxes",
+  "assets": [
+    {
+      "url": "https://huggingface.co/onnx-community/distilbert-base-uncased-finetuned-sst-2-english-ONNX/resolve/fd49941c1b822846cb14970cdf430a7cfbe0f5b9/onnx/model_int8.onnx",
+      "relativePath": "model-cache/distilbert-sst2/model_int8.onnx",
+      "sizeBytes": 67537148,
+      "sha256": "1bc93de9f1da185c67028dbac37df6c14939256e0851d28e8f9c2994d338ac4c"
+    },
+    {
+      "url": "https://huggingface.co/onnx-community/distilbert-base-uncased-finetuned-sst-2-english-ONNX/resolve/fd49941c1b822846cb14970cdf430a7cfbe0f5b9/tokenizer.json",
+      "relativePath": "model-cache/distilbert-sst2/tokenizer.json",
+      "sizeBytes": 711396,
+      "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+    },
+    {
+      "url": "https://huggingface.co/onnx-community/distilbert-base-uncased-finetuned-sst-2-english-ONNX/resolve/fd49941c1b822846cb14970cdf430a7cfbe0f5b9/config.json",
+      "relativePath": "model-cache/distilbert-sst2/config.json",
+      "sizeBytes": 786,
+      "sha256": "27475a0750e539c105a51c59dbef1f0ab75615b0a06e96f2f4d585c46f160c2f"
+    }
+  ],
+  "localFiles": [
+    {
+      "sourcePath": "examples/sentiment-demo/shared/entrypoint.py",
+      "relativePath": "entrypoint.py",
+      "sha256": "247033008de5ab88847115ad4e643c7aeec97e22ea0e74c202b2e0e280206dc3"
+    },
+    {
+      "sourcePath": "examples/sentiment-demo/shared/MODEL_NOTICE.md",
+      "relativePath": "THIRD_PARTY_NOTICES/distilbert/MODEL_NOTICE.md",
+      "sha256": "eb945ca2676fe6faeafb708bedb0e5846ac4fad27449c43ddabadef886a6a5ba"
+    },
+    {
+      "sourcePath": "examples/sentiment-demo/shared/APACHE-2.0.txt",
+      "relativePath": "THIRD_PARTY_NOTICES/distilbert/APACHE-2.0.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+  ],
+  "weights": "embed",
+  "selfTest": {
+    "imports": [
+      "onnxruntime",
+      "tokenizers",
+      "numpy"
+    ],
+    "files": [
+      "entrypoint.py",
+      "model-cache/distilbert-sst2/model_int8.onnx",
+      "model-cache/distilbert-sst2/tokenizer.json",
+      "model-cache/distilbert-sst2/config.json",
+      "THIRD_PARTY_NOTICES/distilbert/MODEL_NOTICE.md",
+      "THIRD_PARTY_NOTICES/distilbert/APACHE-2.0.txt"
+    ],
+    "pythonCode": "import math\nimport os\nimport sys\n\nsys.path.insert(0, os.getcwd())\n\nfrom entrypoint import predict\n\nCASES = (\n    ('This product is surprisingly easy to use.', 'POSITIVE'),\n    ('This was a frustrating and disappointing experience.', 'NEGATIVE'),\n)\n\nfor sentence, expected in CASES:\n    label, confidence = predict(sentence)\n    assert label == expected, f'{sentence!r}: expected {expected}, got {label}'\n    assert math.isfinite(confidence), f'{sentence!r}: confidence is not finite'\n    assert 0.0 <= confidence <= 1.0, f'{sentence!r}: confidence {confidence} outside [0, 1]'\n\nprint('self-test ok')\n"
+  },
+  "execution": {
+    "kind": "python-script",
+    "script": "entrypoint.py",
+    "defaultArgs": []
+  }
+}

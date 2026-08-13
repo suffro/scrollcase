@@ -1,0 +1,17 @@
+# Environment for the sentiment-demo box (windows-x86_64-cpu).
+#
+# Only the [workspace] platforms line differs between targets. The exact packages
+# are pinned by the committed pixi.lock next to this file, not by these ranges.
+
+[workspace]
+name = "sentiment-demo"
+version = "1.0.0"
+description = "DistilBERT SST-2 ONNX INT8 sentiment demo box"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[dependencies]
+python = "3.11.*"
+onnxruntime = ">=1.20,<2"
+tokenizers = ">=0.20,<0.22"
+numpy = ">=1.26,<3"

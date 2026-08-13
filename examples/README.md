@@ -1,23 +1,28 @@
 # Examples
 
-## The published demo box
+## The published demo boxes
 
-The same `hello-box` below is built and signed by CI for all three operating systems and attached to
-the [`demo-box-v1` release](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1), so it can
-be verified and run without a toolchain. `keys/example-signing-public.json` is the public half of the
-key those boxes are signed with.
+Both examples below are built and signed by CI for all three operating systems and attached to a
+release, so either can be verified and run without a toolchain:
+[`demo-box-v1`](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1) for `hello-box`, and
+[`sentiment-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/sentiment-demo-v1) for the
+model-bearing `sentiment-demo`. `keys/example-signing-public.json` is the public half of the key
+both are signed with.
 
-That key exists **only for the demo**. It signs nothing else, no trust chain depends on it, and it is
-not the key for any Scrollcase release. Its private half lives in a repository secret and is used by
-`.github/workflows/demo-box.yml` alone — a Linux or Windows box cannot be built on a maintainer's
-machine anyway, since conda-pack packs the host's own environment.
+That key exists **only for the demos**. It signs nothing else, no trust chain depends on it, and it
+is not the key for any Scrollcase release. Its private half lives in a repository secret and is used
+by `.github/workflows/demo-box.yml` and `.github/workflows/sentiment-demo-box.yml` alone — a Linux
+or Windows box cannot be built on a maintainer's machine anyway, since conda-pack packs the host's
+own environment.
 
-`demo-consumers/` holds what travels inside each published archive beside the box: `run-box.ts`,
-`run_box.py`, a `package.json`, and a `README.md`, so unpacking a download gives a folder that
-already runs three ways. The same files are embedded in
+`demo-consumers/` holds what travels inside each published `hello-box` archive beside the box:
+`run-box.ts`, `run_box.py`, a `package.json`, and a `README.md`, so unpacking a download gives a
+folder that already runs three ways. The same files are embedded in
 [the demo box guide](https://scrollcase.dev/demos/box-run-demo), which is why they live here rather
-than in the page — documentation and shipped bytes cannot drift apart. The public key is never
-copied in: a signature proves nothing if the key arrives in the same package as what it signs.
+than in the page — documentation and shipped bytes cannot drift apart. `sentiment-demo` ships its
+own set under `sentiment-demo/demo-consumers/`, because that box classifies a sentence and its
+templates pass one. The public key is never copied into either: a signature proves nothing if the
+key arrives in the same package as what it signs.
 
 ## `hello-box`
 
@@ -89,3 +94,13 @@ endings on checkout by default, and a file rewritten to CRLF no longer matches t
 declares — the build stops with a mismatch on a checkout that looks perfectly clean. This repository
 marks the affected paths in [`.gitattributes`](../.gitattributes); a project declaring its own
 `localFiles` needs the same for the files it names.
+
+## `sentiment-demo`
+
+The same pipeline carrying a real model: DistilBERT SST-2 quantised to INT8 in ONNX form, with the
+weights declared as commit-pinned assets, the licence notices carried into the payload, an offline
+environment signed into the release, and a self-test that runs real predictions before the box may
+be signed. It is the example to read when packaging something that is not stdlib.
+
+Its own [`README`](sentiment-demo/README.md) covers the targets, the build commands and what is
+worth reading in the scroll.
