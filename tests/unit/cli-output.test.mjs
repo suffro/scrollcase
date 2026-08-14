@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildDistributionSummary,
+  commandTip,
   promptHeading,
   promptMarker,
   statusLine,
@@ -54,6 +55,17 @@ describe('CLI output presentation', () => {
     const plain = { stream: { isTTY: true }, env: { NO_COLOR: '' } };
     expect(promptHeading('Box ID', plain)).toBe('\nBox ID:\n');
     expect(promptMarker(plain)).toBe(' ↳ ');
+  });
+
+  it('sets a tip apart from its placeholder, and drops both colours when asked to', () => {
+    expect(commandTip('scrollcase add import', '<dependency_module>', {
+      stream: { isTTY: true },
+      env: {},
+    })).toBe('\x1b[35mscrollcase add import\x1b[0m \x1b[90m<dependency_module>\x1b[0m');
+    expect(commandTip('scrollcase add import', '<dependency_module>', {
+      stream: { isTTY: true },
+      env: { NO_COLOR: '' },
+    })).toBe('scrollcase add import <dependency_module>');
   });
 
   it('summarises distribution with relative paths and without content hashes', () => {

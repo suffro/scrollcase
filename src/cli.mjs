@@ -69,6 +69,7 @@ import {
 import { chooseCliValue } from './cli-menu.mjs';
 import {
   buildDistributionSummary,
+  commandTip,
   promptHeading,
   promptMarker,
   statusLine,
@@ -405,6 +406,10 @@ async function addDep(name, dependency, flags) {
     success(`${result.replaced ? 'Updated' : 'Added'} ${packageName} = "${spec}"`);
   }
   reportWritten([...written]);
+  // A dependency the box installs but never imports is not proven by anything. What the module is
+  // called is the author's to say — package name and import name disagree often enough that guessing
+  // one here would write a signed self-test claim nobody checked — so this reminds, and stops there.
+  step(`Remember to import your dependency modules with ${commandTip('scrollcase add import', '<dependency_module>')}`);
   step(`Next: scrollcase lock ${boxId}`);
 }
 

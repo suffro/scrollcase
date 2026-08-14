@@ -237,7 +237,8 @@ drop what you just declared.
 rather than re-emitting the manifest, so comments and spacing survive. The default constraint is
 `*`: `pixi.lock` is the pin that matters and it records the exact version solved, so a second,
 weaker pin in the manifest would only be something else to keep in step. Pass `--version ">=2,<3"`
-when a project wants a bound.
+when a project wants a bound. It closes by reminding you that a dependency is not proven until the
+box imports it — the module name is yours to give, so the reminder names the command and no module.
 
 `add env` declares one environment variable the box needs whenever its interpreter runs, leaving the
 rest of the map alone. A map is the one shape a single-value prompt cannot edit, which is why it has

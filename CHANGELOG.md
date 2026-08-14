@@ -6,6 +6,16 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.2] — 2026-08-14
+
+### Changed
+
+- `add dep` now closes with a reminder that a dependency still has to be declared as a self-test
+  import, spelling out the `add import` command. A dependency the box installs but never imports is
+  proven by nothing, and the two commands were easy to learn separately and then forget together.
+  The reminder is unconditional and guesses no module name: what a package is called and what it
+  imports as disagree often enough that a guess would write a signed claim nobody checked.
+
 ## [0.11.1] — 2026-08-14
 
 ### Changed

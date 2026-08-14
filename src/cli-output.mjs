@@ -26,6 +26,15 @@ const styles = Object.freeze({
  */
 const promptStyles = Object.freeze({ title: 35, marker: 90 });
 
+/**
+ * The command a tip asks the reader to type, and the placeholder they replace before typing it.
+ *
+ * Same two palette entries as the questions, for the same reasons: magenta holds its contrast on a
+ * light scheme and a dark one, so the command stands out of the sentence around it, and bright black
+ * is muted enough that `<dependency_module>` reads as a slot to fill rather than a word to copy.
+ */
+const tipStyles = Object.freeze({ command: 35, placeholder: 90 });
+
 /** True when the stream is a terminal whose user has not asked for plain output. */
 const colourAvailable = (stream, env) =>
   Boolean(stream.isTTY && !Object.hasOwn(env, 'NO_COLOR') && env.TERM !== 'dumb');
@@ -72,6 +81,20 @@ export function promptHeading(title, {
 /** The soft marker an answer is typed after, so the answer reads as the reply to the line above. */
 export function promptMarker({ stream = process.stdout, env = process.env } = {}) {
   return paint(' ↳ ', promptStyles.marker, stream, env);
+}
+
+/**
+ * Formats a command inside a tip, with the part the reader has to substitute held back.
+ *
+ * The only place a status line's message carries colour rather than leaving it to the symbol: a tip
+ * exists to be retyped, so the command has to be findable in the sentence that suggests it.
+ */
+export function commandTip(command, placeholder, {
+  stream = process.stdout,
+  env = process.env,
+} = {}) {
+  return `${paint(command, tipStyles.command, stream, env)} `
+    + `${paint(placeholder, tipStyles.placeholder, stream, env)}`;
 }
 
 /** Builds the concise, relative distribution instruction printed after a successful build. */
