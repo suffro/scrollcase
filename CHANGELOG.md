@@ -6,6 +6,19 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-08-14
+
+### Changed
+
+- Write `box.json` into the payload **before** the self-test rather than after it. An application
+  finds its own files by reading the `modelCacheSubdir` its box declares, instead of hard-coding a
+  path the scroll then has to be bent to match — but that only works if the manifest is there when
+  the test runs. It was not, so exactly the applications doing the right thing were the ones whose
+  self-test could not exercise them: the check ran against a payload missing a file the shipped box
+  has. Nothing in `box.json` depends on the test or the parity gate.
+
+## [0.11.0] — 2026-08-14
+
 ### Added
 
 - `scrollcase add env <box> NAME=VALUE` and `add import <box> <module>`, with the matching
@@ -13,6 +26,32 @@ All notable changes to Scrollcase are documented here. The format follows
   `environment` and `selfTest.imports` as the only parts of a scroll still opened in an editor.
   Removing the last environment variable takes the empty map with it; removing the last self-test
   import is refused, because a box has to prove it can import something.
+
+### Changed
+
+- `audit --write` on a scroll that declares no `condaDependencyLicenseAudit` now places
+  `conda-licenses.json` beside the scroll and records the declaration, instead of refusing and
+  leaving the author to work out the path and type it in. The path is a convention rather than a
+  decision. What stays deliberate is the declaration: a build enforces the audit only for a scroll
+  that names a path, so the check is switched on by running the command and never by a file
+  appearing on disk.
+
+## [0.10.1] — 2026-08-14
+
+### Changed
+
+- **Give every interactive question one legible shape.** A question is now a blank line, the field's
+  name, the line explaining it, and the answer typed after ` ↳ ` — text prompts, keyboard menus and
+  yes/no consent alike. A `new scroll` session printed hint, question and answer on adjacent lines
+  nine times running, and the result was a wall in which the explanations were indistinguishable
+  from the things being asked. The name is coloured and the marker is dimmer, both from the terminal
+  palette so they stay legible on a light scheme and a dark one; `NO_COLOR` still removes the colour
+  without changing the layout. The toolchain and Python-source consent questions were reworded so
+  the question comes first and its reason underneath.
+
+## [0.10.0] — 2026-08-13
+
+### Added
 
 - **Six commands for changing a scroll that already exists**, so the fields nobody can write by
   hand are no longer written by hand. `add asset <box> <url>` downloads the URL once and records the
@@ -61,35 +100,7 @@ All notable changes to Scrollcase are documented here. The format follows
   `sentiment demo box` workflow builds, verifies, runs and publishes it as one archive per operating
   system, signed with the existing demo key.
 
-- Generate a non-overwriting Rust consumer template crate under `consumer-templates/rust/` during
-  `scrollcase init`, beside the existing Node and Python templates. Interactive setup now asks
-  `Install scrollcase-consumer for Rust?` and, when accepted, adds the crate dependency to that
-  generated manifest with Cargo.
-
 ### Changed
-
-- Write `box.json` into the payload **before** the self-test rather than after it. An application
-  finds its own files by reading the `modelCacheSubdir` its box declares, instead of hard-coding a
-  path the scroll then has to be bent to match — but that only works if the manifest is there when
-  the test runs. It was not, so exactly the applications doing the right thing were the ones whose
-  self-test could not exercise them: the check ran against a payload missing a file the shipped box
-  has. Nothing in `box.json` depends on the test or the parity gate.
-
-- `audit --write` on a scroll that declares no `condaDependencyLicenseAudit` now places
-  `conda-licenses.json` beside the scroll and records the declaration, instead of refusing and
-  leaving the author to work out the path and type it in. The path is a convention rather than a
-  decision. What stays deliberate is the declaration: a build enforces the audit only for a scroll
-  that names a path, so the check is switched on by running the command and never by a file
-  appearing on disk.
-
-- **Give every interactive question one legible shape.** A question is now a blank line, the field's
-  name, the line explaining it, and the answer typed after ` ↳ ` — text prompts, keyboard menus and
-  yes/no consent alike. A `new scroll` session printed hint, question and answer on adjacent lines
-  nine times running, and the result was a wall in which the explanations were indistinguishable
-  from the things being asked. The name is coloured and the marker is dimmer, both from the terminal
-  palette so they stay legible on a light scheme and a dark one; `NO_COLOR` still removes the colour
-  without changing the layout. The toolchain and Python-source consent questions were reworded so
-  the question comes first and its reason underneath.
 
 - `target` is no longer required by the scroll schema. Every scroll a build reads still declares
   one — the reader refuses a scroll without it — but the base of a split scroll legitimately has
@@ -129,18 +140,7 @@ All notable changes to Scrollcase are documented here. The format follows
   version that changed with the calendar would make the same command produce different scrolls in
   different months.
 
-- Default every interactive `scrollcase init` yes/no question to yes and render it as `[Y/n]`,
-  including the Node, Python, Rust, Python fallback, and managed-toolchain offers. Non-interactive
-  input still grants no consent unless an explicit flag does so.
-
-- Read the schema version shown in the documentation hero from `package.json`, so the public site
-  cannot keep displaying an old version after the package moves on.
-
-- Make the published `hello-box` demo announce a successful box execution before showing a compact
-  runtime and host summary. Its previous output was a table of Python diagnostics and temporary
-  extraction paths: technically useful, but it made a newcomer infer the actual result. The demo
-  now presents the signed-to-running path directly and keeps those ephemeral paths out of its
-  output; all three target scrolls commit to the same revised entry point.
+## [0.9.1] — 2026-08-11
 
 ### Fixed
 
@@ -149,10 +149,41 @@ All notable changes to Scrollcase are documented here. The format follows
   CLI prints the exact `cargo add` command to run after Rust is installed instead of aborting with
   `spawnSync cargo ENOENT`.
 
+## [0.9.0] — 2026-08-10
+
+### Added
+
+- Generate a non-overwriting Rust consumer template crate under `consumer-templates/rust/` during
+  `scrollcase init`, beside the existing Node and Python templates. Interactive setup now asks
+  `Install scrollcase-consumer for Rust?` and, when accepted, adds the crate dependency to that
+  generated manifest with Cargo.
+
+### Changed
+
+- Default every interactive `scrollcase init` yes/no question to yes and render it as `[Y/n]`,
+  including the Node, Python, Rust, Python fallback, and managed-toolchain offers. Non-interactive
+  input still grants no consent unless an explicit flag does so.
+
+## [0.8.3] — 2026-08-10
+
+### Fixed
+
 - Keep `scrollcase build` visibly moving after the `conda-pack` progress bar reaches 100%. That bar
   describes only creation of the relocatable tarball; the CLI now reports extraction and relocation,
   payload preparation and self-test, deterministic archiving and hashing, and document signing
   before the final build summary instead of leaving those phases silent.
+
+## [0.8.2] — 2026-08-10
+
+### Changed
+
+- Make the published `hello-box` demo announce a successful box execution before showing a compact
+  runtime and host summary. Its previous output was a table of Python diagnostics and temporary
+  extraction paths: technically useful, but it made a newcomer infer the actual result. The demo
+  now presents the signed-to-running path directly and keeps those ephemeral paths out of its
+  output; all three target scrolls commit to the same revised entry point.
+
+### Fixed
 
 - Give `scrollcase run` and `verify` immediate, blank-separated launch status before verification or
   extraction begins. `run` then flushes its signed `Running …` status before starting the box
@@ -166,6 +197,15 @@ All notable changes to Scrollcase are documented here. The format follows
   exist in the outer archive; a multi-gigabyte box also needed its full size again in RAM before it
   could be installed. The check now seeks to the directory and reads only that bounded region, while
   a name genuinely repeated there remains a hard refusal.
+
+## [0.8.1] — 2026-08-09
+
+### Changed
+
+- Read the schema version shown in the documentation hero from `package.json`, so the public site
+  cannot keep displaying an old version after the package moves on.
+
+### Fixed
 
 - Define trust-source parsing in the shared consumer conformance fixture instead of only in
   per-language tests. Its 81 cases now make Node, Python and Rust agree on single keys, bundles,

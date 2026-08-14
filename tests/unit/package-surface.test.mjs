@@ -193,3 +193,51 @@ describe('the generated runtime declarations', () => {
     expect(() => execFileSync(process.execPath, [generator, '--check'], { stdio: 'pipe' })).not.toThrow();
   });
 });
+
+/**
+ * The changelog is shipped in the package, and it is the one artefact nothing else keeps honest.
+ *
+ * `npm version` bumps `package.json` and writes a tag; it does not touch this file. Five releases
+ * went out with every one of their entries still sitting under `[Unreleased]`, so the file said
+ * nothing about what had actually shipped and when. These checks are the missing half of that
+ * command: they fail on the release commit that forgot to close the section.
+ */
+describe('the changelog', () => {
+  const changelog = () => readFile(new URL('CHANGELOG.md', repoRoot), 'utf8');
+  // `## [1.2.3] — 2026-01-01`, and not the `[Python 0.4.1]` sections of the separate PyPI package.
+  const RELEASE_HEADING = /^## \[(\d+\.\d+\.\d+)\](?: — (\d{4}-\d{2}-\d{2}))?$/gm;
+
+  it('has a section for the version the package is about to publish', async () => {
+    const sections = [...(await changelog()).matchAll(RELEASE_HEADING)];
+    const current = sections.find(([, version]) => version === packageJson.version);
+
+    // The failure this exists for: a bump with no section, which is silent everywhere else.
+    expect(current, `CHANGELOG.md has no "## [${packageJson.version}]" section`).toBeTruthy();
+    expect(current[2], `the ${packageJson.version} section has no date`).toBeTruthy();
+  });
+
+  it('keeps somewhere to write the next change, and never leaves it stale', async () => {
+    const text = await changelog();
+    expect(text).toContain('## [Unreleased]');
+
+    // Entries belong to the release that shipped them. Anything still under `[Unreleased]` when the
+    // version already has a section is an entry that went out without being recorded as such.
+    const unreleased = text.slice(text.indexOf('## [Unreleased]'));
+    const body = unreleased.slice(0, unreleased.indexOf('\n## ['));
+    expect(
+      body.includes('\n- '),
+      'entries are still under [Unreleased] after the version was bumped; move them under the new release heading',
+    ).toBe(false);
+  });
+
+  it('lists its releases newest first', async () => {
+    const versions = [...(await changelog()).matchAll(RELEASE_HEADING)].map(([, version]) => version);
+    const order = (version) => version.split('.').map(Number);
+    const descending = [...versions].sort((left, right) => {
+      const [a, b] = [order(right), order(left)];
+      return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+    });
+
+    expect(versions).toEqual(descending);
+  });
+});

@@ -99,7 +99,9 @@ afterwards.**
 ## Repository continuity
 
 - The public reasoning lives in `docs/concepts/design-decisions.md`; contributor rules in
-  `CONTRIBUTING.md`; every user-visible change in `CHANGELOG.md`.
+  `CONTRIBUTING.md`; every user-visible change in `CHANGELOG.md`, under `## [Unreleased]` until the
+  release that ships it closes that section. `npm version` does not touch the changelog, so closing
+  it is a step of its own — see the npm release section of `CONTRIBUTING.md`.
 - **Durable project knowledge must live in tracked repository documentation.** Machine-local agent
   memory is a convenience, never the only source for information needed to continue the work.
 - The folder `.local-memory` in the root holds memory files, kept updated and git-ignored. If it

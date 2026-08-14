@@ -60,6 +60,22 @@ Its tests use only temporary local fixtures. The copied schemas must stay byte-i
 
 ## npm releases
 
+**Close the changelog first, then bump.** `npm version` writes the version and the tag and nothing
+else; it has no idea this file exists. So before running it, rename `## [Unreleased]` to
+`## [<version>] — <YYYY-MM-DD>` and open a fresh empty `## [Unreleased]` above it:
+
+```sh
+# 1. edit CHANGELOG.md: [Unreleased] -> [0.12.0] — 2026-08-14, and add a new empty [Unreleased]
+git add CHANGELOG.md && git commit -m "Close the changelog for 0.12.0"
+# 2. then bump
+npm version 0.12.0
+```
+
+Doing it the other way round is how five releases went out with every one of their entries still
+under `[Unreleased]`, and the file stopped saying what had shipped when. `package-surface.test.mjs`
+now fails on exactly that: the version in `package.json` must have a dated section, and
+`[Unreleased]` must be empty once it does.
+
 `npm version <version>` writes the version, commits it, and creates the tag `v<version>` — but
 **locally only**. `git push origin main` does not carry tags, so the tag must be pushed explicitly:
 
