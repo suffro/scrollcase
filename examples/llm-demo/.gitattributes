@@ -1,0 +1,8 @@
+# Hashed into the scrolls, or compared byte-for-byte by the build: never let a
+# checkout rewrite a line ending in these.
+entrypoint.py       -text
+self_test.py        -text
+MODEL_NOTICE.md     -text
+APACHE-2.0.txt      -text
+conda-licenses.json -text
+pixi.lock           -text

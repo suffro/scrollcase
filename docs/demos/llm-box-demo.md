@@ -57,8 +57,11 @@ Open in GitHub Codespaces
 ::: tip NOTE
 
 This demo is **Codespaces-only for now**: unlike the [sentiment demo](/demos/sentiment-demo) there is
-no pre-built box to download yet, because nothing under `examples/` builds one in CI. The walkthrough
-targets `linux-x86_64-cpu`, which is what a Codespace gives you.
+no pre-built box to download yet. The example that produces one lives in the repository at
+`examples/llm-demo/`, declared for Linux, macOS and Windows, and the workflow that builds and signs
+all three is `.github/workflows/llm-demo-box.yml` — it has simply not been dispatched yet, so there
+is no release to link to. The walkthrough targets `linux-x86_64-cpu`, which is what a Codespace gives
+you.
 
 :::
 
@@ -157,6 +160,13 @@ The scroll declares `weights: embed`, a **4 GB RAM floor** and `execution` as a 
 floor is arithmetic rather than a guess: the quantised weights occupy about 1.0 GB and the attention
 cache adds 384 MiB at the 2048-token context the entrypoint asks for, which lands around 1.5–1.8 GB
 resident. It is a fact a consumer can check *before* unpacking a gigabyte.
+
+The packaged version of the same box, the one CI builds for all three operating systems, is
+`examples/llm-demo/` in the Scrollcase repository. There the three targets *do* share a
+[split scroll](/reference/scroll#one-box-several-targets): one base carrying the identity, the asset,
+the environment and the self-test, and three target files of nine lines each. Its `entrypoint.py` is
+byte for byte the one the walkthrough ships, and a test asserts the declared hashes still match, so
+the two copies cannot drift apart quietly.
 
 ## What to expect
 

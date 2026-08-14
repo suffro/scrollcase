@@ -2,27 +2,29 @@
 
 ## The published demo boxes
 
-Both examples below are built and signed by CI for all three operating systems and attached to a
-release, so either can be verified and run without a toolchain:
+The examples below are built and signed by CI for all three operating systems and attached to a
+release, so each can be verified and run without a toolchain:
 [`demo-box-v1`](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1) for `hello-box`, and
 [`sentiment-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/sentiment-demo-v1) for the
-model-bearing `sentiment-demo`. `keys/example-signing-public.json` is the public half of the key
-both are signed with.
+model-bearing `sentiment-demo`. `llm-demo` has its workflow but no release yet: it is built by
+`.github/workflows/llm-demo-box.yml`, which has not been dispatched.
+`keys/example-signing-public.json` is the public half of the key they are signed with.
 
 That key exists **only for the demos**. It signs nothing else, no trust chain depends on it, and it
 is not the key for any Scrollcase release. Its private half lives in a repository secret and is used
-by `.github/workflows/demo-box.yml` and `.github/workflows/sentiment-demo-box.yml` alone — a Linux
-or Windows box cannot be built on a maintainer's machine anyway, since conda-pack packs the host's
-own environment.
+by `.github/workflows/demo-box.yml`, `.github/workflows/sentiment-demo-box.yml` and
+`.github/workflows/llm-demo-box.yml` alone — a Linux or Windows box cannot be built on a maintainer's
+machine anyway, since conda-pack packs the host's own environment.
 
 `demo-consumers/` holds what travels inside each published `hello-box` archive beside the box:
 `run-box.ts`, `run_box.py`, a `package.json`, and a `README.md`, so unpacking a download gives a
 folder that already runs three ways. The same files are embedded in
 [the demo box guide](https://scrollcase.dev/demos/box-run-demo), which is why they live here rather
-than in the page — documentation and shipped bytes cannot drift apart. `sentiment-demo` ships its
-own set under `sentiment-demo/demo-consumers/`, because that box classifies a sentence and its
-templates pass one. The public key is never copied into either: a signature proves nothing if the
-key arrives in the same package as what it signs.
+than in the page — documentation and shipped bytes cannot drift apart. `sentiment-demo` and
+`llm-demo` each ship their own set under `<example>/demo-consumers/`, because those boxes take an
+argument — a sentence and a prompt respectively — and their templates pass one. The public key is
+never copied into any of them: a signature proves nothing if the key arrives in the same package as
+what it signs.
 
 ## `hello-box`
 
@@ -104,3 +106,20 @@ be signed. It is the example to read when packaging something that is not stdlib
 
 Its own [`README`](sentiment-demo/README.md) covers the targets, the build commands and what is
 worth reading in the scroll.
+
+## `llm-demo`
+
+The same pipeline carrying a language model: SmolLM2-1.7B-Instruct quantised to Q4_K_M in GGUF form,
+which is one 1.06 GB asset rather than three small ones, because a GGUF holds the weights, the
+tokenizer and the chat template in a single container. It is the example to read when the thing being
+packaged is large, and when the box has to do more than answer in one shot: given a prompt it answers
+once, given no arguments at all it opens an interactive chat, on the same release document and the
+same signature.
+
+It is also where the environment declaration is worth comparing against `sentiment-demo`. That box
+sets three `*_OFFLINE` variables because its stack really does contain a Hugging Face client; this
+one declares `PYTHONDONTWRITEBYTECODE=1` and nothing else, because there is no downloader to switch
+off and a variable that guarantees nothing does not belong in a signed release.
+
+Its own [`README`](llm-demo/README.md) covers the targets, the build commands, why every target is
+`cpu`, and what is worth reading in the scroll.

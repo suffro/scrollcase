@@ -1,0 +1,303 @@
+# Builds, signs and publishes the public local LLM demo box for all three operating systems.
+#
+# The third of the publish workflows, after `demo-box.yml` (hello-box) and `sentiment-demo-box.yml`.
+# What is different here is scale and shape: one asset of 1.06 GB rather than three totalling 68 MB,
+# and an application that generates text rather than classifying a sentence. It exists so a newcomer
+# can see a language model verified and answering without a toolchain, a Hugging Face download, or a
+# multi-minute build.
+#
+# A separate workflow rather than an input on either of the others: the three examples agree on how a
+# box is published and on nothing else. Folding them into one file would mean a matrix of
+# conditionals around every step that matters.
+#
+# Manual only. This publishes public artefacts, and is worth running whenever the example itself
+# changes. Nothing here runs on a push.
+#
+# On signing: it reuses the demo key, which signs the example boxes and nothing else. A Linux or
+# Windows box cannot be built on a maintainer's Mac at all, because conda-pack packs the host's own
+# environment — CI has to do the building, so it does the signing too.
+name: llm demo box
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish the local LLM demo box under'
+        default: 'llm-demo-v1'
+        required: true
+      draft:
+        description: 'Publish as a draft for review before it goes public'
+        type: boolean
+        default: true
+
+env:
+  PIXI_VERSION: '0.73.0'
+  # The example this publishes. Declared once because the build path, the artifact name and the
+  # published asset name all have to agree.
+  BOX_ID: llm-demo
+  BOX_VERSION: '1.0.0'
+  # The box answers a prompt and declares no default arguments, so every execution below supplies
+  # one. Passing none would not mean "no prompt": an empty argument list is how this box is told to
+  # open an interactive chat, which is not what a CI runner should be starting.
+  #
+  # This is the prompt the guide, the self-test and the shipped consumer templates use. Short on
+  # purpose — every job pays for it in tokens generated on a CPU — and its answer is checked below.
+  DEMO_PROMPT: 'What is the capital of France?'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    # Longer than the sentiment demo's 45: this build fetches a 1.06 GB asset, packs it, and then
+    # generates real tokens on a runner CPU during the self-test.
+    timeout-minutes: 75
+    strategy:
+      # Unlike the other two publish workflows, one target failing does not cancel the rest. A build
+      # this long is worth learning about in full: "Windows failed and the other two are fine" and
+      # "all three failed" call for different investigations, and the difference costs one run.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64-cpu
+          - os: macos-latest
+            target: macos-aarch64-cpu
+          - os: windows-latest
+            target: windows-x86_64-cpu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Install the pinned toolchain
+        run: node src/cli.mjs init --install-toolchain --no-example --pixi-version ${{ env.PIXI_VERSION }}
+
+      # `init` scaffolds a workspace; `build` refuses a dirty tree, and that refusal is worth
+      # keeping rather than working around with --allow-dirty.
+      - name: Restore a clean tree
+        shell: bash
+        run: |
+          git clean -fd
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Tree is still dirty after cleaning up init's scaffolding:" >&2
+            git status --porcelain >&2
+            exit 1
+          fi
+
+      # Written under RUNNER_TEMP rather than into the checkout, which would both dirty the tree and
+      # risk committing a private key. Never echoed: the value reaches the file through stdin.
+      - name: Materialize the demo signing key
+        shell: bash
+        env:
+          DEMO_SIGNING_KEY: ${{ secrets.SCROLLCASE_DEMO_SIGNING_KEY }}
+        run: |
+          if [ -z "$DEMO_SIGNING_KEY" ]; then
+            echo "SCROLLCASE_DEMO_SIGNING_KEY is not set on this repository." >&2
+            exit 1
+          fi
+          printf '%s' "$DEMO_SIGNING_KEY" > "$RUNNER_TEMP/demo-signing-private.pem"
+          chmod 600 "$RUNNER_TEMP/demo-signing-private.pem"
+
+      # The build fetches the GGUF by its declared size and SHA-256, embeds it, and runs the scroll's
+      # `pythonFile` self-test — which loads the model with the box's own interpreter and makes it
+      # answer, so a box that cannot generate is never signed.
+      #
+      # The runner needs room for all of it at once: the solved environment, the downloaded asset,
+      # the payload and the finished archive come to roughly 5 GB.
+      - name: Build and sign
+        shell: bash
+        run: |
+          df -h . || true
+          node src/cli.mjs build "$BOX_ID/${{ matrix.target }}" \
+            --scrolls-dir examples \
+            --weights embed \
+            --private-key "$RUNNER_TEMP/demo-signing-private.pem" \
+            --public-key examples/keys/example-signing-public.json
+
+      # Verified against the public key committed in the repository — the same file a newcomer will
+      # pass to `verify`. If these disagree, the published box would fail for everyone who tried it.
+      #
+      # `--self-test` proves the packed environment relocates and imports; it does not execute the
+      # application. The `run` below is what proves the model actually answers, so its output is
+      # asserted rather than merely displayed: a box that starts, prints nothing useful and exits 0
+      # would otherwise publish itself.
+      #
+      # The assertion is a substring of a lowercased answer, not a sentence. Decoding is greedy and
+      # therefore reproducible for a fixed build, but the answer is prose: a llama.cpp point release
+      # may reword it without anything being wrong, and a guard that fails for that reason teaches
+      # whoever meets it to delete the guard.
+      - name: Verify exactly as a newcomer will
+        shell: bash
+        run: |
+          release=$(ls ".scrollcase/dist/boxes/$BOX_ID/$BOX_VERSION/${{ matrix.target }}"/*.release.json)
+          node src/cli.mjs verify "$release" --self-test \
+            --public-key examples/keys/example-signing-public.json
+          output=$(node src/cli.mjs run "$release" \
+            --public-key examples/keys/example-signing-public.json \
+            -- "$DEMO_PROMPT")
+          printf '%s\n' "$output"
+          case "$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')" in
+            *paris*) ;;
+            *)
+              echo "The box did not name Paris as the capital of France." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Discard the key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/demo-signing-private.pem"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llm-demo-box-${{ matrix.target }}
+          path: .scrollcase/dist/boxes/${{ env.BOX_ID }}/${{ env.BOX_VERSION }}/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 1
+          # The archive is mostly a stored GGUF, which deflates to nothing. Compressing it again on
+          # the way to the artifact store costs minutes per target and saves no bytes.
+          compression-level: 0
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    # These three archives total roughly 3.6 GB, against the sentiment demo's 790 MB, and the upload
+    # is by far the slow half of this job. Generous on purpose: the per-asset bound below is what
+    # actually keeps a stalled upload from running the clock out.
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # Not merged into one directory: each target's two files have to stay together to be wrapped,
+      # and merging them would leave one flat pile of hashes with nothing saying which pairs with
+      # which.
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          pattern: llm-demo-box-*
+
+      # A box archive must be named for its own SHA-256 and sit beside its release document, because
+      # that is how `verify` finds it. Published flat, that would give six hex names on the release
+      # page and no way to tell which three were yours before downloading them.
+      #
+      # So each target ships as one plainly named container. The pair keeps content-addressed names
+      # and stays adjacent under `box/`, which is what `verify` needs; the name outside says which
+      # machine it is for, which is what a person needs. Stored rather than compressed: the inner
+      # archive already holds a stored GGUF, and recompressing it would cost minutes to save nothing.
+      #
+      # The consumer examples travel with it, so unpacking gives a folder that already runs three
+      # ways instead of source to retype. They come from `examples/llm-demo/demo-consumers/` rather
+      # than the hello-box set, because this box takes a prompt and those templates pass one. The
+      # trust key is deliberately absent: a signature proves nothing if the key arrives in the same
+      # package as what it signs.
+      - name: Wrap each target as one plainly named archive
+        shell: bash
+        run: |
+          # Without this an unmatched glob stays literal, and the pair check below would count a
+          # filename that does not exist as one file and wrap nothing.
+          shopt -s nullglob
+          mkdir wrapped
+          for dir in staged/llm-demo-box-*; do
+            target=${dir#staged/llm-demo-box-}
+            zips=("$dir"/*.zip)
+            releases=("$dir"/*.release.json)
+            if [ "${#zips[@]}" -ne 1 ] || [ "${#releases[@]}" -ne 1 ]; then
+              echo "Expected one archive and one release document in $dir, found:" >&2
+              ls -l "$dir" >&2
+              exit 1
+            fi
+            stage="staging/$target"
+            mkdir -p "$stage/box"
+            cp "${zips[0]}" "${releases[0]}" "$stage/box/"
+            cp examples/llm-demo/demo-consumers/run-box.ts \
+               examples/llm-demo/demo-consumers/run_box.py \
+               examples/llm-demo/demo-consumers/package.json \
+               examples/llm-demo/demo-consumers/README.md "$stage/"
+            # Entries named explicitly rather than with `.`, so the archive carries no `./` prefix
+            # and no stray dotfile the runner happens to leave in the staging directory.
+            ( cd "$stage" && zip -0 -X -r -q \
+                "$GITHUB_WORKSPACE/wrapped/$BOX_ID-$BOX_VERSION-$target.zip" \
+                box run-box.ts run_box.py package.json README.md )
+            unzip -l "wrapped/$BOX_ID-$BOX_VERSION-$target.zip"
+          done
+          ls -l wrapped
+          # A GitHub release asset is capped at 2 GB. Q4_K_M plus an environment lands near 1.2 GB,
+          # so this is not close — but a heavier quantisation would cross it, and the failure would
+          # otherwise arrive after an hour of building.
+          for archive in wrapped/*.zip; do
+            size=$(wc -c < "$archive")
+            if [ "$size" -gt 2000000000 ]; then
+              echo "$(basename "$archive") is $size bytes, over the 2 GB release asset limit." >&2
+              exit 1
+            fi
+          done
+
+      # A rebuilt box lands under a new hash and so never overwrites the one it replaces. Uploading
+      # alone would leave the previous boxes sitting beside the new ones, downloadable and stale, so
+      # anything not in this build is removed once the new set is safely up.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(ls wrapped/*.zip | wc -l)
+          if [ "$count" -ne 3 ]; then
+            echo "Expected three archives, one per target, found $count" >&2
+            exit 1
+          fi
+          # The notes are rewritten on every run, not only at creation. They name the assets and tell
+          # a reader what to do with them, so a re-publish that changed either would otherwise leave
+          # the previous instructions sitting above the new files.
+          if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release edit "${{ inputs.tag }}" \
+              --title "Local LLM demo box" \
+              --notes-file .github/llm-demo-release-notes.md
+          else
+            gh release create "${{ inputs.tag }}" \
+              --title "Local LLM demo box" \
+              --notes-file .github/llm-demo-release-notes.md \
+              ${{ inputs.draft && '--draft' || '' }}
+          fi
+          # One asset per call, each bounded and retried. A single `gh release upload wrapped/*`
+          # uploaded all three in one invocation, and when it stalled it produced no output, no
+          # partial asset and no failure — just fifteen minutes of silence and a cancelled job.
+          # Uploading one at a time means the log says which archive is in flight and every finished
+          # one stays finished; `timeout` turns a stall into a non-zero exit, which is the only thing
+          # that makes a retry useful, since a hang would otherwise sit there until the job dies.
+          #
+          # The bound is 1800 rather than the sentiment demo's 600: these archives are four times the
+          # size, and a timeout shorter than a healthy upload turns a slow network into three
+          # guaranteed failures.
+          for archive in wrapped/*.zip; do
+            name=$(basename "$archive")
+            echo "Uploading $name ($(du -h "$archive" | cut -f1))"
+            attempt=1
+            until timeout 1800 gh release upload "${{ inputs.tag }}" "$archive" --clobber; do
+              status=$?
+              if [ "$attempt" -ge 3 ]; then
+                echo "Upload of $name failed after $attempt attempts (last exit $status)." >&2
+                exit 1
+              fi
+              attempt=$((attempt + 1))
+              echo "Upload of $name exited $status; retrying (attempt $attempt of 3)." >&2
+              sleep 15
+            done
+            echo "Uploaded $name"
+          done
+          # Deleted only after the upload succeeded: a failed upload must leave the previous boxes
+          # in place rather than empty the release.
+          for asset in $(gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'); do
+            if [ ! -e "wrapped/$asset" ]; then
+              echo "Removing superseded asset: $asset"
+              gh release delete-asset "${{ inputs.tag }}" "$asset" --yes
+            fi
+          done

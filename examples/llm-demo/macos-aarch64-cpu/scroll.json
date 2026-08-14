@@ -1,0 +1,9 @@
+{
+  "extends": "../scroll.json",
+  "target": {
+    "platform": "macos",
+    "arch": "aarch64",
+    "accelerator": "cpu"
+  },
+  "condaDependencyLicenseAudit": "examples/llm-demo/macos-aarch64-cpu/conda-licenses.json"
+}

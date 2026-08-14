@@ -1,0 +1,20 @@
+# Environment for the llm-demo box (linux-x86_64-cpu).
+#
+# Only the [workspace] platforms line differs between targets. The exact packages
+# are pinned by the committed pixi.lock next to this file, not by these ranges.
+#
+# One declared dependency, and it is not one dependency shipped: llama-cpp-python
+# is a binding, so the compiled llama.cpp arrives with it, and so does the
+# OpenAI-compatible server stack this box never starts. conda-licenses.json is
+# where that difference becomes visible by name.
+
+[workspace]
+name = "llm-demo"
+version = "1.0.0"
+description = "SmolLM2-1.7B-Instruct GGUF Q4_K_M local LLM box"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+llama-cpp-python = ">=0.3.30,<0.4"
