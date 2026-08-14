@@ -6,6 +6,32 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.4] — 2026-08-14
+
+### Added
+
+- Add the `llm-demo` example: SmolLM2-1.7B-Instruct, quantised to Q4_K_M in GGUF form, packed for
+  Linux, macOS and Windows on CPU, with the manual `llm demo box` workflow that builds, verifies,
+  runs and publishes it as one archive per operating system. It is the second example carrying a
+  real model, and it exercises what the first one does not. The whole model is a single 1.06 GB
+  asset, because a GGUF holds the weights, the tokenizer and the chat template in one container, so
+  nothing can drift out of step with the weights it belongs to. The self-test is a `pythonFile`
+  rather than an inlined string: it loads the model with the box's own interpreter and asserts the
+  answer names Paris, so a box that cannot generate is never signed. And one application has two
+  modes, since `execution.defaultArgs` is `[]` and the entrypoint reads an empty argument list as a
+  request for an interactive chat rather than as a missing prompt.
+
+  Its `environment` declares `PYTHONDONTWRITEBYTECODE=1` and nothing else. The sentiment demo's
+  `*_OFFLINE` variables are absent on purpose: this stack has no hub client to switch off, and a
+  declaration that guarantees nothing does not belong in a signed release. Every target is `cpu`,
+  macOS included — conda-forge's `llama.cpp` is built with Metal on `osx-arm64`, but the entrypoint
+  never passes `n_gpu_layers` and llama-cpp-python defaults it to `0`, so no layer is offloaded
+  anywhere and declaring `metal` would promise an accelerator the box does not use.
+
+- Add the **Local LLM** demo page, under a renamed *AI models* group in the sidebar, describing the
+  same box: what it guarantees, the two modes, and what to expect from a 1.7-billion-parameter model
+  running on a CPU. The sentiment demo page gained the matching title and model metadata.
+
 ## [0.11.3] — 2026-08-14
 
 ### Changed
