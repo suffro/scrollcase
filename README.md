@@ -122,7 +122,7 @@ whether to continue with PyPI instead.
 
 | Command | What it does |
 | --- | --- |
-| `init` | Initialize a workspace with a disposable runnable example (`--no-example` for none) |
+| `init` | Initialize a workspace, asking first whether to include a disposable runnable example (`--no-example` for none) |
 | `new scroll` | Create one guided target-specific scroll |
 | `doctor` | Report whether this machine can build a box |
 | `keygen` | Create a local ed25519 signing key |

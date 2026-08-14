@@ -6,6 +6,16 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.3] — 2026-08-14
+
+### Changed
+
+- `init` now asks whether to include the runnable example instead of assuming it, defaulting to yes
+  (`[Y/n]`). It is the first question, before anything is written, because it decides which of the
+  later consumer-dependency questions are asked at all. `--no-example` still answers it in advance,
+  and a run without a terminal keeps the example: unlike the installs, writing a disposable scaffold
+  is not something silence has to withhold consent for, so scripted and CI runs are unaffected.
+
 ## [0.11.2] — 2026-08-14
 
 ### Changed

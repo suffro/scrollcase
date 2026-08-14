@@ -264,7 +264,10 @@ anywhere against any project that declares one.
 `scrollcase init` creates project structure and, by default, one clearly named `example-box` for the
 native host. The example is a complete runnable v2 scroll produced through the same validated
 authoring path as any other scroll. It prefers Metal on Apple Silicon and CPU elsewhere, never
-guesses a CUDA ABI, never overwrites an existing example, and can be omitted with `--no-example`.
+guesses a CUDA ABI, and never overwrites an existing example. Whether to create it at all is the
+first question asked, ahead of the dependency offers it decides the existence of, and it defaults to
+yes; `--no-example` answers it in advance, and a run without a terminal keeps the example rather
+than dropping it, since scaffolding a disposable directory installs nothing.
 Its application starter lives at
 `box-entrypoints/<boxId>/<targetId>/entrypoint.py`: executable input is grouped by the same box and
 target it belongs to, without adding a redundant tool-named directory.

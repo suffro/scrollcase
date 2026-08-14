@@ -4972,8 +4972,9 @@ fail(`init accepts only the fixed example; pass ${…} to scrollcase new scroll.
 
 **Rejected:** letting `init` author the project's first real scroll from flags. The example exists to
 be run once and deleted; a scaffolded scroll that looks like a real one invites a project to inherit
-identity decisions it never made. `--no-example` produces an empty workspace for a project that wants
-neither.
+identity decisions it never made. Whether to create it is the first question `init` asks, defaulting
+to yes, and `--no-example` produces an empty workspace for a project that wants neither without
+asking at all.
 
 The example's target is chosen by `nativeExampleTarget()` — Metal on macOS, CPU everywhere else — so
 the demo never guesses a CUDA ABI version that the host may not have.
@@ -5352,13 +5353,21 @@ Interleaving them would let a multi-minute download interrupt the remaining ques
 who walked away with a half-collected set of choices and a half-installed project. It also makes the
 whole interaction reviewable as one block before anything irreversible happens.
 
+`resolveExampleChoice` answers the question that comes before all of those, because it decides which
+of them are asked at all: whether to scaffold the example. `--no-example` decides without asking, an
+interactive caller is asked and defaults to yes, and a caller without a terminal keeps the example.
+That last branch reads backwards next to the installs, where silence means no, and it is deliberate:
+writing a disposable scaffold into the workspace the user just pointed at is not an irreversible
+act, and a non-interactive `init` therefore still produces exactly what it produced before there was
+a question to answer.
+
 `resolvePythonConsumerSource` handles the one branch that cannot be decided in advance: conda-forge
 was chosen but conda is not installed. It offers PyPI, and a declined offer returns `null` — which
 skips the Python install rather than silently substituting a different package source.
 The CLI similarly probes Cargo before entering this sequence, so a missing optional package manager
 removes the Rust question rather than turning an accepted default into a subprocess failure.
-`tests/unit/cli-init.test.mjs` asserts the ordering, the declined fallback, and the unavailable-Cargo
-branch.
+`tests/unit/cli-init.test.mjs` asserts the example question's three branches, the ordering, the
+declined fallback, and the unavailable-Cargo branch.
 
 </div>
 
@@ -6115,7 +6124,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/cli-targets.mjs` | Target and scroll selection, including the host defaults | 9.4 |
 | `src/cli-authoring.mjs` | Input collection for `new scroll`, from flags or prompts | 9.4 |
 | `src/cli-edit.mjs` | Which box, which target, which field: the questions an edit asks | 9.4 |
-| `src/cli-init.mjs` | The order of `init`'s optional work: every answer before any installer | 9.4 |
+| `src/cli-init.mjs` | The order of `init`'s questions: the example first, then every answer before any installer | 9.4 |
 | `src/cli-signing.mjs` | The read-only signing preflight | 7.6 |
 | `src/cli-run.mjs` | Translating a child's terminal result into this process's own | 8.8 |
 | `src/cli-output.mjs` | Status symbols, the shared question layout, optional colour, and the distribution summary | 9.5 |

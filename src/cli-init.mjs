@@ -12,6 +12,21 @@ export function defaultYesConfirmation(value) {
   return answer === '' || /^y(es)?$/i.test(answer);
 }
 
+/**
+ * Decides whether `init` scaffolds the example, ahead of every other question.
+ *
+ * It comes first because it decides which later questions exist at all: the consumer-dependency
+ * offers only make sense for a workspace that has the templates. `--no-example` still answers
+ * without asking. Without a terminal the example is kept rather than dropped — unlike an install,
+ * writing a disposable scaffold is not the kind of consent that silence withholds, and a
+ * non-interactive `init` keeps producing exactly what it produced before there was a question.
+ */
+export async function resolveExampleChoice({ noExample, interactive, confirmExample }) {
+  if (noExample) return false;
+  if (!interactive) return true;
+  return confirmExample();
+}
+
 export async function resolvePythonConsumerSource({
   selectedSource,
   condaAvailable,

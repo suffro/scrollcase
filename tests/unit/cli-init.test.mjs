@@ -1,9 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   defaultYesConfirmation,
+  resolveExampleChoice,
   resolvePythonConsumerSource,
   runInitDependencySetup,
 } from '../../src/cli-init.mjs';
+
+describe('init example choice', () => {
+  it('asks an interactive caller, and takes the answer', async () => {
+    const confirmExample = vi.fn(async () => true);
+    await expect(resolveExampleChoice({
+      noExample: false,
+      interactive: true,
+      confirmExample,
+    })).resolves.toBe(true);
+    expect(confirmExample).toHaveBeenCalledOnce();
+
+    await expect(resolveExampleChoice({
+      noExample: false,
+      interactive: true,
+      confirmExample: async () => false,
+    })).resolves.toBe(false);
+  });
+
+  it('keeps the example without a terminal, and drops it for --no-example', async () => {
+    const confirmExample = vi.fn();
+
+    await expect(resolveExampleChoice({
+      noExample: false,
+      interactive: false,
+      confirmExample,
+    })).resolves.toBe(true);
+    await expect(resolveExampleChoice({
+      noExample: true,
+      interactive: true,
+      confirmExample,
+    })).resolves.toBe(false);
+    expect(confirmExample).not.toHaveBeenCalled();
+  });
+});
 
 describe('init dependency setup', () => {
   it('accepts an empty answer as the default yes choice', () => {

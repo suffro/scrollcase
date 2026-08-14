@@ -59,9 +59,13 @@ through the normal validated authoring path and never overwritten. It also inclu
 a caller-supplied local release and include their setup commands. If no `package.json` exists, it
 creates a private one with `"type": "module"`; an existing package file is never changed. The Rust
 crate has its own non-overwriting `Cargo.toml` and ignores only its generated `target/` directory. A
-concise, linked `SCROLLCASE.md` is always created unless one already exists. Pass `--no-example` to
-omit `example-box`, the consumer examples, and the Node package file while retaining the workspace
-guide.
+concise, linked `SCROLLCASE.md` is always created unless one already exists.
+
+Whether to include it is the **first** question `init` asks, before anything is written, and it
+defaults to yes (`[Y/n]`). Answering no — or passing `--no-example`, which skips the question —
+omits `example-box`, the consumer examples, and the Node package file while retaining the workspace
+guide. Without a terminal the example is included, as it always was: unlike the installs below,
+writing the scaffold is not an act silence has to withhold consent for.
 
 When it generated the consumer templates, `init` separately asks whether to install their
 Node/TypeScript dependencies, whether to install the Python consumer from PyPI with pip or
@@ -81,12 +85,12 @@ scrollcase init [--pixi-version <version>]
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--pixi-version` | example pin | Use this exact pixi release for the example and managed toolchain |
-| `--no-example` | off | Initialize an empty workspace without `example-box` |
+| `--no-example` | ask | Initialize an empty workspace without `example-box`, without asking |
 | `--install-toolchain` | ask | Install missing tools without prompting |
 | `--no-install-toolchain` | ask | Never install; just report what is missing |
 
 The final guidance names the example's exact lock command and points to `scrollcase new scroll` for
-real project metadata. With `--no-example`, it is simply `Next: scrollcase new scroll`. Target and
+real project metadata. Without the example, it is simply `Next: scrollcase new scroll`. Target and
 product flags passed to `init` are rejected with the same remedy instead of being silently ignored.
 
 ### The toolchain step
@@ -124,8 +128,8 @@ the PyPI fallback when it is missing. Accepting the Rust prompt runs
 the generated template crate. If Cargo is unavailable, `init` skips that prompt without failing,
 keeps the Rust template, and prints the same command so it can be run after Rust is installed.
 
-The example follows Scrollcase's supported box target matrix. On another host, initialize with
-`--no-example`. Toolchain-only setup can still use any host for which pixi publishes a build.
+The example follows Scrollcase's supported box target matrix. On another host, decline it or
+initialize with `--no-example`. Toolchain-only setup can still use any host for which pixi publishes a build.
 
 ## `new`
 

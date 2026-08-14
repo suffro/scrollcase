@@ -113,8 +113,9 @@ blank line separating each question. Interactive yes/no questions default to yes
 without a terminal these optional installs remain no. If Conda is unavailable after selecting
 conda-forge, a separate default-yes question offers to continue with PyPI.
 
-Use `--install-toolchain` or `--no-install-toolchain` to answer up front in a script. Pass
-`--no-example` when an explicitly empty workspace is preferable.
+Use `--install-toolchain` or `--no-install-toolchain` to answer up front in a script. The example
+itself is the first thing `init` asks about, defaulting to yes; answer no, or pass `--no-example`,
+when an explicitly empty workspace is preferable.
 
 It finishes with:
 

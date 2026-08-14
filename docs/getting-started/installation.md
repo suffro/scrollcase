@@ -150,7 +150,7 @@ For unattended setups, answer up front:
 ```sh
 scrollcase init --install-toolchain      # install without asking
 scrollcase init --no-install-toolchain   # never install; just report what is missing
-scrollcase init --no-example             # initialize without example-box
+scrollcase init --no-example             # initialize without example-box, without being asked
 ```
 
 With no terminal to prompt — CI, a pipe — Scrollcase never installs anything and simply reports

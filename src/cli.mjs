@@ -63,6 +63,7 @@ import { collectNewScrollOptions, promptText } from './cli-authoring.mjs';
 import { parseArgs } from './cli-args.mjs';
 import {
   defaultYesConfirmation,
+  resolveExampleChoice,
   resolvePythonConsumerSource,
   runInitDependencySetup,
 } from './cli-init.mjs';
@@ -170,7 +171,9 @@ async function selectScrollReference(name, flags) {
  * `init` — scaffold the workspace and its disposable runnable example, then offer its dependencies.
  *
  * Real scroll creation remains separate: the fixed `example-box` is onboarding material, never a
- * guess at the project's identity. Toolchain and consumer installs each require explicit consent.
+ * guess at the project's identity. Whether to scaffold it is the first question asked, because it
+ * decides which later questions exist at all. Toolchain and consumer installs each require
+ * explicit consent.
  */
 async function init(flags) {
   const workspace = getWorkspace();
@@ -186,7 +189,17 @@ async function init(flags) {
   if (authoringFlags.length > 0) {
     fail(`init accepts only the fixed example; pass ${authoringFlags.map((name) => `--${name}`).join(', ')} to scrollcase new scroll.`);
   }
-  const exampleTarget = flags.get('no-example') ? null : nativeExampleTarget();
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  // Asked before anything is written, so the first thing a person answers is what they get.
+  const wantsExample = await resolveExampleChoice({
+    noExample: Boolean(flags.get('no-example')),
+    interactive,
+    confirmExample: () => confirm(
+      'Include the runnable example?',
+      'A disposable example-box scroll and consumer templates for trying the workflow.',
+    ),
+  });
+  const exampleTarget = wantsExample ? nativeExampleTarget() : null;
   const result = await initProject({ root: workspace.root, scrollsDir: workspace.scrollsDir });
   for (const path of result.written) success(`Created ${path}`);
   for (const path of result.skipped) info(`Kept ${path} (already present)`);
@@ -213,7 +226,6 @@ async function init(flags) {
 
   const always = Boolean(flags.get('install-toolchain'));
   const never = Boolean(flags.get('no-install-toolchain'));
-  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const cargoAvailable = !example || !interactive || isCargoAvailable({ root: workspace.root });
   if (example && interactive && !cargoAvailable) {
     warning('Cargo was not found; kept the Rust consumer template without adding its dependency.');
@@ -630,6 +642,8 @@ Commands:
 Init options:
   --pixi-version <version>   Install this pixi release when setup is approved
   --no-example              Initialize an empty workspace without example-box
+                             Without it, init asks first whether to include the example,
+                             defaulting to yes; without a terminal it is included.
   --install-toolchain        Install missing pixi/conda-pack without asking
   --no-install-toolchain     Never install them; just report what is missing
                              With neither flag, init asks before downloading anything, and

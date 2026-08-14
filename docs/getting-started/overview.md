@@ -97,10 +97,11 @@ Run:
 scrollcase init
 ```
 
-This creates the initial project structure and a disposable runnable `example-box` for the native
-host, together with a concise `SCROLLCASE.md` and TypeScript, Python, and Rust examples under
-`consumer-templates/` for running its built release through the public APIs. Use `--no-example` when
-an empty workspace without consumer examples is required; the project guide is still created.
+This creates the initial project structure and, after asking first and defaulting to yes, a
+disposable runnable `example-box` for the native host, together with a concise `SCROLLCASE.md` and
+TypeScript, Python, and Rust examples under `consumer-templates/` for running its built release
+through the public APIs. Answer no, or pass `--no-example` to skip the question, when an empty
+workspace without consumer examples is required; the project guide is still created.
 
 ### 3. Create a Project Scroll
 
