@@ -230,30 +230,6 @@ export async function buildBox(name, options = {}) {
     pythonVersion: scroll.pythonVersion,
     files: new Set(await collectFiles(payloadDir)),
   });
-  log('Running self-test');
-  runSelfTest({
-    interpreter,
-    adapter,
-    scroll,
-    payloadDir,
-    run,
-    extraCode: await selfTestExtraCode(scroll, workspace.root),
-  });
-  // Parity runs after the self-test, on the same payload: there is no point comparing accelerators
-  // in a box that cannot import its dependencies in the first place.
-  if (scroll.parity) log('Running parity gate');
-  const parity = await checkParity({
-    parity: scroll.parity,
-    adapter,
-    interpreter,
-    payloadDir,
-    environment: scroll.environment,
-    run,
-  });
-  if (parity) {
-    log(`Parity passed on ${parity.comparisons.map((c) => c.accelerator).join(', ')} against ${parity.comparisons[0].reference}`);
-  }
-
   // Everything needed to answer "where did this box come from, and could I rebuild it?".
   const provenance = {
     scrollId: scroll.scrollId,
@@ -287,6 +263,12 @@ export async function buildBox(name, options = {}) {
   const environment = scroll.environment === undefined ? {} : { environment: scroll.environment };
   // box.json travels *inside* the archive. A consumer compares it field by field against the signed
   // release, which is what binds the archive's contents to its signed metadata.
+  //
+  // It is written *before* the self-test so that the test runs against the payload the box will
+  // actually ship. Writing it afterwards meant an application that reads its own box.json — the
+  // supported way to find where the model was placed, rather than hard-coding a path — could not be
+  // self-tested at all: the check ran against a payload missing a file the box has. Nothing here
+  // depends on the test or the parity gate, so there was never a reason for it to wait.
   await writeFile(join(payloadDir, 'box.json'), `${JSON.stringify({
     schemaVersion: 2,
     ...identity,
@@ -299,6 +281,31 @@ export async function buildBox(name, options = {}) {
     ...deferred,
     provenance,
   }, null, 2)}\n`);
+
+  log('Running self-test');
+  runSelfTest({
+    interpreter,
+    adapter,
+    scroll,
+    payloadDir,
+    run,
+    extraCode: await selfTestExtraCode(scroll, workspace.root),
+  });
+  // Parity runs after the self-test, on the same payload: there is no point comparing accelerators
+  // in a box that cannot import its dependencies in the first place.
+  if (scroll.parity) log('Running parity gate');
+  const parity = await checkParity({
+    parity: scroll.parity,
+    adapter,
+    interpreter,
+    payloadDir,
+    environment: scroll.environment,
+    run,
+  });
+  if (parity) {
+    log(`Parity passed on ${parity.comparisons.map((c) => c.accelerator).join(', ')} against ${parity.comparisons[0].reference}`);
+  }
+
   log('Finalizing payload');
   // The entry list is the last thing written, because it describes everything already there and
   // cannot describe itself. It goes in before `normalizeTree` so it carries the same fixed mtime as

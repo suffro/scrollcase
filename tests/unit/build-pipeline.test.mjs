@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
@@ -966,6 +966,34 @@ describe('the build pipeline', () => {
     // The file's own bytes reach the interpreter: reading it and never running it would leave the
     // check green while the box shipped untested.
     expect(executed).toContain(source.trim());
+  });
+
+  it('runs the self-test against a payload that already contains box.json', async () => {
+    // An application finds its own files by reading the modelCacheSubdir its box declares, rather
+    // than hard-coding a path the scroll would then have to be bent to match. That only works if
+    // box.json is there when the self-test runs: writing it afterwards meant the check ran against
+    // a payload missing a file the shipped box has, so exactly the applications doing the right
+    // thing were the ones that could not be tested.
+    const source = 'import json, pathlib\n'
+      + 'declared = json.loads(pathlib.Path("box.json").read_text())["modelCacheSubdir"]\n'
+      + 'assert declared == "model-cache/example-model", declared\n';
+    const scroll = {
+      ...SCROLL,
+      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+    };
+    const { keys, payloadDir } = await makeProject(scroll, {
+      projectFiles: { 'checks/self_test.py': source },
+    });
+    let sawManifest = false;
+    await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir, {
+        onSelfTest: () => { sawManifest = existsSync(join(payloadDir, 'box.json')); },
+      }),
+      log: () => {},
+    });
+
+    expect(sawManifest).toBe(true);
   });
 
   it('fails the build when the self-test file a scroll names is gone', async () => {

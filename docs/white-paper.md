@@ -2358,12 +2358,13 @@ interpreter first runs should be able to see it without following a call graph.
 | 7 | Prune | `box.mjs` | Deletes each `prunePaths` entry from the payload |
 | 8 | Licence inventory | `licenses.mjs` | When the scroll declares a reviewed audit: recomputes from the lock, compares against it, writes `payload/THIRD_PARTY_NOTICES/conda-distributions.json` |
 | 9 | Post-prune integrity | `box.mjs`, `execution.mjs` | Every `selfTest.files` entry still exists, except an asset deferred by `on-demand`; execution names a real script or discoverable module |
-| 10 | Self-test | `box.mjs` | Runs the adapter's own entry point — `payload/venv/bin/python -c …`, or `venv/python.exe` on Windows — with the target's validation environment |
-| 11 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances |
-| 12 | Describe, commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload/box.json`, writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
-| 13 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
-| 14 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
-| 15 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
+| 10 | Describe | `box.mjs` | Writes `payload/box.json`, so the self-test runs against the payload the box will ship — an application that reads its own manifest to find its files can then be exercised by it |
+| 11 | Self-test | `box.mjs` | Runs the adapter's own entry point — `payload/venv/bin/python -c …`, or `venv/python.exe` on Windows — with the target's validation environment |
+| 12 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances |
+| 13 | Commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
+| 14 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
+| 15 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
+| 16 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
 
 Several properties of that order are load-bearing.
 
@@ -2383,7 +2384,7 @@ await mkdir(payloadDir, { recursive: true });
 ```
 
 **Pruning happens before every check that could catch an over-prune.** Stage 9 asks whether the
-files the box needs at run time are still present, and stage 10 asks whether it can still import
+files the box needs at run time are still present, and stage 11 asks whether it can still import
 what it claims. Neither would mean anything if pruning came after them.
 
 **The self-test runs before the payload can become an archive.** This is the step that earns the box
@@ -5849,7 +5850,7 @@ if (command === 'conda-pack') { … tar.c({ file: output, cwd: prefix, gzip: tru
 ```
 
 Solving is the one step that genuinely needs external tools and a network. Everything after it —
-asset staging, pruning, the self-test gate, `box.json`, the deterministic archive, signing, the
+asset staging, pruning, `box.json`, the self-test gate, the deterministic archive, signing, the
 publish-ready move — is the real implementation running against a real filesystem. That is the line
 the suite draws: simulate the substrate, never the code under test.
 

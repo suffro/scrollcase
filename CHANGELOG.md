@@ -68,6 +68,13 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Changed
 
+- Write `box.json` into the payload **before** the self-test rather than after it. An application
+  finds its own files by reading the `modelCacheSubdir` its box declares, instead of hard-coding a
+  path the scroll then has to be bent to match — but that only works if the manifest is there when
+  the test runs. It was not, so exactly the applications doing the right thing were the ones whose
+  self-test could not exercise them: the check ran against a payload missing a file the shipped box
+  has. Nothing in `box.json` depends on the test or the parity gate.
+
 - `audit --write` on a scroll that declares no `condaDependencyLicenseAudit` now places
   `conda-licenses.json` beside the scroll and records the declaration, instead of refusing and
   leaving the author to work out the path and type it in. The path is a convention rather than a

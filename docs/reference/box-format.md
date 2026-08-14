@@ -103,6 +103,18 @@ The manifest packed **inside** the archive, so an extracted box is self-describi
 holding the directory but not the release document can still tell what it is and how it was
 built.
 
+The application inside the box can read it too, and that is the supported way to find the box's own
+files. An entry point sitting at the payload root reaches its model with:
+
+```python
+root = Path(__file__).resolve().parent
+model = root / json.loads((root / "box.json").read_text())["modelCacheSubdir"]
+```
+
+Rather than a hard-coded path, which the scroll then has to be bent to match and which drifts
+silently the day either side changes. `box.json` is written before the self-test runs, so a check
+written this way exercises the same layout the shipped box has.
+
 ```jsonc
 {
   "schemaVersion": 2,
