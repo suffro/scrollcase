@@ -86,7 +86,8 @@ export default defineConfig({
                 { text: 'Box run', link: '/demos/box-run-demo' },
                 { text: 'Box development', link: '/demos/box-dev-demo' },
               ] },
-              { text: 'Real models', items: [
+              { text: 'AI models', items: [
+                { text: 'Local LLM', link: '/demos/llm-box-demo' },
                 { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
               ]},
             ]

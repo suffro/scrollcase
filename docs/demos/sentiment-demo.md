@@ -4,8 +4,11 @@ description: Build a real use-case box with DistilBERT sentiment analysis model.
 outline: [2,3]
 ---
 
+# Sentiment Analysis demo box
 
-# Sentiment demo — DistilBERT SST-2
+Model: *[DistilBERT SST-2 (ONNX INT8)](https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english)*
+
+---
 
 Sentiment analysis is an AI technique used to read text and automatically determine the emotional tone behind it—specifically whether the opinion expressed is positive, negative, or neutral.
 
