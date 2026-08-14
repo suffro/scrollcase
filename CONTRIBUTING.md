@@ -77,16 +77,28 @@ now fails on exactly that: the version in `package.json` must have a dated secti
 `[Unreleased]` must be empty once it does.
 
 `npm version <version>` writes the version, commits it, and creates the tag `v<version>` — but
-**locally only**. `git push origin main` does not carry tags, so the tag must be pushed explicitly:
+**locally only**. `git push origin main` does not carry tags, so pushing the branch alone leaves the
+tag behind. Push both together:
 
 ```sh
-git push origin --tags
+git push origin main --follow-tags
 ```
 
-Treat that as part of releasing. The tag is the only link between a version published on npm and
-the commit it was built from; without it nobody can check out a released version from the public
-repository or diff two of them. Every tag from `v0.1.3` to `v0.5.0` was missing from GitHub for
-this reason before being backfilled.
+Better still, make it structural instead of a rule to remember — once per clone:
+
+```sh
+git config --local push.followTags true
+```
+
+The tag is the only link between a version published on npm and the commit it was built from;
+without it nobody can check out a released version from the public repository or diff two of them.
+
+**This has now happened twice.** Every tag from `v0.1.3` to `v0.5.0` was missing from GitHub before
+being backfilled; `v0.8.3`, `v0.9.0` and `v0.9.1` were found local-only on 2026-08-14 and backfilled
+the same way. Both times the branch had been pushed and the tags had not, and nothing anywhere
+noticed — the repository looks healthy from a working clone that already has them. No test can catch
+this, because the suite must not reach the network; `git ls-remote --tags origin` is the check, and
+`push.followTags` is what removes the need for it.
 
 Publishing to npm itself is the maintainer's call and is never automated from here.
 
