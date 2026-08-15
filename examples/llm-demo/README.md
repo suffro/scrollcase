@@ -8,7 +8,7 @@ It packs [SmolLM2-1.7B-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.
 quantised to Q4_K_M in GGUF form, and answers one prompt:
 
 ```text
-$ scrollcase run <release> -- What is the capital of France?
+$ scrollcase run <release> -- "What is the capital of France?"
 Paris.
 ```
 
@@ -40,8 +40,7 @@ scrollcase keygen
 scrollcase audit llm-demo/linux-x86_64-cpu --scrolls-dir examples
 scrollcase build llm-demo/linux-x86_64-cpu --scrolls-dir examples
 scrollcase verify .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json --self-test
-scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json \
-  -- What is the capital of France?
+scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json -- "What is the capital of France?"
 ```
 
 The build downloads 1.06 GB of weights once, verifies them against the size and SHA-256 the scroll

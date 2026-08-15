@@ -18,8 +18,7 @@ This demo takes SmolLM2-1.7B-Instruct, quantised to 4 bits in GGUF form, and shi
 self-contained box that answers on your own machine.
 
 ```text
-$ scrollcase run .scrollcase/.../*.release.json \
-  -- What is the capital of France?
+$ scrollcase run .scrollcase/.../*.release.json -- "What is the capital of France?"
 
 Paris.
 ```

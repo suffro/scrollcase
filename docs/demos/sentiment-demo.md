@@ -15,8 +15,7 @@ Sentiment analysis is an AI technique used to read text and automatically determ
 This demo takes DistilBERT sentiment analysis AI model fine-tuned on SST-2, quantised to INT8 in ONNX form, and ships it as a signed, self-contained box.
 
 ```text
-$ scrollcase run .scrollcase/.../*.release.json \
-  -- This product is surprisingly easy to use.
+$ scrollcase run .scrollcase/.../*.release.json -- "This product is surprisingly easy to use."
 
 Sentiment: POSITIVE
 Confidence: 99.9%

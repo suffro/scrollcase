@@ -42,8 +42,14 @@ npm install -g scrollcase
 
 ```sh
 scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
-scrollcase run    box/*.release.json --public-key keys/example-signing-public.json \
-  -- What is the capital of France?
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of France?"
+```
+
+or to start a chat session:
+
+```sh
+scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json
 ```
 
 ---
