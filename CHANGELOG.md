@@ -6,6 +6,26 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The `llm-demo` box for `macos-aarch64-cpu` declares `GGML_METAL_DEVICES=0` and runs on a Mac whose
+  Metal refuses to initialise. The 0.11.4 note below — no layer is offloaded, because
+  `n_gpu_layers` defaults to `0` — was true and not sufficient: llama.cpp registers a Metal device
+  whatever that value is, and creating the context initialises every backend it registered. So
+  `ggml_metal_init` failing took down a box named `cpu`, for a GPU it was never going to use, and
+  said only `Failed to create llama_context`. The variable is how many Metal devices ggml registers;
+  zero is the accelerator the target's name already promised. Linux and Windows have no Metal
+  backend to switch off and declare nothing new. Boxes already published carry the fix only once
+  they are rebuilt.
+
+### Added
+
+- `entrypoint.py` in the `llm-demo` example reads `LLM_DEMO_VERBOSE` from the host. Set it and the
+  box stops muting llama.cpp's own log, which is where a failed load explains itself — and the
+  failure it raises names the variable, so the next person meets a switch rather than a wall. It is
+  deliberately absent from the scroll: a value the release declared would win over the one the
+  person debugging sets.
+
 ## [0.11.4] — 2026-08-14
 
 ### Added

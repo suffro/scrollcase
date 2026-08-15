@@ -18,6 +18,24 @@ const targets = [
   'windows-x86_64-cpu',
 ];
 
+// conda-forge's llama-cpp-python for osx-arm64 has the Metal backend compiled in, and llama.cpp
+// registers a Metal device whatever `n_gpu_layers` says. Registering it is what makes a *CPU* box
+// die on a Mac where Metal will not initialise: context creation fails for every backend it
+// registered, not only the ones it was going to use. `GGML_METAL_DEVICES` is how many Metal devices
+// ggml registers, so zero is the accelerator this target's name already promised. Nothing to
+// declare on Linux or Windows, where there is no Metal backend to switch off.
+const environments = {
+  'linux-x86_64-cpu': { PYTHONDONTWRITEBYTECODE: '1' },
+  'macos-aarch64-cpu': { PYTHONDONTWRITEBYTECODE: '1', GGML_METAL_DEVICES: '0' },
+  'windows-x86_64-cpu': { PYTHONDONTWRITEBYTECODE: '1' },
+};
+
+const fragmentKeys = {
+  'linux-x86_64-cpu': ['condaDependencyLicenseAudit', 'extends', 'target'],
+  'macos-aarch64-cpu': ['condaDependencyLicenseAudit', 'environment', 'extends', 'target'],
+  'windows-x86_64-cpu': ['condaDependencyLicenseAudit', 'extends', 'target'],
+};
+
 // The one prompt the guide, the release notes, the self-test and both shipped consumer templates
 // use. Short on purpose: every CI job pays for it in tokens generated on a CPU.
 const demoPrompt = 'What is the capital of France?';
@@ -95,19 +113,30 @@ describe('published local LLM demo box', () => {
   it('declares what the targets share once, in a base they all extend', async () => {
     for (const target of targets) {
       const fragment = JSON.parse(await readFile(join(example, target, 'scroll.json'), 'utf8'));
-      expect(Object.keys(fragment).sort(), target)
-        .toEqual(['condaDependencyLicenseAudit', 'extends', 'target']);
+      expect(Object.keys(fragment).sort(), target).toEqual(fragmentKeys[target]);
     }
 
+    // `environment` is compared separately, below, and exactly. Leaving it in here would make one
+    // target's extra variable the reason all three differ, and the message would say only that.
     const normalised = (await scrolls()).map(({ scroll }) => JSON.stringify({
       ...scroll,
       scrollId: null,
       target: null,
       condaDependencyLicenseAudit: null,
       pythonEntryPoint: null,
+      environment: null,
     }));
 
     expect(new Set(normalised).size).toBe(1);
+  });
+
+  // Stated per target and in full, rather than asserted to be equal: the one variable that differs
+  // is a real difference between the operating systems, and the way to keep it from becoming cover
+  // for an undeclared second one is to write down what each box is allowed to set.
+  it('sets the CPU-only Metal count on macOS and nothing extra anywhere else', async () => {
+    for (const { target, scroll } of await scrolls()) {
+      expect(scroll.environment, target).toEqual(environments[target]);
+    }
   });
 
   // A GGUF carries the weights, the tokenizer and the chat template in one container, so this box
@@ -204,6 +233,58 @@ describe('published local LLM demo box', () => {
     // business and not something this box decides.
     expect(result.stdout.replaceAll('\r\n', '\n')).toBe('Paris.\n');
     expect(result.stderr).toContain('3 tokens in 0.5s');
+  });
+
+  // The load is where this box fails on a machine it has never run on, and llama.cpp writes the
+  // reason to a log the box mutes. The switch that unmutes it is only useful if the release leaves
+  // it alone: a declared value wins over the host's, so declaring it would silently weld it shut.
+  it.skipIf(!python)('loads quietly, and talks when the host asks it to', () => {
+    const result = runEntrypoint([
+      'import entrypoint, os, sys, types',
+      'seen = {}',
+      'class FakeLlama:',
+      '    def __init__(self, **kwargs): seen.update(kwargs)',
+      'fake = types.ModuleType("llama_cpp")',
+      'fake.Llama = FakeLlama',
+      'sys.modules["llama_cpp"] = fake',
+      'entrypoint.model_path = lambda: __import__("pathlib").Path("model.gguf")',
+      'os.environ.pop(entrypoint.VERBOSE_VARIABLE, None)',
+      'entrypoint.load_model()',
+      'print("quiet", seen["verbose"])',
+      'os.environ[entrypoint.VERBOSE_VARIABLE] = "1"',
+      'entrypoint.load_model()',
+      'print("asked", seen["verbose"])',
+    ].join('\n'));
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.replaceAll('\r\n', '\n')).toContain('quiet False\nasked True\n');
+  });
+
+  it.skipIf(!python)('names the switch when the load fails without it', async () => {
+    const result = runEntrypoint([
+      'import entrypoint, os, sys, types',
+      'class FakeLlama:',
+      '    def __init__(self, **kwargs): raise ValueError("Failed to create llama_context")',
+      'fake = types.ModuleType("llama_cpp")',
+      'fake.Llama = FakeLlama',
+      'sys.modules["llama_cpp"] = fake',
+      'entrypoint.model_path = lambda: __import__("pathlib").Path("model.gguf")',
+      'os.environ.pop(entrypoint.VERBOSE_VARIABLE, None)',
+      'try:',
+      '    entrypoint.load_model()',
+      'except entrypoint.DemoError as error:',
+      '    print(error)',
+    ].join('\n'));
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('Failed to create llama_context');
+    expect(result.stdout).toContain('LLM_DEMO_VERBOSE=1');
+
+    // The same variable, unset in every release: whichever name the entrypoint reads, a box that
+    // declares it takes the switch away from the person holding it.
+    for (const { target, scroll } of await scrolls()) {
+      expect(Object.keys(scroll.environment ?? {}), target).not.toContain('LLM_DEMO_VERBOSE');
+    }
   });
 
   // The mode is the argument list, and nothing else: no flag, no second box, no scroll field. This

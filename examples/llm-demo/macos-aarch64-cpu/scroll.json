@@ -5,5 +5,8 @@
     "arch": "aarch64",
     "accelerator": "cpu"
   },
+  "environment": {
+    "GGML_METAL_DEVICES": "0"
+  },
   "condaDependencyLicenseAudit": "examples/llm-demo/macos-aarch64-cpu/conda-licenses.json"
 }

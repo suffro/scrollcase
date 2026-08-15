@@ -60,6 +60,14 @@ MESSAGE_OVERHEAD_TOKENS = 5
 CHAT_PROMPT = "> "
 EXIT_COMMAND = "/exit"
 
+# llama.cpp explains a failed load in its own log, which this box mutes: a demo that prints
+# two hundred lines of tensor repacking before its first token is a demo nobody reads. The
+# cost of muting it is the one run where that log was the whole answer -- a Metal backend
+# that would not initialise says so there and nowhere else -- so the switch stays reachable
+# from outside. Read from the host and deliberately not declared in the scroll: a value the
+# release states would win over the one the person debugging sets.
+VERBOSE_VARIABLE = "LLM_DEMO_VERBOSE"
+
 USAGE = (
     "usage: entrypoint.py WORD [WORD ...]   answer once and exit\n"
     "       entrypoint.py                   start an interactive chat"
@@ -158,6 +166,7 @@ def load_model() -> tuple[object, float, int]:
     from llama_cpp import Llama
 
     path = model_path()
+    verbose = bool(os.environ.get(VERBOSE_VARIABLE))
 
     print(f"loading {path.name} …", file=sys.stderr, flush=True)
     load_started = time.monotonic()
@@ -169,10 +178,11 @@ def load_model() -> tuple[object, float, int]:
             n_threads=threads,
             seed=SEED,
             chat_format=CHAT_FORMAT,
-            verbose=False,
+            verbose=verbose,
         )
     except Exception as error:  # llama.cpp raises several unrelated types here
-        raise DemoError(f"could not load {path.name}: {error}") from None
+        hint = "" if verbose else f" (set {VERBOSE_VARIABLE}=1 to see llama.cpp's own log)"
+        raise DemoError(f"could not load {path.name}: {error}{hint}") from None
     return model, time.monotonic() - load_started, threads
 
 

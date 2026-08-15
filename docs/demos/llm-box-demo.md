@@ -162,7 +162,11 @@ resident. It is a fact a consumer can check *before* unpacking a gigabyte.
 The packaged version of the same box, the one CI builds for all three operating systems, is
 `examples/llm-demo/` in the Scrollcase repository. There the three targets *do* share a
 [split scroll](/reference/scroll#one-box-several-targets): one base carrying the identity, the asset,
-the environment and the self-test, and three target files of nine lines each. Its `entrypoint.py` is
+the environment and the self-test, and three target files of nine lines each — twelve on macOS, which
+adds `GGML_METAL_DEVICES=0` because conda-forge's `llama-cpp-python` for Apple Silicon carries the
+Metal backend and llama.cpp registers a Metal device whatever `n_gpu_layers` says. Creating the
+context initialises every registered backend, so without it a box named `cpu` fails on a Mac whose
+Metal will not initialise, for a GPU it was never going to use. Its `entrypoint.py` is
 byte for byte the one the walkthrough ships, and a test asserts the declared hashes still match, so
 the two copies cannot drift apart quietly.
 

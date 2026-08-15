@@ -30,7 +30,7 @@
     {
       "sourcePath": "examples/llm-demo/shared/entrypoint.py",
       "relativePath": "entrypoint.py",
-      "sha256": "7ac9c0f8f08bf3638f04ce856fb3e3e8066561cc18e6e652cede1697db3f8f22"
+      "sha256": "c8b15f057a90ddba07b07d2cd983e2f200090a6b2dd2ac33fd9e54dfda2afa06"
     },
     {
       "sourcePath": "examples/llm-demo/shared/MODEL_NOTICE.md",

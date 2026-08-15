@@ -54,13 +54,28 @@ there is no tokenizer that can drift out of step with the weights it belongs to.
 immutable upstream revision with its size and SHA-256, and `weights: embed` puts it in the archive,
 so the box installs and runs air-gapped.
 
-**The environment declares one variable, and it is not an offline flag.** `sentiment-demo` sets
+**The environment declares no offline flag.** `sentiment-demo` sets
 `HF_HUB_OFFLINE=1` and two siblings because its stack really does contain a Hugging Face client.
 This stack has none: `entrypoint.py` imports `llama_cpp` and nothing else, so copying those
 variables across would look reassuring and guarantee nothing. What it declares instead is
 `PYTHONDONTWRITEBYTECODE=1`, which is load-bearing twice — the self-test's `import entrypoint` would
 otherwise leave a timestamped `.pyc` inside the payload *before* its digest is computed, and an
 extracted box that was kept and then run would fail `verify --extracted` the second time.
+
+**The macOS target declares one more, and it is what makes the box CPU-only.** conda-forge's
+`llama-cpp-python` for Apple Silicon has the Metal backend compiled in, and llama.cpp registers a
+Metal device whatever `n_gpu_layers` says. Registering it is enough to matter: creating the context
+initialises *every* registered backend, so a Mac where Metal will not initialise fails a box named
+`cpu` for a GPU it was never going to use. `GGML_METAL_DEVICES` is how many Metal devices ggml
+registers, so the target fragment sets it to `0` and the accelerator matches the target's name.
+Linux and Windows have no Metal backend to switch off and declare nothing — which is the case
+`extends` merging `environment` key by key exists for.
+
+**One variable is deliberately *not* declared.** `entrypoint.py` mutes llama.cpp's own log, because a
+demo that prints two hundred lines of tensor repacking before its first token is a demo nobody reads
+— and that log is where a failed load says why. So the entrypoint reads `LLM_DEMO_VERBOSE` from the
+host and unmutes when it is set, and the error it raises names the variable. A release that declared
+it would win over the value the person debugging supplies, and weld the switch shut.
 
 **The self-test has to generate, not just import.** `selfTest.imports` is the part the signed
 release carries, which is why `verify --self-test` can repeat it later with the box's own

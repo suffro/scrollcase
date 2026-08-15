@@ -104,6 +104,18 @@ On PowerShell the `box/*.release.json` glob is not expanded for a command like t
 works on any machine. Running the box needs a machine matching its target, because the interpreter
 inside it is executed.
 
+## If the model will not load
+
+The box mutes llama.cpp's log so the demo does not print two hundred lines of tensor repacking
+before its first token, which also hides the one line that explains a failed load. Set
+`LLM_DEMO_VERBOSE=1` and run again to see it:
+
+```sh
+LLM_DEMO_VERBOSE=1 scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of France?"
+```
+
+On PowerShell, set it first with `$env:LLM_DEMO_VERBOSE = 1`.
+
 ## What to expect
 
 Generation runs on the CPU. On a modest machine expect single-digit tokens per second, so an answer
