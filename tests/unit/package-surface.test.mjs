@@ -199,8 +199,15 @@ describe('the generated runtime declarations', () => {
  *
  * `npm version` bumps `package.json` and writes a tag; it does not touch this file. Five releases
  * went out with every one of their entries still sitting under `[Unreleased]`, so the file said
- * nothing about what had actually shipped and when. These checks are the missing half of that
- * command: they fail on the release commit that forgot to close the section.
+ * nothing about what had actually shipped and when. The first check below is the missing half of
+ * that command: it fails on the release commit that forgot to close the section, because a bump to
+ * a version with no dated section is exactly what those five releases looked like.
+ *
+ * It used to be two checks, the second asserting `[Unreleased]` held no entries at all. That is a
+ * stronger claim than the story supports, and the wrong one: the first check already catches every
+ * bump that forgot to close, and forbidding pending entries outright left ordinary work with
+ * nowhere to record itself — a fix to a demo box could not be written down without cutting a
+ * release for it, which is not a trade the changelog was ever meant to impose.
  */
 describe('the changelog', () => {
   const changelog = () => readFile(new URL('CHANGELOG.md', repoRoot), 'utf8');
@@ -216,18 +223,17 @@ describe('the changelog', () => {
     expect(current[2], `the ${packageJson.version} section has no date`).toBeTruthy();
   });
 
-  it('keeps somewhere to write the next change, and never leaves it stale', async () => {
+  it('keeps somewhere to write the next change', async () => {
     const text = await changelog();
+
+    // What it holds is the release's business; that it exists is this file's. A changelog whose
+    // heading was renamed at release time without a fresh one opened above it sends the next
+    // change looking for a section to write in and finding the last release instead.
     expect(text).toContain('## [Unreleased]');
 
-    // Entries belong to the release that shipped them. Anything still under `[Unreleased]` when the
-    // version already has a section is an entry that went out without being recorded as such.
-    const unreleased = text.slice(text.indexOf('## [Unreleased]'));
-    const body = unreleased.slice(0, unreleased.indexOf('\n## ['));
-    expect(
-      body.includes('\n- '),
-      'entries are still under [Unreleased] after the version was bumped; move them under the new release heading',
-    ).toBe(false);
+    const [firstRelease] = [...text.matchAll(RELEASE_HEADING)];
+    expect(firstRelease?.index, 'every release section precedes [Unreleased]')
+      .toBeGreaterThan(text.indexOf('## [Unreleased]'));
   });
 
   it('lists its releases newest first', async () => {

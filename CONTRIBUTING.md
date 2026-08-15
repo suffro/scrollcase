@@ -73,8 +73,9 @@ npm version 0.12.0
 
 Doing it the other way round is how five releases went out with every one of their entries still
 under `[Unreleased]`, and the file stopped saying what had shipped when. `package-surface.test.mjs`
-now fails on exactly that: the version in `package.json` must have a dated section, and
-`[Unreleased]` must be empty once it does.
+now fails on exactly that: the version in `package.json` must have a dated section. Between
+releases `[Unreleased]` is where a change is written down, and carrying entries there is the normal
+state — it is the bump that has to close them, not the writing that has to wait for one.
 
 `npm version <version>` writes the version, commits it, and creates the tag `v<version>` — but
 **locally only**. `git push origin main` does not carry tags, so pushing the branch alone leaves the
