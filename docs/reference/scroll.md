@@ -244,6 +244,11 @@ On a name conflict, the signed release wins over the inherited host environment 
 `env`; the small target-validation map still wins for its own accelerator controls, so a declared
 variable cannot silently turn a CUDA or Metal check into a CPU check.
 
+A variable only one target needs belongs in that target's fragment, because `extends` joins
+`environment` key by key. That is how a `cpu` target switches off an accelerator backend its packed
+library ships anyway — `"GGML_METAL_DEVICES": "0"` for llama.cpp on macOS. See
+[Running a box](/guides/troubleshooting#running-a-box) for the failure that prevents.
+
 This does **not** replace or filter the host environment. A box inherits it exactly as before.
 Scrollcase reports the resulting provenance through its CLI and Node/Python consumer APIs; see
 [Environment reports](/reference/api#environment-reports). Names must be non-empty and contain

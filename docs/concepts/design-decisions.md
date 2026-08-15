@@ -480,6 +480,25 @@ just as it bypasses every other consumer check.
 silently make the tool a sandbox policy, and a mistaken Windows base could prevent the packed
 interpreter from starting at all.
 
+### A declared variable is how a target keeps its accelerator promise
+
+A packed library can carry a backend the box never declared. conda-forge's `llama.cpp` for
+`osx-arm64` ships the Metal backend even in its CPU build, and llama.cpp registers a Metal device
+however the application configures offloading — so creating a context initialises a GPU backend
+inside a box whose target says `cpu`, and a host where that initialisation fails takes the box down
+with it. The target switches the backend off by declaring it (`GGML_METAL_DEVICES: "0"`), in the
+target fragment rather than the base, and the box then does what its name says.
+
+The trade is real and worth stating: with no GPU backend registered, llama.cpp can no longer offload
+large-batch matrix multiplication — prompt evaluation — to a device it was never going to hold
+weights on. Token generation is unaffected. A box named for an accelerator it quietly uses anyway is
+the worse side of that trade.
+
+**Rejected:** renaming the target to the accelerator, which promises hardware the box does not use
+and moves the same failure to the first host without it. Also rejected: having the entrypoint pass
+an empty device list through `ctypes`, which buries a library-version-specific patch in an example
+whose purpose is to be read.
+
 ## Provenance refuses to lie
 
 A box records the commit it was built from and whether that working tree was dirty, including
