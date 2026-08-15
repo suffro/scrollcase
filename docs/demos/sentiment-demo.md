@@ -15,7 +15,8 @@ Sentiment analysis is an AI technique used to read text and automatically determ
 This demo takes DistilBERT sentiment analysis AI model fine-tuned on SST-2, quantised to INT8 in ONNX form, and ships it as a signed, self-contained box.
 
 ```text
-$ scrollcase run .scrollcase/.../*.release.json -- "This product is surprisingly easy to use."
+$ scrollcase run .scrollcase/.../*.release.json \
+  -- "This product is surprisingly easy to use."
 
 Sentiment: POSITIVE
 Confidence: 99.9%
@@ -41,7 +42,7 @@ What you end up with is a signed Linux CPU box you can run straight away:
 
 ```bash
 scrollcase run .scrollcase/dist/boxes/sentiment-demo/1.0.0/linux-x86_64-cpu/*.release.json \
-  -- This product is surprisingly easy to use.
+  -- "This product is surprisingly easy to use."
 ```
 
 <Button
@@ -99,7 +100,7 @@ curl -o keys/example-signing-public.json \
 npm install -g scrollcase
 scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 scrollcase run    box/*.release.json --public-key keys/example-signing-public.json \
-  -- This product is surprisingly easy to use.
+  -- "This product is surprisingly easy to use."
 ```
 
 The sentence is an argument because the box declares no default one: without it the box answers with

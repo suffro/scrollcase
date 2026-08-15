@@ -40,8 +40,7 @@ pinned file, lock, commit, sign and build.
 What you end up with is a signed Linux CPU box you can run straight away:
 
 ```bash
-scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json \
-  -- Explain what a hash function is, in two sentences.
+scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json -- "Explain what a hash function is, in two sentences."
 ```
 
 <Button
