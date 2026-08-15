@@ -72,8 +72,8 @@ export default defineConfig({
         link: '/getting-started',
         collapsed: false,
         items: [
-          { text: 'Overview', link: '/getting-started/overview' },
-          { text: 'Why Scrollcase?', link: '/getting-started/why-scrollcase' },
+          { text: 'What\'s Scrollcase ', link: '/getting-started/overview' },
+          { text: 'Purpose', link: '/getting-started/why-scrollcase' },
           { text: 'Quickstart', link: '/getting-started/quickstart' },
           { text: 'Installation', link: '/getting-started/installation' },
           { text: 'TL;DR', link: '/getting-started/tl-dr' },
