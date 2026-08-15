@@ -3,214 +3,133 @@
   <img src="https://scrollcase.dev/static/png/labeled/neutral-colored.png" alt="Scrollcase logo" width="220">
 </p>
 
-[**Scrollcase**](https://scrollcase.dev) turns a declarative **scroll** into a **box**: a portable, locked, self-contained
-Python environment for one operating system and accelerator, packed so it runs somewhere other
-than where it was built, signed so a consumer can prove what they received, and accompanied by a
-dependency licence inventory.
+<p align="center"><b>Ship a Python program — code, dependencies, interpreter and model weights — as one
+file that runs on someone else's machine.</b></p>
 
-It is built on exactly one substrate: [pixi](https://pixi.sh) solves a committed `pixi.lock`
-against [conda-forge](https://conda-forge.org), [conda-pack](https://conda.github.io/conda-pack/)
-relocates the resulting prefix, and the tree ships inside the box as `venv/`.
+You describe what your program needs in a small file. [**Scrollcase**](https://scrollcase.dev) builds
+a **box**: a single archive holding a complete, locked Python environment for one operating system
+and one accelerator.
 
-> You can find the official documentation [here](https://scrollcase.dev/getting-started/overview).
-
-## Why Scrollcase?
-
-Scrollcase is for projects that need more than a reproducible Python environment: a target-specific,
-self-contained runtime that can be published, signed, independently verified, and consumed without
-resolving dependencies or requiring a container runtime.
-
-See [Why Scrollcase?](https://scrollcase.dev/getting-started/why-scrollcase) for a practical
-comparison with Docker, Pixi, conda-pack, PEX, and PyInstaller.
-
-## What you get
-
-
-- **Locked.** The environment is a pure function of a committed `pixi.lock`; `build` installs,
-  it never resolves.
-- **Deterministic.** Rebuilding the same commit produces a byte-identical archive: timestamps are
-  normalised, the build time comes from the commit rather than the clock, and the rollout cohort
-  salt is derived rather than random.
-- **Relocatable.** The packed tree is repaired so nothing depends on the build machine's paths:
-  prefix-carrying service files are removed, symlinks dereferenced, and console scripts rewritten
-  to find Python next to themselves.
-- **Signed.** Every release is a signed document — with a local ed25519 key out of the box, or
-  through any external signer you already trust.
-- **Verified.** `verify` mirrors what an installing client does: signature, archive size and
-  hash, safe entry names, manifest agreement, and — with `--self-test` — a real extraction whose
-  own interpreter imports the modules the scroll declares.
-- **Runnable locally.** `scrollcase run` verifies a caller-supplied local release and archive,
-  executes its declared script or module without a shell, forwards signals, preserves the child
-  result, and removes the temporary extraction. It does not download or install persistently.
-- **Explicit about runtime environment.** A scroll can sign the variables its interpreter requires;
-  they are exercised during the build self-test and win over inherited/caller values. Consumers
-  inherit everything else unchanged and return a provenance report that masks inherited host values
-  rather than pretending to sandbox the launcher. Signed and caller-supplied values remain visible.
-- **Audited.** `audit` derives a licence inventory per package straight from the lock, and a
-  dependency without a declared licence fails the parse.
-- **Honest about provenance.** A box records the commit it was built from. Building outside a git
-  checkout fails rather than inventing a revision; a dirty tree needs `--allow-dirty` and is
-  recorded as such in the box itself.
-
-## Requirements
-
-- Node.js ≥ 20 for the CLI.
-- For real builds: `pixi` at the version the scroll pins and `conda-pack` 0.9.2. Point Scrollcase
-  at them with `--pixi` / `--conda-pack` or `SCROLLCASE_PIXI` /
-  `SCROLLCASE_CONDA_PACK` if they are not on `PATH`. `scrollcase doctor` reports exactly what is
-  missing and how to install it. `init` offers to install the pinned toolchain into the project and
-  downloads nothing without explicit consent.
-- Locking, auditing, signing and verifying an existing archive need no toolchain at all.
-
-## Install
+Whoever receives that box does not install dependencies, does not run Docker, and does not need
+Python on the machine. They unpack it and run it. And because every box ships with a signature, they
+can prove it is exactly the thing you built, byte for byte — before anything inside it executes.
 
 ```sh
 npm install -g scrollcase
-scrollcase --version
+scrollcase init                                  # a workspace and a runnable example box
+scrollcase keygen                                # a local signing key
+scrollcase lock  example-box/macos-aarch64-metal # resolve the dependencies, once
+scrollcase build example-box/macos-aarch64-metal # install, self-test, archive, sign
+scrollcase run   <release.json>                  # verify, unpack, run, clean up
 ```
 
-Applications that only consume existing local boxes need neither the npm package nor Node.js:
+That target is an Apple Silicon Mac; `init` prints the one for your machine. The example builds in
+about a minute and needs no model, no GPU and no account. Start at the
+[Quickstart](https://scrollcase.dev/getting-started/quickstart) or the
+[TL;DR](https://scrollcase.dev/getting-started/tl-dr).
+
+## Why you would want one
+
+- **The target machine installs nothing.** No package resolution, no compiler, no container runtime.
+- **The same build twice gives the same file.** Byte-identical, so a mismatch means something
+  actually changed.
+- **It cannot be swapped underneath you.** Signature, size and hash are checked before the box runs.
+- **It works offline.** Download once, carry it across, run it on an air-gapped workstation.
+- **You know what is inside.** Every box carries a licence inventory and the commit it was built
+  from.
+
+Deciding whether this is the right tool at all — versus Docker, pixi, conda-pack, PEX or PyInstaller
+— is answered in [Why Scrollcase?](https://scrollcase.dev/getting-started/why-scrollcase).
+
+## Four words
+
+| Word | Meaning |
+| --- | --- |
+| **scroll** | The file you write: dependencies, model files, what to run, how to test it. The only input a build accepts. → [reference](https://scrollcase.dev/reference/scroll) |
+| **box** | What comes out: one archive with the whole environment inside. → [format](https://scrollcase.dev/reference/box-format) |
+| **target** | Which machine it is for: operating system, CPU architecture, accelerator (and CUDA version). One box, one target. |
+| **release** | The signed document that describes the box, so a consumer can verify it. → [security model](https://scrollcase.dev/concepts/security-and-trust) |
+
+The pipeline is always the same three steps: **write a scroll → lock it → build the box.**
+
+## Using a box from your application
+
+Building needs Node.js. *Consuming* does not — pick the language your application is written in:
 
 ```sh
 python -m pip install scrollcase-consumer   # imported as scrollcase_consumer
-cargo add scrollcase-consumer               # imported as scrollcase_consumer
+cargo add scrollcase-consumer
+# or, in Node: import { ... } from 'scrollcase/consumer'
 ```
 
-Neither builds nor downloads boxes; both verify, prepare and run one the caller already holds.
-
-Otherwise from a checkout:
-
-```sh
-git clone https://github.com/suffro/scrollcase.git
-cd scrollcase && npm install && npm link
-```
-
-## Quickstart
-
-```sh
-scrollcase init                     # workspace, runnable example-box, and consumer API examples
-scrollcase new scroll               # guided creation of your own target-specific scroll
-scrollcase doctor                   # can this machine build?
-scrollcase keygen                   # create a local ed25519 signing key
-scrollcase lock my-box/macos-aarch64-metal     # resolve the scroll's pixi manifest into pixi.lock
-scrollcase audit my-box/macos-aarch64-metal    # licence inventory, derived from the lock
-scrollcase build my-box/macos-aarch64-metal    # install, self-test, archive, sign
-scrollcase verify .scrollcase/dist/boxes/<box>/<version>/<target>/<sha256>.release.json --self-test
-```
-
-The repository ships a working example, `examples/hello-box/macos-aarch64-metal`: a stdlib-only
-Python 3.11 environment that exercises the whole pipeline in about a minute and produces a ~48 MB
-archive (191 MB on Linux — see [examples/README.md](examples/README.md)). Its final `verify --self-test` extracts the box and imports `json` and `sqlite3` with the
-interpreter *inside* it — the check that proves the environment runs somewhere other than where it
-was built. See [examples/README.md](examples/README.md).
-
-`init` also writes a concise `SCROLLCASE.md`, plus Node, Python, and Rust templates under
-`consumer-templates/`. They show the external application side of the boundary by calling the
-public consumer for each language against a caller-supplied local release. The Rust template is a
-small non-publishable crate under `consumer-templates/rust/`; the application executed inside the
-example box is kept separately at `box-entrypoints/<boxId>/<targetId>/entrypoint.py`.
-If the project has no `package.json`, `init` creates a private one with `"type": "module"` for the
-TypeScript consumer; an existing file is never changed.
-Interactive initialization separately offers to install the templates' Node/TypeScript
-dependencies, the Python consumer from PyPI or conda-forge, and the Rust crate with Cargo. Every
-interactive yes/no question defaults to yes (`[Y/n]`); without a terminal, optional installs remain
-disabled unless a flag explicitly authorizes them. `init` collects every answer first and then
-performs the approved installations. If conda-forge is selected but Conda is unavailable, it asks
-whether to continue with PyPI instead.
+All three do the same thing: verify a box the caller already has, unpack it, run it, and hand back
+the result. None of them downloads anything. → [Consumer API](https://scrollcase.dev/reference/api)
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `init` | Initialize a workspace, asking first whether to include a disposable runnable example (`--no-example` for none) |
-| `new scroll` | Create one guided target-specific scroll |
-| `doctor` | Report whether this machine can build a box |
+| `init` | Create the workspace, optionally with a runnable example |
+| `new scroll` | Create a scroll for one target, guided |
+| `add` / `remove` / `edit` / `refresh` | Change what a scroll declares — dependencies, model files, environment variables, self-test imports |
+| `doctor` | Can this machine build a box? |
 | `keygen` | Create a local ed25519 signing key |
-| `lock [<scroll>]` | Resolve the scroll's pixi manifest into `pixi.lock`; omission opens a terminal menu |
-| `audit <scroll>` | Dependency licence inventory, derived from the lock |
-| `build [<scroll>]` | Build, self-test, archive, and sign a box; omission opens a terminal menu |
-| `verify <release.json>` | Verify a signed archive, or an extracted payload with `--extracted <dir>` |
-| `run <release.json>` | Verify, temporarily extract, and run a local box |
+| `lock <scroll>` | Resolve the dependencies once, into a committed `pixi.lock` |
+| `audit <scroll>` | Licence inventory for every dependency, derived from the lock |
+| `build <scroll>` | Install from the lock, self-test, archive, sign |
+| `verify <release.json>` | Check a box the way an installing client does; `--self-test` runs its own interpreter |
+| `run <release.json>` | Verify, unpack to a temporary directory, run, clean up |
 
-`scrollcase help` documents every option.
-`scrollcase -v` and `scrollcase --version` print the installed version without requiring a
-workspace.
+`scrollcase help` documents every option. Full detail:
+[CLI reference](https://scrollcase.dev/reference/cli).
 
-Projects that consume the box contract directly can import the full Node surface from
-`scrollcase/contract`, or its target/document-shape helpers with no Node built-ins from
-`scrollcase/contract/browser`. Generated format types remain under `scrollcase/contract/types`.
-Local preparation, process-restart attachment, opt-in extracted-payload verification, and shell-free
-execution are available from `scrollcase/consumer`; the typed Python package under `python/`
-exposes the same semantics as `scrollcase_consumer`.
+## Requirements
 
-## Workspace
+- **Node.js ≥ 20** for the CLI.
+- **Real builds** also need [pixi](https://pixi.sh) at the version the scroll pins and
+  [conda-pack](https://conda.github.io/conda-pack/). `scrollcase doctor` says what is missing;
+  `scrollcase init` offers to install it and downloads nothing without your consent.
+- **Locking, auditing, signing, verifying and running an existing box** need no toolchain at all.
 
-Paths come from the project, not from the tool. A `scrollcase.config.json` at the project root —
-discovered by walking up from the working directory — declares where scrolls live and where
-builds, artefacts and keys go. Defaults are `scrolls/` and `.scrollcase/{build,dist,keys}`, and
-every path can be overridden per invocation.
+Scrollcase is built on exactly one substrate: pixi solves a committed `pixi.lock` against
+[conda-forge](https://conda-forge.org), conda-pack relocates the resulting prefix, and the tree
+ships inside the box as `venv/`. → [Why pixi](https://scrollcase.dev/concepts/why-pixi)
 
-## Signing and key custody
+## Going further
 
-The tool signs with a local ed25519 key so anyone gets verifiable boxes without infrastructure.
-An operator with real key custody — a KMS, an HSM, a signing service — plugs it in through
-`--signer-command`: the command receives the payload on stdin and returns the signed document on
-stdout. The returned document must echo back the exact payload it was given and its signature is
-verified locally, so a signer that substitutes a payload fails the build.
-
-Document kinds are namespaced (`<namespace>.release`, `.channel`, `.revocations`), defaulting to
-`scrollcase.box`. A project with boxes already installed in the field sets `--namespace` to keep
-emitting the kinds its clients recognise.
-
-## Model weights
-
-`--weights embed` (the default) packs assets into the archive: the box installs with no network
-and works air-gapped. `--weights on-demand` leaves them out and carries their URL, path, size and
-SHA-256 in the signed release. The caller's distribution layer materializes those files; the
-official consumers do not download them and verify their signed size and hash before execution.
-
-## Accelerator parity
-
-A scroll may declare a `parity` block: a check script inside the box, the accelerators to run it
-under, and tolerances (`absolute`, `relative`, `minimumCosine`). The tool runs the check once per
-accelerator, compares every run against the first, and fails the build on a breach. It catches the
-failures a packaging tool is responsible for — the wrong wheels solved in, a CPU-only build
-shipped as CUDA, a broken BLAS — while the project owns the check script and what closeness means
-for its model.
+- [Signing and key custody](https://scrollcase.dev/guides/signing-and-custody) — local key out of the
+  box, or your own KMS/HSM through `--signer-command`.
+- [Managing model weights](https://scrollcase.dev/guides/managing-weights) — embed them in the
+  archive, or keep them outside it with their hash recorded in the signed release.
+- [Accelerator parity](https://scrollcase.dev/guides/accelerator-parity) — fail the build when the
+  CUDA box and the CPU box disagree numerically.
+- [Distributing boxes](https://scrollcase.dev/guides/distributing-boxes) and
+  [offline installs](https://scrollcase.dev/guides/offline-airgap).
+- [Design decisions](https://scrollcase.dev/concepts/design-decisions) — every choice that looks
+  arbitrary, and the alternative it rejected.
+- Real boxes to look at: [examples/](examples/) ships a stdlib-only one that builds in a minute, a
+  sentiment model, and a local LLM. Each is walked through in the
+  [demos](https://scrollcase.dev/demos/).
 
 ## What Scrollcase is not
 
-Scrollcase stops at a signed, verified box on disk. Uploading to object storage, serving a
-registry, promoting or revoking releases, allocating CI runners, and model-specific scientific
-validation all belong to whoever consumes the tool. The reasoning behind this boundary — and
-every other decision that looks arbitrary — lives in
-[docs/concepts/design-decisions.md](docs/concepts/design-decisions.md).
+It stops at a signed, verified box on disk. It does not host archives, run a registry, decide which
+version a client should install, download boxes, manage updates, allocate CI runners, or judge
+whether a model is scientifically correct. Those belong to whoever uses it — which is what keeps the
+format usable with object storage, GitHub Releases, a private server or an existing updater.
 
 ## Development
 
 ```sh
 npm install
-npm test        # vitest; no network, no toolchain required
+npm test        # no network, no toolchain required
 ```
 
-The pipeline tests stub the environment solve, so the suite runs anywhere; everything after the
-solve is the real implementation.
-
-The Python consumer lives under `python/`. Its focused verification is:
-
-```sh
-python -m pip install -e './python[test]'
-cd python
-python -m unittest discover -s tests -t .
-mypy src
-python scripts/sync_schemas.py --check
-python -m build
-python scripts/check_distribution.py dist/*
-```
+The Python consumer lives in [python/](python/) and the Rust crate in [rust/](rust/), each with its
+own suite. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[Apache-2.0](LICENSE). The licence covers scrollcase's own source code — the contents of the
-boxes it builds (interpreters, conda-forge and PyPI dependencies, model source and weights) carry
-their own licences, which is what the licence audit shipped inside every box exists to record.
-See [NOTICE](NOTICE).
+[Apache-2.0](LICENSE), covering Scrollcase's own source. The contents of the boxes it builds —
+interpreters, conda-forge and PyPI dependencies, model code and weights — carry their own licences,
+which is exactly what the licence audit inside every box exists to record. See [NOTICE](NOTICE).
