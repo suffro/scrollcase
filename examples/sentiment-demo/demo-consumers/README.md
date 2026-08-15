@@ -30,46 +30,87 @@ curl -o keys/example-signing-public.json \
   https://raw.githubusercontent.com/suffro/scrollcase/main/examples/keys/example-signing-public.json
 ```
 
-## 2. Run it
+## 2. How to run it
 
-You can use any one of these three:
+<big>You can use any one of these five:</big>
 
-### CLI
+### <small>2.1</small> CLI
 
 ```sh
 npm install -g scrollcase
-```
-
-```sh
 scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
-scrollcase run    box/*.release.json --public-key keys/example-signing-public.json \
-  -- This product is surprisingly easy to use.
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "This product is surprisingly easy to use."
 ```
 
 ---
 
-### Node consumer
+### <small>2.2</small> Node consumer
 
 ```sh
 npm install
-```
-
-```sh
-npx tsx run-box.ts "This product is surprisingly easy to use."
+npx tsx run-box.ts
 ```
 
 ---
 
-### Python consumer
+### <small>2.3</small> Python consumer
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
+python -m pip install scrollcase-consumer
+python run_box.py
 ```
 
+---
+
+### <small>2.4</small> Rust consumer
+
+For an application that would otherwise embed a second runtime just to start a box — a Tauri client,
+a native service.
+
 ```sh
-python -m pip install scrollcase-consumer && python run_box.py "This product is surprisingly easy to use."
+cargo add scrollcase-consumer
 ```
+
+```rust
+use std::path::Path;
+
+use scrollcase_consumer::run::{run_box, RunBoxOptions, RunOptions};
+use scrollcase_consumer::trust::TrustAnchors;
+
+fn main() -> scrollcase_consumer::Result<()> {
+    // The name under box/ is the document's own SHA-256, and the archive is found beside it.
+    let result = run_box(
+        Path::new("box/<document sha256>.release.json"),
+        &RunBoxOptions {
+            trust: TrustAnchors::KeyFile(Path::new("keys/example-signing-public.json")),
+            archive: None,
+            temporary_root: Path::new("target/boxes"),
+            run: RunOptions {
+                args: vec!["This product is surprisingly easy to use.".into()],
+                ..Default::default()
+            },
+        },
+    )?;
+
+    std::process::exit(result.exit_code.unwrap_or(1));
+}
+```
+
+Verified, extracted, run, and deleted again in one call — deleted whatever happens, including a
+failure part way through.
+
+---
+
+### <small>2.5</small> Your custom implementation
+
+Nothing above is privileged. A consumer in whatever language you actually ship is written against a
+specification rather than against one of these source files:
+<https://scrollcase.dev/reference/box-format>. What it may not do is reorder the work — the
+signature, against a key that did not travel with the archive; the archive's size and hash; entry
+names that cannot escape the payload; agreement with the manifest; and only then the interpreter
+inside the box. Run anything before that and you have verified nothing, which is why the consumers
+above are checked against one shared set of conformance cases instead of each holding its own
+reading of the rule.
 
 ---
 

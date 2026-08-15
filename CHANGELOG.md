@@ -27,6 +27,11 @@ All notable changes to Scrollcase are documented here. The format follows
   failure it raises names the variable, so the next person meets a switch rather than a wall. It is
   deliberately absent from the scroll: a value the release declared would win over the one the
   person debugging sets.
+- The README that travels inside every published demo archive now numbers its ways of running a box
+  and lists five rather than three: the `scrollcase-consumer` crate joins the CLI and the Node and
+  Python consumers with a `run_box` example, and a closing entry says what a consumer of your own
+  has to do — the same checks in the same order, against the format's specification rather than
+  against one of the three implementations.
 
 ## [0.11.4] — 2026-08-14
 
