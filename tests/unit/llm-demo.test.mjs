@@ -198,7 +198,11 @@ describe('published local LLM demo box', () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe('Paris.\n');
+    // Compared whole rather than with `toContain`, because "only the answer" is the claim being
+    // tested and a substring match would pass on stdout that also carried the statistics. The line
+    // ending is normalised first: Python's `print` writes `\r\n` on Windows, which is the platform's
+    // business and not something this box decides.
+    expect(result.stdout.replaceAll('\r\n', '\n')).toBe('Paris.\n');
     expect(result.stderr).toContain('3 tokens in 0.5s');
   });
 
