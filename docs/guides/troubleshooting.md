@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Safe diagnosis and correction for common Scrollcase build, signing, and verification failures.
+description: Safe diagnosis and correction for common Scrollcase build, signing, verification, and execution failures.
 ---
 
 # Troubleshooting
@@ -90,6 +90,31 @@ an interrupted process may need to download again.
 - **Cause:** the signer re-serialised, wrapped, or otherwise changed `payloadBase64`.
 - **Correct:** echo the exact payload fields supplied on stdin and sign the decoded payload bytes.
 - **Never:** accept a signature over a different representation.
+
+## Running a box
+
+### A GPU backend fails inside a `cpu` box
+
+- **Symptom:** the box verifies and extracts, then the application fails on its own first call. For
+  the [LLM demo](/demos/llm-box-demo) that is `could not load …: Failed to create llama_context`,
+  with nothing after it. The same box runs on another host, or in a Codespace.
+- **Cause:** the packaged library carries an accelerator backend that its runtime registers whatever
+  the application asks for. conda-forge's `llama-cpp-python` for `osx-arm64` is built with Metal,
+  and llama.cpp registers a Metal device however `n_gpu_layers` is set; creating a context
+  initialises *every* registered backend, so a host where Metal will not initialise takes down a box
+  that was never going to offload a layer to it.
+- **Diagnose:** re-run with the application's own log unmuted — `LLM_DEMO_VERBOSE=1` for the LLM
+  demo — and read what the backend reports rather than what the wrapper raises.
+  `ggml_metal_init: picking default device: (null)` is a statement about the host: on macOS,
+  `MTLCreateSystemDefaultDevice()` returning nil while `MTLCopyAllDevices()` reports a working GPU
+  is a machine condition, not a packaging one, and it fails every library that asks for the default
+  device.
+- **Correct:** switch the accelerator off in that target's `environment` so the box matches the name
+  it carries — `"GGML_METAL_DEVICES": "0"` for llama.cpp on macOS — and rebuild. `extends` merges
+  `environment` key by key, so a variable only one operating system needs belongs in the target
+  fragment and not in the base.
+- **Never:** rename the target to the accelerator to make the error go away. A box declaring `metal`
+  promises an accelerator it does not use, and moves the same failure to the first host without one.
 
 ## Windows specifics
 

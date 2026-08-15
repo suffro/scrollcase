@@ -16,7 +16,9 @@ All notable changes to Scrollcase are documented here. The format follows
   said only `Failed to create llama_context`. The variable is how many Metal devices ggml registers;
   zero is the accelerator the target's name already promised. Linux and Windows have no Metal
   backend to switch off and declare nothing new. Boxes already published carry the fix only once
-  they are rebuilt.
+  they are rebuilt. The troubleshooting guide gained a *Running a box* section for the general
+  case, since a packaged library initialising an accelerator its box never declared is not specific
+  to llama.cpp.
 
 ### Added
 
