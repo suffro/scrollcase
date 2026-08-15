@@ -38,17 +38,18 @@ curl -o keys/example-signing-public.json \
 
 ```sh
 npm install -g scrollcase
+scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 ```
 
+then:
+
 ```sh
-scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of France?"
 ```
 
-or to start an actual chat session:
+or to start an actual **chat session**:
 
 ```sh
-scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 scrollcase run box/*.release.json --public-key keys/example-signing-public.json
 ```
 
