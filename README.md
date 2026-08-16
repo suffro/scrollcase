@@ -3,16 +3,16 @@
   <img src="https://scrollcase.dev/static/png/labeled/neutral-colored.png" alt="Scrollcase logo" width="220">
 </p>
 
-<p align="center"><b>Ship a Python program — code, dependencies, interpreter and model weights — as one
-file that runs on someone else's machine.</b></p>
+<p align="center"><b>Pack an entire Python environment and the code it runs — like an **LLM** or a **scientific model** — into a single, **self-contained**, **portable** and **signed** archive: a **box**</b></p>
 
-You describe what your program needs in a small file. [**Scrollcase**](https://scrollcase.dev) builds
-a **box**: a single archive holding a complete, locked Python environment for one operating system
-and one accelerator.
+To do that you just need to describe what your program needs in a small file, a `scroll.json`, then [**Scrollcase**](https://scrollcase.dev) builds
+the **box**: a single archive holding a complete, locked Python environment for a target operating system and accelerator.
 
-Whoever receives that box does not install dependencies, does not run Docker, and does not need
-Python on the machine. They unpack it and run it. And because every box ships with a signature, they
-can prove it is exactly the thing you built, byte for byte — before anything inside it executes.
+You give that box to someone else. They unpack it and run it — **that's it!** <spacer /> **Nothing to install**: no Python, no <kbd><small>pip install</small></kbd>, no compiler, no Docker, **no dependencies to maintain**.
+
+Every box is **signed** and builds are **deterministic**, so whoever receives it can check that it is exactly the one you built and not something that changed on the way over. Rebuilding the same commit gives the same bytes back — anyone can reproduce what you shipped.
+
+This is the whole idea.
 
 ```sh
 npm install -g scrollcase
