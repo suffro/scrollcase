@@ -27,6 +27,15 @@ and turns the result into a file.
 
 > <small> The rest of this page is a quick overview of how it works </small>
 
+## Four words
+
+| Word | Meaning |
+| --- | --- |
+| **scroll** | The file you write: dependencies, model files, what to run, how to test it. The only input a build accepts. → [reference](https://scrollcase.dev/reference/scroll) |
+| **box** | What comes out: one archive with the whole environment inside. → [format](https://scrollcase.dev/reference/box-format) |
+| **target** | Which machine it is for: operating system, CPU architecture, accelerator (and CUDA version). One box, one target. |
+| **release** | The signed document that describes the box, so a consumer can verify it. → [security model](https://scrollcase.dev/concepts/security-and-trust) |
+
 ## What is inside a box
 
 | Entity | What's inside |
