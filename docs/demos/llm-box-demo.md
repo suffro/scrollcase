@@ -31,21 +31,10 @@ everything it needs are inside the box, which runs it in its own environment.
 There is no network call in that command, no key, and no account — and unlike a hosted assistant,
 nothing about the question leaves the machine.
 
-## Build it yourself
-
-::: tip NOTE
-
-This demo is **Codespaces-only for now**: unlike the [sentiment demo](/demos/sentiment-demo) there is
-no pre-built box to download yet. The example that produces one lives in the repository at
-`examples/llm-demo/`, declared for Linux, macOS and Windows, and the workflow that builds and signs
-all three is `.github/workflows/llm-demo-box.yml` — it has simply not been dispatched yet, so there
-is no release to link to. The walkthrough targets `linux-x86_64-cpu`, which is what a Codespace gives
-you.
-
-:::
-
-
 ## Two ways in
+
+Download a signed box and run it in a minute, or package one yourself in a Codespace. Both end with
+the same box; only one of them asks you to build it.
 
 <Tabs :titles="['GitHub codespaces', 'Pre-built box']">
 <Tab title="GitHub codespaces">
@@ -54,7 +43,8 @@ you.
 
 The demo repository is almost empty on purpose: you package the model yourself, and its README is
 the walkthrough. Install the CLI, initialise the workspace, create the scroll, declare the model's
-pinned file, lock, commit, sign and build.
+pinned file, lock, commit, sign and build. Longer than the [sentiment demo](/demos/sentiment-demo):
+most of the wait is the 1.06 GB model, fetched once to pin its hash and once to build.
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-e2e-demo-SmolLM2-1.7B-Instruct-GGUF?quickstart=1"
@@ -115,15 +105,15 @@ scrollcase run box/*.release.json --public-key keys/example-signing-public.json 
   -- "What is the capital of Italy?"
 ```
 
-or start an actual chat session without passing any phrase:
+A sentence is answered once. The same command with no sentence opens an interactive
+[chat](#two-modes-one-box) instead:
 
 ```sh
 scrollcase run box/*.release.json --public-key keys/example-signing-public.json
 ```
 
-If you pass a sentence the box model will respond to it and that's it, the run lifecycle ends there. If you want to start an actual chat session instead, like the ones you usually have with your AI assistant, simply do not pass any phrase as argument.
-
-`run-box.ts` and `run_box.py` are scripts that run the relative consumers, and work exactly like `scrollcase run` — for example, run `npx tsx run-box.ts` to start a chat session, or with a sentence as their first argument to get a one-shot response `npx tsx run-box.ts "Who wrote The Divine Comedy?"`.
+`run-box.ts` and `run_box.py` ship in the same folder and reach both modes from Node and from
+Python: `npx tsx run-box.ts "Who wrote the Divine Comedy?"`, or nothing after it for the chat.
 
 > <small>`box/*.release.json` is a real shell glob, not a placeholder. PowerShell does not expand it
 > for a command like this, so use `(Get-ChildItem box\*.release.json).FullName` or type the file name
@@ -183,12 +173,10 @@ client really is present in its environment, pulled in transitively. This stack 
 no code in it that could phone home. Copying those variables across would have looked reassuring and
 guaranteed nothing, so they are deliberately absent.
 
-**The one environment variable that does earn its place.** `PYTHONDONTWRITEBYTECODE=1`, and it is
-load-bearing in two different places. At build time the self-test runs with the payload directory as
-its working directory and the payload digest is computed *after* it, so without this the
-`__pycache__/*.pyc` that `import entrypoint` leaves behind — timestamp and all — is hashed into the
-signed payload. At run time `verify --extracted` re-hashes the whole tree, so an extraction that was
-kept and then run would fail its second verification.
+**The one environment variable that does earn its place.** `PYTHONDONTWRITEBYTECODE=1`, because a
+`.pyc` carries a timestamp. Without it the self-test's own `import entrypoint` writes one into the
+payload before the payload is hashed, and a box that was extracted, run, and verified again fails the
+second verification — twice defeated by a cache file nobody asked for.
 
 **A self-test that has to actually generate.** It loads the gigabyte with the box's own interpreter
 and asserts that the answer to *What is the capital of Italy?* contains `rome`. Greedy decoding
@@ -233,34 +221,36 @@ The packaged version of the same box, the one CI builds for all three operating 
 `examples/llm-demo/` in the Scrollcase repository. There the three targets *do* share a
 [split scroll](/reference/scroll#one-box-several-targets): one base carrying the identity, the asset,
 the environment and the self-test, and three target files of nine lines each — twelve on macOS, which
-adds `GGML_METAL_DEVICES=0` because conda-forge's `llama-cpp-python` for Apple Silicon carries the
-Metal backend and llama.cpp registers a Metal device whatever `n_gpu_layers` says. Creating the
-context initialises every registered backend, so without it a box named `cpu` fails on a Mac whose
-Metal will not initialise, for a GPU it was never going to use. Its `entrypoint.py` is
-byte for byte the one the walkthrough ships, and a test asserts the declared hashes still match, so
-the two copies cannot drift apart quietly.
+switches the packaged Metal backend off with `GGML_METAL_DEVICES=0` so that a box named `cpu` is
+one ([why that is not automatic](/guides/troubleshooting#running-a-box)). Its `entrypoint.py` is byte
+for byte the one the walkthrough ships, and a test asserts the declared hashes still match, so the
+two copies cannot drift apart quietly.
+
+## Measured
+
+The box has been built, self-tested, verified and run on all three CPU targets — Linux, macOS and
+Windows — by the workflow that publishes it. Each one loads its own gigabyte with its own interpreter
+and has to answer *What is the capital of Italy?* with Rome before it is allowed to be signed.
+
+On an M1 MacBook Air the published archive is 1.16 GB, unpacks to 1.3 GB, loads in two to four
+seconds and generates about 13 tokens per second on eight threads.
 
 ## What to expect
 
-::: warning STATUS
+**Running one:**
 
-Unlike the [sentiment demo](/demos/sentiment-demo), this box has **not yet been built, verified and
-run end to end**, so this page states expectations rather than measurements. The figures below are
-derived from the model's own metadata and from published file sizes — treat them as estimates until
-they are replaced with measured ones.
-
-:::
-
-- **About 2.1 GB is downloaded** over a full walkthrough — the 1.06 GB GGUF once when `add asset`
-  records its hash, and again when the build fetches it. Fast inside a Codespace, but worth knowing
-  before you start rather than discovering.
 - **Generation is CPU-bound.** On the 2 vCPU a default Codespace gives you, expect single-digit
-  tokens per second, so a long answer takes tens of seconds. The entrypoint caps output at 160
-  tokens and prints a `generating …` line to stderr so the wait never looks like a hang.
+  tokens per second, so a long answer takes tens of seconds. Output is capped at 160 tokens, and a
+  `generating …` line on stderr keeps the wait from looking like a hang.
 - **The context is 2048 tokens**, shared between the conversation and the answer. In chat mode the
   oldest exchanges are dropped when it fills, and the box says so on stderr rather than failing.
-- **Disk**: environment, payload, archive and downloads come to roughly 5–6 GB against a Codespace's
-  32 GB. It fits, but a second build in the same session does not leave much room.
+
+**Building one:**
+
+- **About 2.1 GB is downloaded** — the 1.06 GB GGUF once when `add asset` records its hash, and
+  again when the build fetches it. Fast inside a Codespace, but worth knowing before you start.
+- **5–6 GB of disk** goes to environment, payload, archive and downloads, against a Codespace's 32
+  GB. It fits; a second build in the same session does not leave much room.
 
 ## Scope and limitations
 

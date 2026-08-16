@@ -20,6 +20,15 @@ All notable changes to Scrollcase are documented here. The format follows
   case, since a packaged library initialising an accelerator its box never declared is not specific
   to llama.cpp.
 
+### Changed
+
+- The **Local LLM** demo page no longer opens by saying the box does not exist. It carried a
+  Codespaces-only notice and a *not yet built, verified and run end to end* warning from before the
+  boxes were published, directly above the table of links to download them — so the first thing a
+  reader met was the page contradicting itself. Both are gone; expectations that were estimates are
+  now a `Measured` section, split from the figures that only apply to building one yourself, and the
+  run/chat instructions say once what they used to say three times.
+
 ### Added
 
 - `entrypoint.py` in the `llm-demo` example reads `LLM_DEMO_VERBOSE` from the host. Set it and the
