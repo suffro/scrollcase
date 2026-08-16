@@ -22,6 +22,17 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Changed
 
+- Both demos' `run-box.ts` and `run_box.py` report on **stderr** rather than stdout. Their
+  `Running …` line and the prompt they echo went to the same stream as the box's own answer, so
+  redirecting a script's output gave you a file with two lines of bookkeeping above the thing you
+  redirected it for — while both demo pages sell precisely that redirect. The box has always been
+  careful about which stream it writes to; the scripts wrapping it now are too.
+
+- The **Sentiment analysis** demo page opened by describing a three-way classifier. The model
+  answers `POSITIVE` or `NEGATIVE` and nothing else, so the page now says so in the sentence a
+  reader meets first. Its *Measured* section quoted an output format the box does not print, and
+  its list of ways to call the box said three while naming four.
+
 - The **Local LLM** demo page no longer opens by saying the box does not exist. It carried a
   Codespaces-only notice and a *not yet built, verified and run end to end* warning from before the
   boxes were published, directly above the table of links to download them — so the first thing a

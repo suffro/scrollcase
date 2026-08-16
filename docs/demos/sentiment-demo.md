@@ -10,9 +10,11 @@ Model: *[DistilBERT SST-2 (ONNX INT8)](https://huggingface.co/distilbert/distilb
 
 ---
 
-Sentiment analysis is an AI technique used to read text and automatically determine the emotional tone behind it—specifically whether the opinion expressed is positive, negative, or neutral.
+Sentiment analysis reads a piece of text and judges the opinion in it. This model is binary: it says
+whether a sentence reads as positive or negative, and how confident it is about that.
 
-This demo takes DistilBERT sentiment analysis AI model fine-tuned on SST-2, quantised to INT8 in ONNX form, and ships it as a signed, self-contained box.
+This demo takes DistilBERT, fine-tuned on SST-2 and quantised to INT8 in ONNX form, and ships it as a
+signed, self-contained box.
 
 ```text
 $ scrollcase run .scrollcase/.../*.release.json \
@@ -137,9 +139,11 @@ multi-gigabyte build.
 refuses to sign a box that answers wrong. Proof of real inference for a box you downloaded is what
 `run` gives you.
 
-**Three ways to call it.** The CLI, or from an application: `init` also generates Node, Python and
-Rust consumer templates under `consumer-templates/`. All of them print the same two lines on
-stdout and keep preparation output on stderr.
+**More than one way to call it.** The CLI; the `run-box.ts` and `run_box.py` that ship beside the
+downloaded box; and, in a workspace of your own, the Node, Python and Rust consumer templates `init`
+writes under `consumer-templates/`. Whichever starts it, the two lines above are the whole of stdout
+— progress, diagnostics and failures go to stderr — so `… > verdict.txt` is a file with the verdict
+in it and nothing else.
 
 ## What you write
 
@@ -173,8 +177,8 @@ The scroll declares `weights: embed`, a 2 GB RAM floor, and `execution` as a `py
 
 The box has been built, self-tested, verified and run on all three CPU targets — Linux, macOS and
 Windows — and a rebuild produces a byte-identical archive. On Apple Silicon the archive is about
-192 MiB, almost all of it model; `run` answers `POSITIVE 99.9%` on the sentence above, and
-`NEGATIVE 100.0%` on *This was a frustrating and disappointing experience.*
+192 MiB, almost all of it model. It answers the sentence above `POSITIVE` at 99.9% confidence, and
+*This was a frustrating and disappointing experience.* `NEGATIVE` at 100.0%.
 
 ## Scope and limitations
 

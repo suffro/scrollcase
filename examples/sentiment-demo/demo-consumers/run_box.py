@@ -38,13 +38,16 @@ ARGS = sys.argv[1:] or ["This product is surprisingly easy to use."]
 def report(prepared: PreparedBox) -> None:
     """Runs after verification and before the box interpreter starts."""
 
-    # Flushed because the box writes straight to this process's stdout, and an unflushed line would
-    # appear after the output it introduces.
+    # On stderr, not stdout: the box writes its verdict to this process's stdout, and the promise
+    # that redirecting it gives you a file with the verdict and nothing else is one a script wrapping
+    # the box has to keep too. Flushed because the box writes to the same terminal, and an unflushed
+    # line would appear after the output it introduces.
     print(
         f"Running {prepared.box_id} {prepared.version} ({prepared.target_id})",
+        file=sys.stderr,
         flush=True,
     )
-    print(f"Sentence: {' '.join(ARGS)}", flush=True)
+    print(f"Sentence: {' '.join(ARGS)}", file=sys.stderr, flush=True)
 
 
 result = run_box(

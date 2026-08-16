@@ -40,9 +40,12 @@ const result = await runBox(join('box', release), {
   // Fires after the signature, the archive hash and the manifest have been checked, and before the
   // box interpreter starts, so an application can show what it is about to run without repeating
   // the trust chain itself.
+  // On stderr, not stdout: the box writes its answer to this process's stdout, and the promise that
+  // redirecting it gives you a file with the answer and nothing else is one a script wrapping the
+  // box has to keep too.
   onPrepared: ({ boxId, version, targetId }) => {
-    console.log(`Running ${boxId} ${version} (${targetId})`);
-    console.log(args.length > 0 ? `Prompt: ${args.join(' ')}` : 'No prompt: opening the chat');
+    console.error(`Running ${boxId} ${version} (${targetId})`);
+    console.error(args.length > 0 ? `Prompt: ${args.join(' ')}` : 'No prompt: opening the chat');
   },
 });
 
