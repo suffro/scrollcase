@@ -1,7 +1,93 @@
 import { defineConfig } from 'vitepress'
 import pkg from '../../package.json'
+import { recordPage, writeLlmsFiles } from './llms.mjs'
 
 const packageVersion = pkg.version
+
+// The production origin. Every absolute URL the build emits — sitemap entries, canonical links,
+// the llms.txt index — is prefixed with it, so the site has one name even though Cloudflare Pages
+// also serves it from its own *.pages.dev hostname.
+const hostname = 'https://scrollcase.dev'
+
+// Declared here rather than inline in `themeConfig` because llms.txt is generated from it: the
+// sidebar is where this site's reading order is decided, and an index that invented its own would
+// drift from the navigation the same pages get on screen.
+const sidebar = [
+  {
+    text: 'Getting Started',
+    link: '/getting-started',
+    collapsed: false,
+    items: [
+      { text: 'What\'s Scrollcase ', link: '/getting-started/overview' },
+      { text: 'Purpose', link: '/getting-started/why-scrollcase' },
+      { text: 'Quickstart', link: '/getting-started/quickstart' },
+      { text: 'Installation', link: '/getting-started/installation' },
+      { text: 'TL;DR', link: '/getting-started/tl-dr' },
+      {
+        text: 'Demos',
+        link: "/demos",
+        collapsed: true,
+        items: [
+          { text: 'Basic demos', items: [
+            { text: 'Box run', link: '/demos/box-run-demo' },
+            { text: 'Box development', link: '/demos/box-dev-demo' },
+          ] },
+          { text: 'AI models', items: [
+            { text: 'Local LLM', link: '/demos/llm-box-demo' },
+            { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
+          ]},
+        ]
+      }
+    ]
+  },
+  {
+    text: 'Guides',
+    link: '/guides',
+    collapsed: false,
+    items: [
+      { text: 'Managing Model Weights', link: '/guides/managing-weights' },
+      { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
+      { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },
+      { text: 'Signing & Key Custody', link: '/guides/signing-and-custody' },
+      { text: 'Offline / Air-Gapped Installs', link: '/guides/offline-airgap' },
+      { text: 'Distributing Boxes', link: '/guides/distributing-boxes' },
+      { text: 'Platform Examples', link: '/guides/platform-examples' },
+      { text: 'Troubleshooting', link: '/guides/troubleshooting' }
+    ]
+  },
+  {
+    text: 'Reference',
+    link: '/reference',
+    collapsed: false,
+    items: [
+      { text: 'CLI Commands', link: '/reference/cli' },
+      { text: 'Workspace Configuration', link: '/reference/configuration' },
+      { text: 'The Scroll (scroll.json)', link: '/reference/scroll' },
+      { text: 'The Box Format', link: '/reference/box-format' },
+      { text: 'JSON Schemas', link: '/reference/schemas' },
+      { text: 'Library APIs', link: '/reference/api' }
+    ]
+  },
+  {
+    text: 'Concepts',
+    link: '/concepts',
+    collapsed: false,
+    items: [
+      { text: 'Architecture', link: '/concepts/architecture' },
+      { text: 'Security & Trust', link: '/concepts/security-and-trust' },
+      { text: 'Why Pixi & Conda-Forge', link: '/concepts/why-pixi' },
+      { text: 'Design Decisions', link: '/concepts/design-decisions' },
+      { text: 'Tool Comparison', link: '/concepts/tool-comparison' }
+    ]
+  },
+  {
+    // One page, deliberately: the white paper is meant to be downloaded and studied as a
+    // single artefact, so it is a top-level entry rather than a section of its own.
+    text: 'White Paper',
+    collapsed: false,
+    link: '/white-paper'
+  },
+]
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -20,7 +106,37 @@ export default defineConfig({
   // Generate sitemap.xml at build time so search engines can crawl every page.
   // `hostname` must be the production domain — it prefixes every URL entry.
   sitemap: {
-    hostname: 'https://scrollcase.dev',
+    hostname,
+  },
+
+  // Two build-time jobs, both about being read correctly rather than being read at all.
+  //
+  // The canonical link is the one the site cannot do without: Cloudflare Pages serves this exact
+  // build from its own *.pages.dev hostname as well, and two hostnames carrying identical pages is
+  // duplicate content unless each page names which URL it really lives at. A static file in
+  // `public/` cannot state that, because it would have to say something different per host.
+  //
+  // The page record feeds llms.txt; see ./llms.mjs.
+  transformPageData(pageData) {
+    const route = recordPage(pageData)
+    const head: [string, Record<string, string>][] = (pageData.frontmatter.head ??= [])
+    if (!head.some((tag) => tag[0] === 'link' && tag[1]?.rel === 'canonical')) {
+      head.push(['link', { rel: 'canonical', href: `${hostname}${route}` }])
+    }
+  },
+
+  async buildEnd(siteConfig) {
+    const written = await writeLlmsFiles({
+      outDir: siteConfig.outDir,
+      srcDir: siteConfig.srcDir,
+      hostname,
+      version: `v${packageVersion}`,
+      sidebar,
+    })
+    console.log(
+      `generated llms.txt (${written.pages - 1} pages, ${Math.round(written.indexBytes / 1024)} kB) `
+      + `and llms-full.txt (${Math.round(written.fullBytes / 1024)} kB)`,
+    )
   },
 
   head: [
@@ -66,82 +182,7 @@ export default defineConfig({
     },
     ],
 
-    sidebar: [
-      {
-        text: 'Getting Started',
-        link: '/getting-started',
-        collapsed: false,
-        items: [
-          { text: 'What\'s Scrollcase ', link: '/getting-started/overview' },
-          { text: 'Purpose', link: '/getting-started/why-scrollcase' },
-          { text: 'Quickstart', link: '/getting-started/quickstart' },
-          { text: 'Installation', link: '/getting-started/installation' },
-          { text: 'TL;DR', link: '/getting-started/tl-dr' },
-          {
-            text: 'Demos',
-            link: "/demos",
-            collapsed: true,
-            items: [
-              { text: 'Basic demos', items: [
-                { text: 'Box run', link: '/demos/box-run-demo' },
-                { text: 'Box development', link: '/demos/box-dev-demo' },
-              ] },
-              { text: 'AI models', items: [
-                { text: 'Local LLM', link: '/demos/llm-box-demo' },
-                { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
-              ]},
-            ]
-          }
-        ]
-      },
-      {
-        text: 'Guides',
-        link: '/guides',
-        collapsed: false,
-        items: [
-          { text: 'Managing Model Weights', link: '/guides/managing-weights' },
-          { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
-          { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },
-          { text: 'Signing & Key Custody', link: '/guides/signing-and-custody' },
-          { text: 'Offline / Air-Gapped Installs', link: '/guides/offline-airgap' },
-          { text: 'Distributing Boxes', link: '/guides/distributing-boxes' },
-          { text: 'Platform Examples', link: '/guides/platform-examples' },
-          { text: 'Troubleshooting', link: '/guides/troubleshooting' }
-        ]
-      },
-      {
-        text: 'Reference',
-        link: '/reference',
-        collapsed: false,
-        items: [
-          { text: 'CLI Commands', link: '/reference/cli' },
-          { text: 'Workspace Configuration', link: '/reference/configuration' },
-          { text: 'The Scroll (scroll.json)', link: '/reference/scroll' },
-          { text: 'The Box Format', link: '/reference/box-format' },
-          { text: 'JSON Schemas', link: '/reference/schemas' },
-          { text: 'Library APIs', link: '/reference/api' }
-        ]
-      },
-      {
-        text: 'Concepts',
-        link: '/concepts',
-        collapsed: false,
-        items: [
-          { text: 'Architecture', link: '/concepts/architecture' },
-          { text: 'Security & Trust', link: '/concepts/security-and-trust' },
-          { text: 'Why Pixi & Conda-Forge', link: '/concepts/why-pixi' },
-          { text: 'Design Decisions', link: '/concepts/design-decisions' },
-          { text: 'Tool Comparison', link: '/concepts/tool-comparison' }
-        ]
-      },
-      {
-        // One page, deliberately: the white paper is meant to be downloaded and studied as a
-        // single artefact, so it is a top-level entry rather than a section of its own.
-        text: 'White Paper',
-        collapsed: false,
-        link: '/white-paper'
-      },
-    ],
+    sidebar,
 
     socialLinks: [
       { icon: 'github', link: 'https://github.com/suffro/scrollcase' }

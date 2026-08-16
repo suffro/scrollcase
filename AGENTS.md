@@ -107,7 +107,11 @@ afterwards.**
 - The folder `.local-memory` in the root holds memory files, kept updated and git-ignored. If it
   does not exist and you need to update local memory, create it in the root.
 - `docs/` is a VitePress site and part of the deliverable. A behaviour change not reflected there is
-  unfinished.
+  unfinished. Its build also emits `sitemap.xml`, a canonical link on every page, and
+  `llms.txt` / `llms-full.txt` (`docs/.vitepress/llms.mjs`, ordered by the sidebar declared in
+  `config.mts`). Those four are generated from the pages themselves — never hand-write a copy in
+  `public/`, which holds only `robots.txt` and the static assets. `scripts/verify-built-docs.mjs`
+  fails the build when a page is missing from any of them.
 - `docs/white-paper.md` describes the codebase module by module and is part of the same deliverable:
   a new module, a new public export, or a changed guarantee must be reflected there too. Three cases
   in `docs-contract.test.mjs` fail when it is not.

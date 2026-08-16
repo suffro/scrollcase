@@ -6,6 +6,17 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The documentation site publishes `robots.txt`, `llms.txt` and `llms-full.txt`, and every page now
+  declares its canonical URL. The canonical link is the one that fixes a real defect: Cloudflare
+  Pages serves the same build from its own hostname as well, and neither copy said which URL it
+  lived at. The two `llms` files follow the [llmstxt.org](https://llmstxt.org) convention — an index
+  of every page with its description, and the full text of all of them in one document — because a
+  tool whose whole argument is *verify, do not trust* is poorly served by an assistant paraphrasing
+  it from a single page it happened to crawl. Both are generated from the built site and ordered by
+  the sidebar, so a new page joins them by existing; the docs build fails if one is missing a page.
+
 ### Fixed
 
 - The `llm-demo` box for `macos-aarch64-cpu` declares `GGML_METAL_DEVICES=0` and runs on a Mac whose

@@ -42,6 +42,47 @@ for (const name of schemaNames) {
   if (!source.equals(built)) throw new Error(`Built schema differs from the shipped contract: ${name}`);
 }
 
+// The sitemap is VitePress's own list of what it rendered, so it is the honest yardstick for the
+// three artefacts generated beside it: every page it names must carry a canonical link to itself,
+// and must appear in both llms files. A generator that silently skips a page is the failure mode
+// worth catching — the files would still look plausible.
+const sitemap = (await requireFile(join(distDir, 'sitemap.xml'), 'sitemap.xml')).toString('utf8');
+const routes = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)]
+  .map((match) => match[1])
+  .sort();
+if (routes.length < 2) throw new Error('Built sitemap names fewer than two pages.');
+
+const origin = new URL(routes[0]).origin;
+const home = `${origin}/`;
+
+for (const url of routes) {
+  const path = new URL(url).pathname;
+  const file = join(distDir, path.endsWith('/') ? `${path}index.html` : `${path}.html`);
+  const html = (await requireFile(file, `the page for ${url}`)).toString('utf8');
+  const canonical = html.match(/<link rel="canonical" href="([^"]+)"/)?.[1];
+  if (canonical !== url) {
+    throw new Error(`${url} declares canonical ${canonical ?? 'nothing'}; Pages serves this build from more than one hostname.`);
+  }
+}
+
+const llmsIndex = (await requireFile(join(distDir, 'llms.txt'), '/llms.txt')).toString('utf8');
+const llmsFull = (await requireFile(join(distDir, 'llms-full.txt'), '/llms-full.txt')).toString('utf8');
+for (const url of routes) {
+  // The home page renders a component and has no prose to carry into either file.
+  if (url === home) continue;
+  if (!llmsIndex.includes(`](${url})`)) throw new Error(`llms.txt does not list ${url}`);
+  if (!llmsFull.includes(`\nSource: ${url}\n`)) throw new Error(`llms-full.txt does not include ${url}`);
+}
+const leftoverMarkup = llmsFull.match(/<\/?(?:style|div|Button|Tabs|Tab|HomePage|SubPagesList|Spacer)\b/);
+if (leftoverMarkup) {
+  throw new Error(`llms-full.txt still carries site markup: ${leftoverMarkup[0]}`);
+}
+// A site-root link resolves against a page, and this file will be read somewhere that is not one.
+const relativeLink = llmsFull.match(/\]\(\/[^)\s]*\)/);
+if (relativeLink) {
+  throw new Error(`llms-full.txt carries a link only a browser on the site can follow: ${relativeLink[0]}`);
+}
+
 const platformHtml = (await requireFile(
   join(distDir, 'guides', 'platform-examples.html'),
   'the platform examples page',
@@ -76,4 +117,7 @@ if (panelTags.filter((tag) => !tag.includes('style="display:none;"')).length !==
   throw new Error('Exactly one platform tab panel must be visible in SSR HTML.');
 }
 
-console.log(`Verified built privacy route, ${schemaNames.length} schemas, and platform tab semantics.`);
+console.log(
+  `Verified built privacy route, ${schemaNames.length} schemas, platform tab semantics, `
+  + `and canonical, llms.txt and llms-full.txt coverage of ${routes.length} pages.`,
+);
