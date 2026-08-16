@@ -3,7 +3,7 @@
   <img src="https://scrollcase.dev/static/png/labeled/neutral-colored.png" alt="Scrollcase logo" width="220">
 </p>
 
-<p align="center"><b>Pack an entire Python environment and the code it runs — like an **LLM** or a **scientific model** — into a single, **self-contained**, **portable** and **signed** archive: a **box**</b></p>
+<p align="center"><b>Pack an entire Python environment and the code it runs — like an LLM or a sci. model — into a single, self-contained, portable and signed archive: a box</b></p>
 
 To do that you just need to describe what your program needs in a small file, a `scroll.json`, then [**Scrollcase**](https://scrollcase.dev) builds
 the **box**: a single archive holding a complete, locked Python environment for a target operating system and accelerator.
