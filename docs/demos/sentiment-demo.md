@@ -28,7 +28,7 @@ Confidence: 99.9%
 No Python environment to prepare, no model to download at run time, no container. The model and everything it needs are inside the box, which runs it in its own environment.
 :::
 
-## Two ways in
+## Try the demo
 
 <Tabs :titles="['GitHub codespaces', 'Pre-built box']">
 <Tab title="GitHub codespaces">

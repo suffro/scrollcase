@@ -32,7 +32,7 @@ everything it needs are inside the box, which runs it in its own environment.
 There is no network call in that command, no key, and no account — and unlike a hosted assistant,
 nothing about the question leaves the machine.
 
-## Two ways in
+## Try the demo
 
 Download a signed box and run it in a minute, or package one yourself in a Codespace. Both end with
 the same box; only one of them asks you to build it.
