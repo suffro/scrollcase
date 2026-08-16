@@ -17,7 +17,7 @@
 
 - Scrollcase packs an entire Python environment and the code it runs — like an **LLM** or a **scientific model** — into a single, **self-contained**, **portable** and **signed** archive: a **box**.
 
-- You give that box to someone else. They unpack it and run it — **that's it!** <spacer /> **Nothing to install**: no Python, no <kbd><small>pip install</small></kbd>, no compiler, no Docker, **no dependencies to maintain**.
+- You give that box to someone else. They unpack it and run it — **that's it!** <spacer /> **Nothing to install**: no Python, no <small>pip install</small>, no compiler, no Docker, **no dependencies to maintain**.
 
 - Every box is **signed**, so whoever receives it can check that it is exactly the one you built and not something that changed on the way over.
 
