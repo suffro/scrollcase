@@ -65,6 +65,24 @@ for (const url of routes) {
   }
 }
 
+// Every page also ships as Markdown, which is what `docs/functions/_middleware.js` answers with
+// when a client sends `Accept: text/markdown`. The middleware derives the twin's path from the
+// request; this checks the build put it where that derivation looks — a page whose twin is missing
+// silently falls back to HTML, which is the one failure nobody would notice.
+const { markdownPathFor } = await import(new URL('../docs/functions/_middleware.js', import.meta.url));
+for (const url of routes) {
+  const path = new URL(url).pathname;
+  const twin = markdownPathFor(path);
+  if (!twin) throw new Error(`${url} has no Markdown path; the middleware would not serve one.`);
+  const markdown = (await requireFile(join(distDir, twin), `the Markdown twin of ${url}`)).toString('utf8');
+  if (!markdown.startsWith('---\ntitle:')) {
+    throw new Error(`${twin} is missing its frontmatter.`);
+  }
+  if (!markdown.includes(`\nsource: ${url}\n`)) {
+    throw new Error(`${twin} does not name ${url} as its source.`);
+  }
+}
+
 const llmsIndex = (await requireFile(join(distDir, 'llms.txt'), '/llms.txt')).toString('utf8');
 const llmsFull = (await requireFile(join(distDir, 'llms-full.txt'), '/llms-full.txt')).toString('utf8');
 for (const url of routes) {
@@ -81,6 +99,37 @@ if (leftoverMarkup) {
 const relativeLink = llmsFull.match(/\]\(\/[^)\s]*\)/);
 if (relativeLink) {
   throw new Error(`llms-full.txt carries a link only a browser on the site can follow: ${relativeLink[0]}`);
+}
+
+// The RFC 9727 catalogue is a promise about what this host serves, made to software that will not
+// read the page saying otherwise. So every href in it has to resolve to something the build
+// emitted, and every schema the build emitted has to be in it — a catalogue that lists eight
+// schemas while the contract ships nine is worse than no catalogue.
+const catalogue = JSON.parse(
+  (await requireFile(join(distDir, '.well-known', 'api-catalog'), '/.well-known/api-catalog'))
+    .toString('utf8'),
+);
+if (!Array.isArray(catalogue.linkset) || catalogue.linkset.length === 0) {
+  throw new Error('The API catalogue has no linkset.');
+}
+const catalogued = catalogue.linkset.flatMap((entry) => [
+  ...(entry['service-desc'] ?? []),
+  ...(entry['service-doc'] ?? []),
+]);
+for (const target of catalogued) {
+  const path = new URL(target.href).pathname;
+  // A clean URL is a page; a last segment carrying an extension is the file it names.
+  const file = path.endsWith('/')
+    ? `${path}index.html`
+    : (path.split('/').pop().includes('.') ? path : `${path}.html`);
+  await requireFile(join(distDir, file), `the API catalogue target ${target.href}`);
+}
+const cataloguedSchemas = catalogued
+  .filter((target) => target.href.endsWith('.schema.json'))
+  .map((target) => target.href.split('/').pop())
+  .sort();
+if (JSON.stringify(cataloguedSchemas) !== JSON.stringify(schemaNames)) {
+  throw new Error('The API catalogue and the shipped contract disagree about which schemas exist.');
 }
 
 const platformHtml = (await requireFile(
@@ -119,5 +168,6 @@ if (panelTags.filter((tag) => !tag.includes('style="display:none;"')).length !==
 
 console.log(
   `Verified built privacy route, ${schemaNames.length} schemas, platform tab semantics, `
-  + `and canonical, llms.txt and llms-full.txt coverage of ${routes.length} pages.`,
+  + `the API catalogue, and canonical, Markdown twin, llms.txt and llms-full.txt coverage `
+  + `of ${routes.length} pages.`,
 );

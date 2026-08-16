@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 import pkg from '../../package.json'
-import { recordPage, writeLlmsFiles } from './llms.mjs'
+import { writeApiCatalog } from './api-catalog.mjs'
+import { markdownFileFor, recordPage, writeLlmsFiles } from './llms.mjs'
 
 const packageVersion = pkg.version
 
@@ -8,6 +9,10 @@ const packageVersion = pkg.version
 // the llms.txt index — is prefixed with it, so the site has one name even though Cloudflare Pages
 // also serves it from its own *.pages.dev hostname.
 const hostname = 'https://scrollcase.dev'
+
+// Shared with the generated Markdown, where it stands in for the home page's own description:
+// the landing page's subject is the site, so this is that page's description too.
+const description = 'Signed, self-contained Python environment boxes for scientific and AI models'
 
 // Declared here rather than inline in `themeConfig` because llms.txt is generated from it: the
 // sidebar is where this site's reading order is decided, and an index that invented its own would
@@ -92,7 +97,7 @@ const sidebar = [
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Scrollcase",
-  description: "Signed, self-contained Python environment boxes for scientific and AI models",
+  description,
   base: '/',
 
   markdown: {
@@ -122,6 +127,13 @@ export default defineConfig({
     const head: [string, Record<string, string>][] = (pageData.frontmatter.head ??= [])
     if (!head.some((tag) => tag[0] === 'link' && tag[1]?.rel === 'canonical')) {
       head.push(['link', { rel: 'canonical', href: `${hostname}${route}` }])
+      // The Markdown twin of this page, discoverable without asking for it. The Function in
+      // `functions/` serves the same file to anything sending `Accept: text/markdown`.
+      head.push(['link', {
+        rel: 'alternate',
+        type: 'text/markdown',
+        href: `${hostname}/${markdownFileFor(route)}`,
+      }])
     }
   },
 
@@ -132,10 +144,13 @@ export default defineConfig({
       hostname,
       version: `v${packageVersion}`,
       sidebar,
+      siteDescription: description,
     })
+    const entries = await writeApiCatalog({ outDir: siteConfig.outDir, hostname })
     console.log(
-      `generated llms.txt (${written.pages - 1} pages, ${Math.round(written.indexBytes / 1024)} kB) `
-      + `and llms-full.txt (${Math.round(written.fullBytes / 1024)} kB)`,
+      `generated ${entries}-entry api-catalog, llms.txt (${written.pages - 1} pages, ${Math.round(written.indexBytes / 1024)} kB), `
+      + `llms-full.txt (${Math.round(written.fullBytes / 1024)} kB) `
+      + `and ${written.twins} Markdown page twins`,
     )
   },
 

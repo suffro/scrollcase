@@ -112,6 +112,9 @@ dist
 # vitepress cache directory
 **/.vitepress/cache
 
+# wrangler's local state, written by `wrangler pages dev` when testing the docs Function
+**/.wrangler
+
 # Docusaurus cache and generated files
 .docusaurus
 

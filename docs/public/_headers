@@ -1,0 +1,8 @@
+# Cloudflare Pages header rules.
+#
+# /.well-known/api-catalog has no file extension, so nothing in a mime table will guess its type,
+# and RFC 9727 requires it be served as a linkset. Stated here rather than in the Function so the
+# path stays static: a catalogue that depends on code running is a catalogue with a failure mode.
+/.well-known/api-catalog
+  Content-Type: application/linkset+json
+  Cache-Control: public, max-age=3600

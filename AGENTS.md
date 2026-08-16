@@ -107,11 +107,22 @@ afterwards.**
 - The folder `.local-memory` in the root holds memory files, kept updated and git-ignored. If it
   does not exist and you need to update local memory, create it in the root.
 - `docs/` is a VitePress site and part of the deliverable. A behaviour change not reflected there is
-  unfinished. Its build also emits `sitemap.xml`, a canonical link on every page, and
-  `llms.txt` / `llms-full.txt` (`docs/.vitepress/llms.mjs`, ordered by the sidebar declared in
-  `config.mts`). Those four are generated from the pages themselves — never hand-write a copy in
-  `public/`, which holds only `robots.txt` and the static assets. `scripts/verify-built-docs.mjs`
-  fails the build when a page is missing from any of them.
+  unfinished. Its build also emits `sitemap.xml`, a canonical link on every page, `llms.txt` /
+  `llms-full.txt`, and a Markdown twin of every page at the page's own path plus `.md`
+  (`docs/.vitepress/llms.mjs`, ordered by the sidebar declared in `config.mts`). All of those are
+  generated from the pages themselves — never hand-write a copy in `public/`, which holds only
+  `robots.txt`, `_routes.json` and the static assets. `scripts/verify-built-docs.mjs` fails the
+  build when a page is missing from any of them.
+- `docs/functions/_middleware.js` is a Cloudflare Pages Function: it answers `Accept: text/markdown`
+  with the twin instead of the HTML page. It derives the twin's path from the request and
+  `llms.mjs` derives it from the route, so **the two derivations must agree** — `_routes.json` keeps
+  assets from invoking it at all, and `docs-markdown-negotiation.test.mjs` covers the decisions the
+  built site cannot.
+- `docs/.vitepress/api-catalog.mjs` generates `/.well-known/api-catalog` (RFC 9727). It lists the
+  JSON Schemas and the CLI reference, and **nothing else**: Scrollcase publishes no HTTP API, and a
+  catalogue is read by software that will never see the page saying otherwise. Adding an entry means
+  adding something the host actually serves. `public/_headers` gives the extensionless file its
+  `application/linkset+json` type.
 - `docs/white-paper.md` describes the codebase module by module and is part of the same deliverable:
   a new module, a new public export, or a changed guarantee must be reflected there too. Three cases
   in `docs-contract.test.mjs` fail when it is not.

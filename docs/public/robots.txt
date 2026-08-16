@@ -53,5 +53,9 @@ Disallow: /404.html
 #   https://scrollcase.dev/llms-full.txt  the same pages' full text, in one document
 #
 # Both are generated at build time from the site itself, so neither can go stale.
+#
+# Any single page is available the same way: send `Accept: text/markdown`, or append `.md` to its
+# path — https://scrollcase.dev/reference/cli.md. What comes back is the Markdown the page was
+# written in, not a conversion of the HTML you would otherwise have to take apart.
 
 Sitemap: https://scrollcase.dev/sitemap.xml

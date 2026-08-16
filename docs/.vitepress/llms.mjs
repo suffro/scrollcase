@@ -17,8 +17,8 @@
  * hand-maintained copy of the site's structure is wrong the first time someone renames a page.
  */
 
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 /** Pages seen by `transformPageData`, keyed by normalised route. Sorted before use — the build
  *  visits pages in whatever order Vite hands them over, and the output has to be stable. */
@@ -226,9 +226,56 @@ async function renderFull({ hostname, version, sidebar, srcDir }) {
   return parts.join('\n');
 }
 
-/** Write both files into the built site. Called from `buildEnd`, so `outDir` already holds the
- *  rendered pages and the public assets the index points at. */
-export async function writeLlmsFiles({ outDir, srcDir, hostname, version, sidebar }) {
+/**
+ * The Markdown twin of a page, at the page's own path with `.md` appended. `functions/_middleware.js`
+ * derives the same path from a request, and the two derivations have to agree — a twin written
+ * where nothing looks for it is a file nobody will ever read.
+ */
+export function markdownFileFor(route) {
+  return route === HOME_ROUTE ? 'index.md' : `${route.replace(/\/$/, '').slice(1)}.md`;
+}
+
+/** YAML is not forgiving of a colon or a quote in an unquoted scalar, and these descriptions carry
+ *  both. Double-quoted with the two characters that matter escaped. */
+const yamlString = (value) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+/**
+ * One `.md` per page, so `Accept: text/markdown` has something true to return.
+ *
+ * The home page is the exception and gets the llms.txt index: it renders a Vue component rather
+ * than prose, and the most useful Markdown a landing page can hand an agent is the map of
+ * everything behind it.
+ */
+async function writePageFiles({ outDir, srcDir, hostname, index, siteDescription }) {
+  const written = [];
+  for (const page of pages.values()) {
+    const body = page.route === HOME_ROUTE
+      ? index
+      : toPlainMarkdown(await readFile(join(srcDir, page.relativePath), 'utf8'), hostname);
+    // The home page declares no description of its own — it is the one page whose subject is the
+    // whole site, so the site's own description is the accurate answer rather than a stand-in.
+    const description = page.description || siteDescription;
+    const document = [
+      '---',
+      `title: ${yamlString(page.title)}`,
+      ...(description ? [`description: ${yamlString(description)}`] : []),
+      `source: ${hostname}${page.route}`,
+      '---',
+      '',
+      body,
+      '',
+    ].join('\n');
+    const file = join(outDir, markdownFileFor(page.route));
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, document);
+    written.push(file);
+  }
+  return written.length;
+}
+
+/** Write the generated Markdown surface into the built site. Called from `buildEnd`, so `outDir`
+ *  already holds the rendered pages and the public assets the index points at. */
+export async function writeLlmsFiles({ outDir, srcDir, hostname, version, sidebar, siteDescription }) {
   const [index, full] = await Promise.all([
     renderIndex({ hostname, version, sidebar, outDir }),
     renderFull({ hostname, version, sidebar, srcDir }),
@@ -237,5 +284,11 @@ export async function writeLlmsFiles({ outDir, srcDir, hostname, version, sideba
     writeFile(join(outDir, 'llms.txt'), index),
     writeFile(join(outDir, 'llms-full.txt'), full),
   ]);
-  return { pages: pages.size, indexBytes: Buffer.byteLength(index), fullBytes: Buffer.byteLength(full) };
+  const twins = await writePageFiles({ outDir, srcDir, hostname, index, siteDescription });
+  return {
+    pages: pages.size,
+    twins,
+    indexBytes: Buffer.byteLength(index),
+    fullBytes: Buffer.byteLength(full),
+  };
 }

@@ -17,6 +17,23 @@ All notable changes to Scrollcase are documented here. The format follows
   it from a single page it happened to crawl. Both are generated from the built site and ordered by
   the sidebar, so a new page joins them by existing; the docs build fails if one is missing a page.
 
+- The documentation site negotiates content: a request carrying `Accept: text/markdown` gets the
+  page as Markdown, a browser still gets HTML, and every page advertises its Markdown twin through
+  a `Link` header and a `<link rel="alternate">`. The twins are the page's own source — a build that
+  already holds the Markdown a page was written in has no reason to make a reader reconstruct it
+  from rendered HTML — and they are plain assets too, at the page's path plus `.md`
+  (`/reference/cli.md`, `/guides.md`). Served by a Pages Function, so `_routes.json` keeps static
+  assets from invoking it.
+
+- The documentation site publishes an API catalogue at `/.well-known/api-catalog`
+  ([RFC 9727](https://www.rfc-editor.org/rfc/rfc9727)), advertised through an `api-catalog` link
+  relation on every page. It has two entries and will not grow a third without something to put in
+  it: the JSON Schemas, each with the title and `$id` the schema itself declares, and the CLI
+  reference. Scrollcase publishes no HTTP API, so the catalogue claims none — a catalogue is read by
+  software that never sees the page saying otherwise, and there is no `status` relation for the same
+  reason. The build fails if a catalogued URL does not resolve, or if the schemas it lists differ
+  from the schemas shipped.
+
 ### Fixed
 
 - The `llm-demo` box for `macos-aarch64-cpu` declares `GGML_METAL_DEVICES=0` and runs on a Mac whose
