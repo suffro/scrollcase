@@ -8,6 +8,18 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added
 
+- Every documentation page declares Open Graph metadata, and the home page describes the project in
+  `schema.org` JSON-LD. Both address the same problem: *scrollcase* is an old generic word — a
+  leather tube for carrying scrolls, an item in several role-playing games — so the string alone
+  identifies nothing, and a link shared into a forum or a chat client rendered as a bare URL with no
+  title, blurb or image to say otherwise. The structured data's `sameAs` names the project's
+  entries on GitHub, npm, PyPI and crates.io, which is how four registry listings and a domain are
+  read as one project rather than five coincidences. The JSON-LD sits on the home page only, since
+  repeating it under every route would assert the same entity thirty-six times; the privacy page
+  names the tag rather than leaving a reader to find a `<script>` in the source it promises has
+  none. Both artefacts are generated from the page's own title and description, and the docs build
+  fails on a page missing either.
+
 - The documentation site publishes `robots.txt`, `llms.txt` and `llms-full.txt`, and every page now
   declares its canonical URL. The canonical link is the one that fixes a real defect: Cloudflare
   Pages serves the same build from its own hostname as well, and neither copy said which URL it

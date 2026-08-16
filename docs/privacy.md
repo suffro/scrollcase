@@ -18,6 +18,11 @@ asks for no consent: there is nothing to consent to.
 Earlier versions of this site loaded Google Analytics and a third-party sharing widget behind a
 notice that described them as essential cookies. Both have been removed.
 
+The home page does carry one `<script>` tag, and it is worth naming rather than leaving for a
+reader to find in the source: an `application/ld+json` block describing what this project is, for
+search engines. It is data, not code — nothing executes it, it loads nothing and it observes
+nothing.
+
 ## Hosting and request logs
 
 The documentation is hosted on Cloudflare. Like any web host, Cloudflare processes the request

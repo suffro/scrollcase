@@ -123,10 +123,16 @@ describe('public documentation routes', () => {
   it('loads no third-party script, which is what lets the site ask for no consent', async () => {
     // The privacy page promises no cookies and no third-party code. A tag pasted back into the
     // head — an analytics snippet, a sharing widget — would make that page a false statement
-    // before anyone noticed, so the promise is asserted rather than trusted.
+    // before anyone noticed, so the promise is asserted rather than trusted. The single exception
+    // is the JSON-LD block: `application/ld+json` is data a crawler reads, never code a browser
+    // runs, so it fetches nothing, sets nothing and needs no consent. Anything carrying `src`, or
+    // any other script type, is the thing this test exists to catch.
     const config = await readFile(join(root, 'docs', '.vitepress', 'config.mts'), 'utf8');
-    const scripts = [...config.matchAll(/\[\s*'script'\s*,[\s\S]*?\]/g)].map((match) => match[0]);
-    expect(scripts).toEqual([]);
+    const scripts = [...config.matchAll(/\[\s*'script'\s*,\s*\{([^}]*)\}/g)].map((match) => match[1]);
+    for (const attributes of scripts) {
+      expect(attributes).toContain("type: 'application/ld+json'");
+      expect(attributes).not.toContain('src');
+    }
     for (const forbidden of ['googletagmanager', 'google-analytics', 'gtag(', 'sharethis']) {
       expect(config.toLowerCase()).not.toContain(forbidden.toLowerCase());
     }

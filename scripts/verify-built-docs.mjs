@@ -63,6 +63,19 @@ for (const url of routes) {
   if (canonical !== url) {
     throw new Error(`${url} declares canonical ${canonical ?? 'nothing'}; Pages serves this build from more than one hostname.`);
   }
+  // The share preview is generated per page from the same route, so a generator that loses a page
+  // does not fail loudly — it points every share at whatever URL it fell back to.
+  const shared = html.match(/<meta property="og:url" content="([^"]+)"/)?.[1];
+  if (shared !== url) {
+    throw new Error(`${url} declares og:url ${shared ?? 'nothing'}; a share of this page would preview as another one.`);
+  }
+  // An empty description is the failure this catches: the tag is present, the build says nothing,
+  // and the preview renders a title over blank space. VitePress gives a page with no description
+  // of its own an empty string rather than nothing at all, so absence is not the only way to fail.
+  const blurb = html.match(/<meta property="og:description" content="([^"]*)"/)?.[1];
+  if (!blurb) {
+    throw new Error(`${url} declares no og:description; its share preview would be a title over blank space.`);
+  }
 }
 
 // Every page also ships as Markdown, which is what `docs/functions/_middleware.js` answers with

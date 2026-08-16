@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig, type HeadConfig } from 'vitepress'
 import pkg from '../../package.json'
 import { writeApiCatalog } from './api-catalog.mjs'
 import { markdownFileFor, recordPage, writeLlmsFiles } from './llms.mjs'
@@ -13,6 +13,51 @@ const hostname = 'https://scrollcase.dev'
 // Shared with the generated Markdown, where it stands in for the home page's own description:
 // the landing page's subject is the site, so this is that page's description too.
 const description = 'Signed, self-contained Python environment boxes for scientific and AI models'
+
+// The preview image every share renders. The labelled mark rather than a composed card: it is
+// square, so `twitter:card: summary` shows it whole instead of cropping a wide banner, and it is
+// the one asset that cannot drift from the logo the site already uses.
+const socialImage = { path: '/static/png/labeled/neutral-colored.png', size: '2000' }
+
+// What this site is, in the vocabulary a search engine reads rather than the prose a person does.
+//
+// "scrollcase" is an old generic word — a leather tube for carrying scrolls, and an item in half a
+// dozen role-playing games — and those meanings are decades older than this project. Prose saying
+// so is indistinguishable from theirs. `sameAs` is the part that does the work: the same name,
+// asserted from this domain, against the registry entries that each already link back here, which
+// is how a package with four homes is read as one thing rather than four coincidences.
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${hostname}/#website`,
+      url: `${hostname}/`,
+      name: 'Scrollcase',
+      description,
+      inLanguage: 'en',
+    },
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${hostname}/#scrollcase`,
+      name: 'Scrollcase',
+      url: `${hostname}/`,
+      description,
+      applicationCategory: 'DeveloperApplication',
+      operatingSystem: 'macOS, Linux, Windows',
+      softwareVersion: packageVersion,
+      license: 'https://www.apache.org/licenses/LICENSE-2.0',
+      isAccessibleForFree: true,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      sameAs: [
+        'https://github.com/suffro/scrollcase',
+        'https://www.npmjs.com/package/scrollcase',
+        'https://pypi.org/project/scrollcase-consumer/',
+        'https://crates.io/crates/scrollcase-consumer',
+      ],
+    },
+  ],
+}
 
 // Declared here rather than inline in `themeConfig` because llms.txt is generated from it: the
 // sidebar is where this site's reading order is decided, and an index that invented its own would
@@ -124,16 +169,47 @@ export default defineConfig({
   // The page record feeds llms.txt; see ./llms.mjs.
   transformPageData(pageData) {
     const route = recordPage(pageData)
-    const head: [string, Record<string, string>][] = (pageData.frontmatter.head ??= [])
-    if (!head.some((tag) => tag[0] === 'link' && tag[1]?.rel === 'canonical')) {
-      head.push(['link', { rel: 'canonical', href: `${hostname}${route}` }])
-      // The Markdown twin of this page, discoverable without asking for it. The Function in
-      // `functions/` serves the same file to anything sending `Accept: text/markdown`.
-      head.push(['link', {
-        rel: 'alternate',
-        type: 'text/markdown',
-        href: `${hostname}/${markdownFileFor(route)}`,
-      }])
+    const head: HeadConfig[] = (pageData.frontmatter.head ??= [])
+    const attrs = (tag: HeadConfig) => tag[1] as Record<string, string> | undefined
+    if (head.some((tag) => tag[0] === 'link' && attrs(tag)?.rel === 'canonical')) return
+
+    head.push(['link', { rel: 'canonical', href: `${hostname}${route}` }])
+    // The Markdown twin of this page, discoverable without asking for it. The Function in
+    // `functions/` serves the same file to anything sending `Accept: text/markdown`.
+    head.push(['link', {
+      rel: 'alternate',
+      type: 'text/markdown',
+      href: `${hostname}/${markdownFileFor(route)}`,
+    }])
+
+    // Open Graph, per page rather than site-wide. A share on a forum, a chat client or an issue
+    // tracker is how most people meet a link to a documentation site, and without these each one
+    // renders as a bare URL — the title and description the page already computed are right there,
+    // so the only thing missing was saying them in the vocabulary those clients read.
+    // `||`, not `??`: a page that declares no description gets an empty string rather than
+    // `undefined`, and the home page is exactly that page — its subject is the site, so the site
+    // description is its own.
+    const title = pageData.frontmatter.title || pageData.title || 'Scrollcase'
+    const summary = pageData.frontmatter.description || pageData.description || description
+    head.push(
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:site_name', content: 'Scrollcase' }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: summary }],
+      ['meta', { property: 'og:url', content: `${hostname}${route}` }],
+      ['meta', { property: 'og:image', content: `${hostname}${socialImage.path}` }],
+      ['meta', { property: 'og:image:width', content: socialImage.size }],
+      ['meta', { property: 'og:image:height', content: socialImage.size }],
+      ['meta', { property: 'og:image:alt', content: 'Scrollcase logo' }],
+      // `summary`, not `summary_large_image`: the image is square, and the wide card would crop it.
+      ['meta', { name: 'twitter:card', content: 'summary' }],
+    )
+
+    // The structured data describes the project, not the page, so it belongs on the one page whose
+    // subject is the project. Repeating it under every route would assert the same entity thirty-six
+    // times and give a crawler thirty-six candidates for its canonical home.
+    if (route === '/') {
+      head.push(['script', { type: 'application/ld+json' }, JSON.stringify(structuredData)])
     }
   },
 
