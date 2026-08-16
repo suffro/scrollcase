@@ -18,9 +18,9 @@ This demo takes SmolLM2-1.7B-Instruct, quantised to 4 bits in GGUF form, and shi
 self-contained box that answers on your own machine.
 
 ```text
-$ scrollcase run .scrollcase/.../*.release.json -- "What is the capital of France?"
+$ scrollcase run .scrollcase/.../*.release.json -- "What is the capital of Italy?"
 
-Paris.
+Rome.
 ```
 
 ::: info You define what the box should contain, Scrollcase handles it:
@@ -33,25 +33,6 @@ nothing about the question leaves the machine.
 
 ## Build it yourself
 
-The demo repository is almost empty on purpose: you package the model yourself, and its README is
-the walkthrough. Install the CLI, initialise the workspace, create the scroll, declare the model's
-pinned file, lock, commit, sign and build.
-
-What you end up with is a signed Linux CPU box you can run straight away:
-
-```bash
-scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json -- "Explain what a hash function is, in two sentences."
-```
-
-<Button
-  href="https://codespaces.new/suffro/scrollcase-e2e-demo-SmolLM2-1.7B-Instruct-GGUF?quickstart=1"
-  external
->
-
-Open in GitHub Codespaces
-
-</Button>
-
 ::: tip NOTE
 
 This demo is **Codespaces-only for now**: unlike the [sentiment demo](/demos/sentiment-demo) there is
@@ -62,6 +43,95 @@ is no release to link to. The walkthrough targets `linux-x86_64-cpu`, which is w
 you.
 
 :::
+
+
+## Two ways in
+
+<Tabs :titles="['GitHub codespaces', 'Pre-built box']">
+<Tab title="GitHub codespaces">
+
+### Build it yourself
+
+The demo repository is almost empty on purpose: you package the model yourself, and its README is
+the walkthrough. Install the CLI, initialise the workspace, create the scroll, declare the model's
+pinned file, lock, commit, sign and build.
+
+<Button
+  href="https://codespaces.new/suffro/scrollcase-e2e-demo-SmolLM2-1.7B-Instruct-GGUF?quickstart=1"
+  external
+>
+
+Open in GitHub Codespaces
+
+</Button>
+
+</Tab>
+<Tab title="Pre-built box">
+
+### Download the prebuilt box
+
+Signed boxes for Linux, macOS and Windows are published on the Scrollcase repository. Fetch the public key from the repository, verify, run. This path needs neither pixi nor a build, and nothing is downloaded while the box runs.
+
+Download the one matching your machine:
+
+|macOS (Apple silicon)|Linux (CPU)|Windows (CPU)|
+|--|--|--|
+|[`macos-aarch64-cpu`](https://github.com/suffro/scrollcase/releases/download/llm-demo-v1/llm-demo-1.0.0-macos-aarch64-cpu.zip)|[`linux-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/llm-demo-v1/llm-demo-1.0.0-linux-x86_64-cpu.zip)|[`windows-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/llm-demo-v1/llm-demo-1.0.0-windows-x86_64-cpu.zip)|
+
+<Button
+  href="https://github.com/suffro/scrollcase/releases/tag/llm-demo-v1"
+  external
+>
+
+Release page
+
+</Button>
+
+::: tip NOTE
+
+The file you download is **NOT** the box — it is a container, named so you can tell which machine it
+is for, holding the box together with two ready-to-run examples. The box is the <samp>.zip</samp>
+inside it under <samp>box/</samp>, next to its <samp>.release.json</samp>. Do not unzip that one:
+it's ready to run. Leave both named as they are and side by side, because that is how `verify` finds
+the box.
+
+:::
+
+Unpack it, fetch the key beside it rather than inside it, then verify and run:
+
+```sh
+unzip llm-demo-1.0.0-<target>.zip -d llm-box-demo
+cd llm-box-demo
+mkdir keys
+curl -o keys/example-signing-public.json \
+  https://raw.githubusercontent.com/suffro/scrollcase/main/examples/keys/example-signing-public.json
+
+npm install -g scrollcase
+scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
+```
+
+```sh
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json \
+  -- "What is the capital of Italy?"
+```
+
+or start an actual chat session without passing any phrase:
+
+```sh
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json
+```
+
+If you pass a sentence the box model will respond to it and that's it, the run lifecycle ends there. If you want to start an actual chat session instead, like the ones you usually have with your AI assistant, simply do not pass any phrase as argument.
+
+`run-box.ts` and `run_box.py` are scripts that run the relative consumers, and work exactly like `scrollcase run` — for example, run `npx tsx run-box.ts` to start a chat session, or with a sentence as their first argument to get a one-shot response `npx tsx run-box.ts "Who wrote The Divine Comedy?"`.
+
+> <small>`box/*.release.json` is a real shell glob, not a placeholder. PowerShell does not expand it
+> for a command like this, so use `(Get-ChildItem box\*.release.json).FullName` or type the file name
+> you see under `box/`. You never name the box archive: `verify` finds it beside the release
+> document, under the hash that document commits to.</small>
+
+</Tab>
+</Tabs>
 
 ## Two modes, one box
 
@@ -121,7 +191,7 @@ signed payload. At run time `verify --extracted` re-hashes the whole tree, so an
 kept and then run would fail its second verification.
 
 **A self-test that has to actually generate.** It loads the gigabyte with the box's own interpreter
-and asserts that the answer to *What is the capital of France?* contains `paris`. Greedy decoding
+and asserts that the answer to *What is the capital of Italy?* contains `rome`. Greedy decoding
 (`temperature=0.0`) is what makes that reproducible enough to assert on content rather than merely on
 the model having emitted something — and it asserts a substring, not a sentence, so a llama.cpp point
 release that rewords the answer does not fail a build for a reason nobody cares about.

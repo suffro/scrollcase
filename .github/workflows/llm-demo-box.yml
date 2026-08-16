@@ -45,7 +45,7 @@ env:
   #
   # This is the prompt the guide, the self-test and the shipped consumer templates use. Short on
   # purpose — every job pays for it in tokens generated on a CPU — and its answer is checked below.
-  DEMO_PROMPT: 'What is the capital of France?'
+  DEMO_PROMPT: 'What is the capital of Italy?'
 
 jobs:
   build:
@@ -143,9 +143,9 @@ jobs:
             -- "$DEMO_PROMPT")
           printf '%s\n' "$output"
           case "$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')" in
-            *paris*) ;;
+            *rome*) ;;
             *)
-              echo "The box did not name Paris as the capital of France." >&2
+              echo "The box did not name Rome as the capital of Italy." >&2
               exit 1
               ;;
           esac

@@ -8,15 +8,16 @@ SETUP (once):
 
 RUN (from this folder):
 
-    python run_box.py
-    python run_box.py "a question of your own"
+    python run_box.py "a question of your own"   answer once and exit
+    python run_box.py                            open the box's interactive chat
 
 The public key is not shipped with the box: download it first, as the guide describes. A signature
 only proves where something came from if the key does not travel with it.
 
-This runs the box's one-shot mode, which answers once and exits. The box also has an interactive
-chat, reached by running it with no arguments at all -- that one wants a terminal, so it belongs to
-`scrollcase run <release>` rather than to a script like this.
+Both modes are the box's, not this script's, and reaching them takes no extra code: `run_box` leaves
+this process's streams to the child, so the chat reads the terminal you started it from. Started
+without one -- a pipe, a CI step -- the chat meets end of input and exits, which is why a script that
+has to produce an answer passes a question rather than relying on the mode.
 """
 
 from __future__ import annotations
@@ -33,10 +34,11 @@ releases = sorted(Path("box").glob("*.release.json"))
 if not releases:
     raise SystemExit("No .release.json in box/ — unpack the downloaded archive first.")
 
-# The prompt is supplied here because the release declares no default arguments. Passing none would
-# not be "no prompt": it would reach the box with an empty argument list, which is how the box is
-# told to open a chat instead.
-ARGS = sys.argv[1:] or ["What is the capital of France?"]
+# Straight through, with nothing substituted for an empty list. The release declares no default
+# arguments, so what arrives here is what decides the mode: words are a question answered once, and
+# no words at all is how the box is told to open a chat. A template that supplied a prompt of its own
+# would always run and would teach the wrong rule -- that a box needs one.
+ARGS = sys.argv[1:]
 
 
 def report(prepared: PreparedBox) -> None:
@@ -48,7 +50,10 @@ def report(prepared: PreparedBox) -> None:
         f"Running {prepared.box_id} {prepared.version} ({prepared.target_id})",
         flush=True,
     )
-    print(f"Prompt: {' '.join(ARGS)}", flush=True)
+    print(
+        f"Prompt: {' '.join(ARGS)}" if ARGS else "No prompt: opening the chat",
+        flush=True,
+    )
 
 
 result = run_box(

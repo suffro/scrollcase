@@ -45,19 +45,19 @@ Then any one of these three — they perform the same checks in the same order:
 npm install -g scrollcase
 scrollcase verify box/*.release.json --public-key keys/example-signing-public.json
 scrollcase run    box/*.release.json --public-key keys/example-signing-public.json \
-  -- What is the capital of France?
+  -- What is the capital of Italy?
 
 # Node
-npm install && npx tsx run-box.ts "What is the capital of France?"
+npm install && npx tsx run-box.ts "What is the capital of Italy?"
 
 # Python
-python -m pip install scrollcase-consumer && python run_box.py "What is the capital of France?"
+python -m pip install scrollcase-consumer && python run_box.py "What is the capital of Italy?"
 ```
 
 A successful run prints the answer on stdout and nothing else:
 
 ```text
-Paris.
+Rome.
 ```
 
 Loading progress, the timing line and every diagnostic go to stderr, so `... > answer.txt` gives you

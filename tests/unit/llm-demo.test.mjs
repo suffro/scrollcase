@@ -36,9 +36,11 @@ const fragmentKeys = {
   'windows-x86_64-cpu': ['condaDependencyLicenseAudit', 'extends', 'target'],
 };
 
-// The one prompt the guide, the release notes, the self-test and both shipped consumer templates
-// use. Short on purpose: every CI job pays for it in tokens generated on a CPU.
-const demoPrompt = 'What is the capital of France?';
+// The one prompt the guide, the release notes and the self-test use. Short on purpose: every CI job
+// pays for it in tokens generated on a CPU. The consumer templates are checked against it the other
+// way round — they must *not* carry it, because a template with a prompt of its own is a template
+// that cannot reach the box's other mode.
+const demoPrompt = 'What is the capital of Italy?';
 
 // The immutable upstream revision every asset URL must name. `main` would make the box's contents
 // depend on when it was built, which is the one thing a pinned hash exists to prevent.
@@ -160,7 +162,7 @@ describe('published local LLM demo box', () => {
   // `defaultArgs` and caller arguments are concatenated, not overridden, so a default prompt here
   // would be prepended to the caller's own and both would be answered as one question. It is also
   // what makes the two modes work: an empty argument list is how the box is told to open a chat.
-  it('declares no default arguments, and ships templates that pass a prompt', async () => {
+  it('declares no default arguments, and ships templates that substitute none', async () => {
     for (const { target, scroll } of await scrolls()) {
       expect(scroll.execution, target)
         .toMatchObject({ kind: 'python-script', script: 'entrypoint.py' });
@@ -168,9 +170,15 @@ describe('published local LLM demo box', () => {
       expect(scroll.selfTest.imports, target).toContain('llama_cpp');
     }
 
+    // The templates once supplied a question when the caller passed none, which made them always
+    // produce an answer and quietly cost the box a mode: no arguments is not a missing prompt, it
+    // is the chat. A consumer read as a worked example teaches whatever it does, so it forwards
+    // what it was given and nothing else.
     for (const template of ['run-box.ts', 'run_box.py']) {
       const source = await readFile(join(example, 'demo-consumers', template), 'utf8');
-      expect(source, template).toContain(demoPrompt);
+      expect(source, template).not.toContain(demoPrompt);
+      expect(source, `${template} forwards its own arguments`)
+        .toMatch(/process\.argv\.slice\(2\)|sys\.argv\[1:\]/);
     }
   });
 
@@ -223,7 +231,7 @@ describe('published local LLM demo box', () => {
     });
     const result = runEntrypoint(
       `sys.exit(main([${JSON.stringify(demoPrompt)}],`
-      + ` generate_fn=lambda prompt: ("Paris.", ${statistics})))`,
+      + ` generate_fn=lambda prompt: ("Rome.", ${statistics})))`,
     );
 
     expect(result.status, result.stderr).toBe(0);
@@ -231,7 +239,7 @@ describe('published local LLM demo box', () => {
     // tested and a substring match would pass on stdout that also carried the statistics. The line
     // ending is normalised first: Python's `print` writes `\r\n` on Windows, which is the platform's
     // business and not something this box decides.
-    expect(result.stdout.replaceAll('\r\n', '\n')).toBe('Paris.\n');
+    expect(result.stdout.replaceAll('\r\n', '\n')).toBe('Rome.\n');
     expect(result.stderr).toContain('3 tokens in 0.5s');
   });
 

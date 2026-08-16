@@ -44,7 +44,7 @@ scrollcase verify box/*.release.json --public-key keys/example-signing-public.js
 then:
 
 ```sh
-scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of France?"
+scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of Italy?"
 ```
 
 or to start an actual **chat session**:
@@ -59,8 +59,10 @@ scrollcase run box/*.release.json --public-key keys/example-signing-public.json
 
 ```sh
 npm install
-npx tsx run-box.ts
+npx tsx run-box.ts "What is the capital of Italy?"
 ```
+
+Both modes, as with the CLI: a sentence is answered once, no arguments at all opens the chat.
 
 ---
 
@@ -68,8 +70,11 @@ npx tsx run-box.ts
 
 ```sh
 python -m pip install scrollcase-consumer
-python run_box.py
+python run_box.py "What is the capital of Italy?"
 ```
+
+Same two modes. Neither script substitutes a question of its own — what you pass is what the box
+decides on.
 
 ---
 
@@ -97,7 +102,7 @@ fn main() -> scrollcase_consumer::Result<()> {
             archive: None,
             temporary_root: Path::new("target/boxes"),
             run: RunOptions {
-                args: vec!["What is the capital of France?".into()],
+                args: vec!["What is the capital of Italy?".into()],
                 ..Default::default()
             },
         },
@@ -157,7 +162,7 @@ before its first token, which also hides the one line that explains a failed loa
 `LLM_DEMO_VERBOSE=1` and run again to see it:
 
 ```sh
-LLM_DEMO_VERBOSE=1 scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of France?"
+LLM_DEMO_VERBOSE=1 scrollcase run box/*.release.json --public-key keys/example-signing-public.json -- "What is the capital of Italy?"
 ```
 
 On PowerShell, set it first with `$env:LLM_DEMO_VERBOSE = 1`.

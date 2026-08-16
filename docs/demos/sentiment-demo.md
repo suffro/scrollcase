@@ -38,13 +38,6 @@ the walkthrough. Install the CLI, initialise the workspace, create the scroll, d
 pinned files, lock, commit, sign and build. About fifteen minutes, most of it spent waiting on the
 build.
 
-What you end up with is a signed Linux CPU box you can run straight away:
-
-```bash
-scrollcase run .scrollcase/dist/boxes/sentiment-demo/1.0.0/linux-x86_64-cpu/*.release.json \
-  -- "This product is surprisingly easy to use."
-```
-
 <Button
   href="https://codespaces.new/suffro/scrollcase-e2e-demo-DistilBERT-SST-2-ONNX-INT8?quickstart=1"
   external
@@ -59,8 +52,7 @@ Open in GitHub Codespaces
 
 ### Download the prebuilt box
 
-Signed boxes for Linux, macOS and Windows are published on the Scrollcase repository, built by CI
-from `examples/sentiment-demo/`. Fetch the public key from the repository, verify, run. This path
+Signed boxes for Linux, macOS and Windows are published on the Scrollcase repository. Fetch the public key from the repository, verify, run. This path
 needs neither pixi nor a build, and nothing is downloaded while the box runs.
 
 Download the one matching your machine:

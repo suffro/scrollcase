@@ -8,8 +8,8 @@ It packs [SmolLM2-1.7B-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.
 quantised to Q4_K_M in GGUF form, and answers one prompt:
 
 ```text
-$ scrollcase run <release> -- "What is the capital of France?"
-Paris.
+$ scrollcase run <release> -- "What is the capital of Italy?"
+Rome.
 ```
 
 Given no arguments at all it opens an interactive chat instead, on the same release document and the
@@ -40,7 +40,7 @@ scrollcase keygen
 scrollcase audit llm-demo/linux-x86_64-cpu --scrolls-dir examples
 scrollcase build llm-demo/linux-x86_64-cpu --scrolls-dir examples
 scrollcase verify .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json --self-test
-scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json -- "What is the capital of France?"
+scrollcase run .scrollcase/dist/boxes/llm-demo/1.0.0/linux-x86_64-cpu/*.release.json -- "What is the capital of Italy?"
 ```
 
 The build downloads 1.06 GB of weights once, verifies them against the size and SHA-256 the scroll
@@ -80,7 +80,7 @@ it would win over the value the person debugging supplies, and weld the switch s
 **The self-test has to generate, not just import.** `selfTest.imports` is the part the signed
 release carries, which is why `verify --self-test` can repeat it later with the box's own
 interpreter. `files` and `pythonFile` stay builder-only: `shared/self_test.py` loads the gigabyte and
-asserts that the answer to *What is the capital of France?* contains `paris`, so a box that cannot
+asserts that the answer to *What is the capital of Italy?* contains `rome`, so a box that cannot
 generate is never signed. It asserts a substring rather than a sentence — greedy decoding is
 reproducible, but a llama.cpp point release may reword prose without anything being wrong.
 

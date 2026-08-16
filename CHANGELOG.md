@@ -27,6 +27,15 @@ All notable changes to Scrollcase are documented here. The format follows
   failure it raises names the variable, so the next person meets a switch rather than a wall. It is
   deliberately absent from the scroll: a value the release declared would win over the one the
   person debugging sets.
+- `run-box.ts` and `run_box.py` forward their own arguments and substitute nothing for an empty
+  list, so both shipped consumers reach both of the box's modes the way `scrollcase run` does: a
+  sentence is answered once, no arguments at all opens the chat. They used to supply a question when
+  the caller passed none, which made them always produce an answer and cost the box a mode — and a
+  template is read as a worked example, so it taught that a box needs a prompt. It does not: the
+  release declares no `defaultArgs`, and an empty argument list is the chat. Both consumers already
+  leave this process's streams to the child, so the chat reads the terminal it was started from and
+  neither script needed a line for it.
+
 - The README that travels inside every published demo archive now numbers its ways of running a box
   and lists five rather than three: the `scrollcase-consumer` crate joins the CLI and the Node and
   Python consumers with a `run_box` example, and a closing entry says what a consumer of your own
@@ -44,7 +53,7 @@ All notable changes to Scrollcase are documented here. The format follows
   asset, because a GGUF holds the weights, the tokenizer and the chat template in one container, so
   nothing can drift out of step with the weights it belongs to. The self-test is a `pythonFile`
   rather than an inlined string: it loads the model with the box's own interpreter and asserts the
-  answer names Paris, so a box that cannot generate is never signed. And one application has two
+  answer names Rome, so a box that cannot generate is never signed. And one application has two
   modes, since `execution.defaultArgs` is `[]` and the entrypoint reads an empty argument list as a
   request for an interactive chat rather than as a missing prompt.
 
