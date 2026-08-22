@@ -7,4 +7,4 @@ const schemaVersion = pkg.schemaVersion
 export const globalStore = reactive({
   packageVersion,
   schemaVersion
-})
+});
