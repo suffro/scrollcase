@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.4] — 2026-08-14
+
 ### Added
 
 - Every documentation page declares Open Graph metadata, and the home page describes the project in
