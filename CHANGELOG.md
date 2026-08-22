@@ -6,7 +6,7 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.11.4] — 2026-08-14
+## [0.12.0] — 2026-08-22
 
 ### Added
 
