@@ -62,6 +62,42 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Changed
 
+- `scrollcase init` asks about the consumer templates separately from the runnable example, with
+  `--no-templates` beside `--no-example`. They used to be one answer, and it was the wrong one:
+  declining a throwaway demo also declined `consumer-templates/`, which is where the application
+  that will actually run this project's boxes starts — the same verification, extraction and
+  execution call written out in Node, Python and Rust. A project that knows it does not want a demo
+  is exactly the project that has its own consumer to write. The templates no longer name
+  `example-box` either; their release path is a placeholder for the project's own box, like the
+  target and hash beside it. Passing both flags is what now leaves a bare workspace.
+
+- The dependencies of those templates are offered in **one multi-select menu** — ↑/↓ to move, Space
+  to select, Enter to confirm — instead of three consecutive `[Y/n]` prompts. It is one decision
+  asked about three languages, and asked one at a time it became three chances to answer by reflex.
+  Nothing is preselected and an empty selection is a complete answer, so the shape of the question
+  now matches what it means. An unavailable Cargo leaves Rust out of the list rather than skipping
+  a question that was already there.
+
+- `scrollcase new scroll` no longer asks for the weights mode, and a new scroll no longer declares
+  it. The mode decides whether declared assets are packed into the archive, and a box that declares
+  none — which is most of them, because a scroll packages a Python environment and not necessarily a
+  model — has nothing for it to decide. It is `--weights` when a project means it, `embed` by the
+  schema's own default otherwise, and `scrollcase edit scroll` when it changes later.
+
+- The scroll reference says what `modelId` actually is. The field predates the tool being used for
+  anything but models, and the documentation still described it as *what model is inside* — which
+  reads, to someone packaging a library, as a field their project has no answer for. It identifies
+  whatever the box packages, and `new scroll` has always derived it from the box id when
+  `--model-id` is not passed. The wire format is unchanged: `modelId` is required by
+  `schemaVersion: 2` in all three consumers, and dropping it would be a breaking change to every
+  box already published.
+
+- `scrollcase build` no longer asks either, which fixes a real defect rather than removing a
+  keystroke. The menu was preselected on `embed`, so building a scroll that declared `on-demand`
+  and answering with Enter silently packed the assets in: the scroll's own declaration overridden by
+  a menu default. The scroll's mode is now what a build uses, `--weights` overrides it deliberately,
+  and the mode in effect is printed as the build starts.
+
 - Both demos' `run-box.ts` and `run_box.py` report on **stderr** rather than stdout. Their
   `Running …` line and the prompt they echo went to the same stream as the box's own answer, so
   redirecting a script's output gave you a file with two lines of bookkeeping above the thing you

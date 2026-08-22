@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chooseCliValue } from '../../src/cli-menu.mjs';
+import { chooseCliValue, chooseCliValues, selectCliMultiMenu } from '../../src/cli-menu.mjs';
 import {
   chooseScroll,
   chooseTarget,
@@ -237,7 +237,7 @@ describe('CLI target selection', () => {
     expect(result.stdout).toContain('Create your own: scrollcase new scroll');
   });
 
-  it('supports an explicitly empty workspace with --no-example', async () => {
+  it('keeps the consumer templates when only the example is declined', async () => {
     const root = await mkdtemp(join(tmpdir(), 'scrollcase-cli-target-'));
     created.push(root);
     const result = spawnSync(process.execPath, [
@@ -249,7 +249,43 @@ describe('CLI target selection', () => {
     ], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0);
     expect(await readdir(join(root, 'scrolls'))).toEqual([]);
+    // The two are separate decisions: an application still has to be written against these boxes.
+    expect(await readdir(join(root, 'consumer-templates'))).toContain('run-box.ts');
+    expect(await readdir(root)).toContain('package.json');
+    expect(result.stdout).toContain('Next: scrollcase new scroll');
+  });
+
+  it('keeps the example when only the templates are declined', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'scrollcase-cli-target-'));
+    created.push(root);
+    const result = spawnSync(process.execPath, [
+      cli,
+      'init',
+      '--project-root', root,
+      '--no-templates',
+      '--no-install-toolchain',
+    ], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(await readdir(join(root, 'scrolls'))).toEqual(['example-box']);
+    expect(await readdir(root)).not.toContain('consumer-templates');
     expect(await readdir(root)).not.toContain('package.json');
+  });
+
+  it('supports an explicitly empty workspace with both flags', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'scrollcase-cli-target-'));
+    created.push(root);
+    const result = spawnSync(process.execPath, [
+      cli,
+      'init',
+      '--project-root', root,
+      '--no-example',
+      '--no-templates',
+      '--no-install-toolchain',
+    ], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(await readdir(join(root, 'scrolls'))).toEqual([]);
+    expect(await readdir(root)).not.toContain('package.json');
+    expect(await readdir(root)).not.toContain('consumer-templates');
     expect(result.stdout).toContain('Workspace initialized');
     expect(result.stdout).toContain('Next: scrollcase new scroll');
   });
@@ -356,13 +392,73 @@ describe('CLI build choices', () => {
     );
   });
 
-  it('selects on-demand weights through the same navigable menu', async () => {
-    const menu = vi.fn().mockResolvedValue(1);
-    await expect(chooseCliValue(
-      'weights mode',
-      ['embed', 'on-demand'],
+  it('toggles entries with Space and confirms with Enter', async () => {
+    const input = new PassThrough();
+    input.isTTY = true;
+    input.setRawMode = vi.fn();
+    const output = new PassThrough();
+    let rendered = '';
+    output.on('data', (chunk) => {
+      rendered += chunk.toString();
+    });
+
+    const selection = selectCliMultiMenu(
+      'Install dependencies for which consumer templates?',
+      ['TypeScript', 'Python', 'Rust'],
+      { input, output },
+    );
+    input.write(' ');
+    input.write('\x1b[B');
+    input.write('\x1b[B');
+    input.write(' ');
+    input.write(' ');
+    input.write('\r');
+
+    // Two toggles on the same entry leave it unselected: Space is a switch, not an accumulator.
+    await expect(selection).resolves.toEqual([0]);
+    expect(input.setRawMode).toHaveBeenLastCalledWith(false);
+    expect(rendered).toContain('Space to select');
+    expect(rendered).toContain('[x] TypeScript');
+  });
+
+  it('returns an empty selection when nothing is ticked', async () => {
+    const input = new PassThrough();
+    input.isTTY = true;
+    input.setRawMode = vi.fn();
+    const output = new PassThrough();
+    output.resume();
+
+    const selection = selectCliMultiMenu('Which extras?', ['TypeScript'], { input, output });
+    input.write('\r');
+
+    await expect(selection).resolves.toEqual([]);
+  });
+
+  it('takes several answers from one multi-select menu', async () => {
+    const menu = vi.fn().mockResolvedValue([0, 2]);
+    await expect(chooseCliValues(
+      'Install dependencies for which consumer templates?',
+      ['TypeScript', 'Python', 'Rust'],
       { terminal: true, menu },
-    )).resolves.toBe('on-demand');
+    )).resolves.toEqual(['TypeScript', 'Rust']);
+  });
+
+  it('selects nothing from a multi-select menu without a terminal', async () => {
+    const menu = vi.fn();
+    await expect(chooseCliValues(
+      'Install dependencies for which consumer templates?',
+      ['TypeScript', 'Python', 'Rust'],
+      { terminal: false, menu },
+    )).resolves.toEqual([]);
+    expect(menu).not.toHaveBeenCalled();
+  });
+
+  it('rejects a multi-select answer outside the offered entries', async () => {
+    await expect(chooseCliValues(
+      'Install dependencies for which consumer templates?',
+      ['TypeScript', 'Python'],
+      { terminal: true, menu: async () => [0, 5] },
+    )).rejects.toThrow(/invalid selection/);
   });
 
   it('rejects a channel outside the v2 contract', async () => {

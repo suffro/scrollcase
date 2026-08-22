@@ -15,7 +15,9 @@
 import { createInterface } from 'node:readline/promises';
 import {
   DEFAULT_PYTHON_VERSION,
+  DEFAULT_WEIGHTS_MODE,
   EXAMPLE_PIXI_VERSION,
+  WEIGHTS_MODES,
   resolvePythonVersion,
 } from './build/authoring.mjs';
 import { probePixi } from './build/pixi.mjs';
@@ -40,7 +42,6 @@ const HINTS = Object.freeze({
   boxId: 'Name of the box across all its versions. Used in its directory, its archives and its channel pointer.',
   sourceRevision: 'Which version of the thing you are packaging this is — a model commit, a release tag. Recorded verbatim in the box provenance.',
   assetBaseUrl: 'Where you will publish built boxes. The signed release points at it; it does not have to exist yet.',
-  weights: '`embed` packs the model inside the box. `on-demand` leaves it out for the consumer to fetch and verify.',
   execution: 'What `scrollcase run` starts inside the box: a script file, an importable module, or nothing at all.',
   scriptSource: 'Point at a Python file you already have, or start from a generated stub.',
   scriptPath: 'Path from the project root to the Python file the box should run.',
@@ -187,7 +188,13 @@ export async function collectNewScrollOptions(flags, {
   // Not derivable and not optional: the signed release names the URL the archive itself is published
   // under, so a build has nowhere to point without it.
   const assetBaseUrl = await required('asset-base-url', 'Asset base URL', HINTS.assetBaseUrl);
-  const weights = await finite('weights', 'weights mode', ['embed', 'on-demand'], HINTS.weights);
+  // Not a question. A box declares assets or it does not, and one that does not — which is most of
+  // them, since a scroll packages Python, not necessarily a model — has nothing to leave out of its
+  // archive. `--weights on-demand` states the choice for a box whose assets are published beside it.
+  const weights = derived('weights', DEFAULT_WEIGHTS_MODE);
+  if (!WEIGHTS_MODES.includes(weights)) {
+    fail(`Unsupported weights mode: ${weights}. Use ${WEIGHTS_MODES.join(' or ')}.`);
+  }
   const executionKind = await finite(
     'execution',
     'execution kind',

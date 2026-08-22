@@ -23,7 +23,9 @@ const scrollSchemaUrl = new URL('../contract/schema/scroll.schema.json', import.
 const targetSchemaUrl = new URL('../contract/schema/target.schema.json', import.meta.url);
 const executionSchemaUrl = new URL('../contract/schema/execution.schema.json', import.meta.url);
 const EXECUTION_KINDS = Object.freeze(['python-script', 'python-module', 'library-only']);
-const WEIGHTS_MODES = Object.freeze(['embed', 'on-demand']);
+export const WEIGHTS_MODES = Object.freeze(['embed', 'on-demand']);
+/** The schema's own default, so a scroll that takes it says nothing about weights at all. */
+export const DEFAULT_WEIGHTS_MODE = 'embed';
 export const EXAMPLE_PIXI_VERSION = '0.73.0';
 export const DEFAULT_SCROLL_VERSION = '1.0.0';
 
@@ -101,12 +103,12 @@ const TYPESCRIPT_CONSUMER_TEMPLATE = `/**
  * RUN:
  *   npx tsx consumer-templates/run-box.ts
  *
- * Replace <target> and <hash> below with the values printed by scrollcase build.
+ * Replace the placeholders below with the values scrollcase build printed.
  */
 import { runBox } from 'scrollcase/consumer';
 
 const releaseToRun =
-  '.scrollcase/dist/boxes/example-box/1.0.0/<target>/<hash>.release.json';
+  '.scrollcase/dist/boxes/<box-id>/<version>/<target>/<hash>.release.json';
 
 runBox(releaseToRun, {
   publicPath: '.scrollcase/keys/signing-public.json',
@@ -142,7 +144,7 @@ RUN (from the project root):
 
     python consumer-templates/run_box.py
 
-Replace <target> and <hash> below with the values printed by scrollcase build.
+Replace the placeholders below with the values scrollcase build printed.
 """
 
 from __future__ import annotations
@@ -153,7 +155,7 @@ from scrollcase_consumer import PreparedBox, run_box
 
 
 RELEASE_TO_RUN = (
-    ".scrollcase/dist/boxes/example-box/1.0.0/<target>/<hash>.release.json"
+    ".scrollcase/dist/boxes/<box-id>/<version>/<target>/<hash>.release.json"
 )
 
 
@@ -197,7 +199,7 @@ const RUST_CONSUMER_TEMPLATE = `//! Runs a local box through the typed Rust cons
 //! RUN:
 //!   cargo run --manifest-path consumer-templates/rust/Cargo.toml
 //!
-//! Replace <target> and <hash> below with the values printed by scrollcase build.
+//! Replace the placeholders below with the values scrollcase build printed.
 
 use std::error::Error;
 use std::path::Path;
@@ -206,7 +208,7 @@ use scrollcase_consumer::run::{run_box, RunBoxOptions, RunOptions};
 use scrollcase_consumer::trust::TrustAnchors;
 
 const RELEASE_TO_RUN: &str =
-    ".scrollcase/dist/boxes/example-box/1.0.0/<target>/<hash>.release.json";
+    ".scrollcase/dist/boxes/<box-id>/<version>/<target>/<hash>.release.json";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let temporary_root = std::env::temp_dir();
@@ -303,7 +305,7 @@ export async function createScroll({
   pixiVersion,
   compatibility = {},
   assetBaseUrl,
-  weights,
+  weights = DEFAULT_WEIGHTS_MODE,
   executionKind,
   scriptSourcePath = null,
   generateScript = false,
@@ -424,7 +426,9 @@ export async function createScroll({
       ...(localFile ? { files: [localFile.relativePath] } : {}),
       ...(selfTestPath ? { pythonFile: selfTestPath } : {}),
     },
-    weights,
+    // Left out when it is the schema's default: a scroll should read like the decisions its author
+    // made, and most boxes have no asset to leave out of the archive in the first place.
+    ...(weights === DEFAULT_WEIGHTS_MODE ? {} : { weights }),
     ...(localFile ? { localFiles: [localFile] } : {}),
     ...(execution ? { execution } : {}),
   };
@@ -479,9 +483,8 @@ export async function ensureExampleScroll({
   const targetId = boxTargetId(target);
   const scrollRef = `example-box/${targetId}`;
   const scrollDir = join(workspace.scrollsDir, 'example-box', targetId);
-  let result;
   if (await fileExists(scrollDir)) {
-    result = {
+    return {
       created: false,
       written: [],
       scrollDir,
@@ -489,27 +492,39 @@ export async function ensureExampleScroll({
       targetId,
       generatedScriptPath: null,
     };
-  } else {
-    result = {
-      created: true,
-      ...await createScroll({
-        workspace,
-        boxId: 'example-box',
-        target,
-        modelId: 'example-org-example-box',
-        runtimeId: 'example-box-runtime',
-        version: '1.0.0',
-        sourceRevision: 'example-source-1.0.0',
-        pixiVersion,
-        compatibility: { minHostAppVersion: '1.0.0' },
-        assetBaseUrl: 'https://example.org/boxes',
-        weights: 'embed',
-        executionKind: 'python-script',
-        generateScript: true,
-      }),
-    };
   }
+  return {
+    created: true,
+    ...await createScroll({
+      workspace,
+      boxId: 'example-box',
+      target,
+      modelId: 'example-org-example-box',
+      runtimeId: 'example-box-runtime',
+      version: '1.0.0',
+      sourceRevision: 'example-source-1.0.0',
+      pixiVersion,
+      compatibility: { minHostAppVersion: '1.0.0' },
+      assetBaseUrl: 'https://example.org/boxes',
+      executionKind: 'python-script',
+      generateScript: true,
+    }),
+  };
+}
 
+/**
+ * Writes the three consumer templates, without overwriting anything already there.
+ *
+ * Separate from the example on purpose. A project that declined a throwaway demo still has an
+ * application to write against its boxes, and these are that application's starting point: the same
+ * verification, extraction and execution call in Node, Python and Rust, against a release path the
+ * author fills in. They name no particular box for the same reason — the box they will run is the
+ * project's own, not the one `init` may have scaffolded beside them.
+ *
+ * @param {{ workspace: object }} options
+ * @returns {Promise<{ written: string[] }>}
+ */
+export async function ensureConsumerTemplates({ workspace }) {
   const consumerFiles = [
     [join(workspace.root, 'package.json'), CONSUMER_PACKAGE_JSON],
     [join(workspace.root, 'consumer-templates', 'run-box.ts'), TYPESCRIPT_CONSUMER_TEMPLATE],
@@ -518,9 +533,9 @@ export async function ensureExampleScroll({
     [join(workspace.root, 'consumer-templates', 'rust', 'src', 'main.rs'), RUST_CONSUMER_TEMPLATE],
     [join(workspace.root, 'consumer-templates', 'rust', '.gitignore'), '/target/\n'],
   ];
-  const consumerFilesWritten = [];
+  const written = [];
   for (const [path, contents] of consumerFiles) {
-    if (await ensureTextFile(path, contents)) consumerFilesWritten.push(path);
+    if (await ensureTextFile(path, contents)) written.push(path);
   }
-  return { ...result, written: [...result.written, ...consumerFilesWritten] };
+  return { written };
 }

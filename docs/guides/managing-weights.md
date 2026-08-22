@@ -145,7 +145,10 @@ scrollcase build my-model/linux-x86_64-cpu --weights embed        # the default
 scrollcase build my-model/linux-x86_64-cpu --weights on-demand
 ```
 
-A scroll may set `"weights": "embed" | "on-demand"` as its own default; the flag overrides it.
+A scroll may set `"weights": "embed" | "on-demand"` as its own default; the flag overrides it for one
+build. `build` never asks: what the scroll declares is what it uses, and the mode in effect is
+printed as the build starts. A scroll that says nothing takes `embed`, which is what a box with no
+declared assets wants anyway.
 
 ### What `on-demand` puts in the release
 

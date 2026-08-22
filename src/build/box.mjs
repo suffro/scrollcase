@@ -135,6 +135,9 @@ export async function buildBox(name, options = {}) {
   if (weightsMode === 'on-demand' && (scroll.assetArchives ?? []).length > 0) {
     fail('on-demand weights cannot be combined with assetArchives, which are expanded at build time.');
   }
+  // Reported rather than asked: the mode decides whether declared assets ship inside the archive,
+  // and the CLI no longer puts a menu in front of what the scroll already says.
+  log(`Weights: ${weightsMode}`);
   // Wheels, native libraries, and the interpreter are proven on the exact OS/architecture they ship for.
   assertNativeHost(adapter);
   const pixi = findPixi({ requiredVersion: scroll.pixiVersion, path: pixiPath, ...probe });

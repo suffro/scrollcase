@@ -115,9 +115,10 @@ Six steps, once. After that, shipping a new version is usually a single `build`.
 scrollcase init
 ```
 
-Creates the project structure and — after asking, defaulting to yes — a disposable runnable
-`example-box` for your own machine, a short `SCROLLCASE.md`, and TypeScript, Python, and Rust
-examples under `consumer-templates/`. Pass `--no-example` for an empty workspace.
+Creates the project structure and a short `SCROLLCASE.md`, then asks two questions, both defaulting
+to yes: a disposable runnable `example-box` for your own machine, and TypeScript, Python and Rust
+starting points for your own consumer under `consumer-templates/`. Pass `--no-example` or
+`--no-templates` to answer either in advance; both for an empty workspace.
 
 ### 2. Create a scroll
 

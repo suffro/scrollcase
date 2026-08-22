@@ -3,6 +3,7 @@ import {
   defaultYesConfirmation,
   resolveExampleChoice,
   resolvePythonConsumerSource,
+  resolveTemplatesChoice,
   runInitDependencySetup,
 } from '../../src/cli-init.mjs';
 
@@ -40,6 +41,43 @@ describe('init example choice', () => {
   });
 });
 
+describe('init consumer template choice', () => {
+  it('is answered independently of the example', async () => {
+    const confirmTemplates = vi.fn(async () => true);
+
+    // Declining the example says nothing about the templates: they are what a real consumer
+    // application starts from, and the demo is what gets deleted.
+    await expect(resolveTemplatesChoice({
+      noTemplates: false,
+      interactive: true,
+      confirmTemplates,
+    })).resolves.toBe(true);
+    expect(confirmTemplates).toHaveBeenCalledOnce();
+
+    await expect(resolveTemplatesChoice({
+      noTemplates: false,
+      interactive: true,
+      confirmTemplates: async () => false,
+    })).resolves.toBe(false);
+  });
+
+  it('keeps the templates without a terminal, and drops them for --no-templates', async () => {
+    const confirmTemplates = vi.fn();
+
+    await expect(resolveTemplatesChoice({
+      noTemplates: false,
+      interactive: false,
+      confirmTemplates,
+    })).resolves.toBe(true);
+    await expect(resolveTemplatesChoice({
+      noTemplates: true,
+      interactive: true,
+      confirmTemplates,
+    })).resolves.toBe(false);
+    expect(confirmTemplates).not.toHaveBeenCalled();
+  });
+});
+
 describe('init dependency setup', () => {
   it('accepts an empty answer as the default yes choice', () => {
     expect(defaultYesConfirmation('')).toBe(true);
@@ -74,18 +112,10 @@ describe('init dependency setup', () => {
     const events = [];
 
     const result = await runInitDependencySetup({
-      hasExample: true,
-      confirmTypeScript: async () => {
-        events.push('answer:typescript');
-        return true;
-      },
-      confirmPython: async () => {
-        events.push('answer:python');
-        return true;
-      },
-      confirmRust: async () => {
-        events.push('answer:rust');
-        return true;
+      hasTemplates: true,
+      chooseConsumerLanguages: async (offered) => {
+        events.push(`answer:languages:${offered.join(',')}`);
+        return ['typescript', 'python', 'rust'];
       },
       choosePythonSource: async () => {
         events.push('answer:python-source');
@@ -111,10 +141,8 @@ describe('init dependency setup', () => {
     });
 
     expect(events).toEqual([
-      'answer:typescript',
-      'answer:python',
+      'answer:languages:typescript,python,rust',
       'answer:python-source',
-      'answer:rust',
       'answer:toolchain',
       'install:toolchain',
       'install:typescript',
@@ -129,20 +157,40 @@ describe('init dependency setup', () => {
     });
   });
 
-  it('asks no consumer questions when no example was generated', async () => {
-    const confirmTypeScript = vi.fn();
-    const confirmPython = vi.fn();
-    const confirmRust = vi.fn();
+  it('installs only what the one menu selected', async () => {
+    const installTypeScript = vi.fn();
+    const installRust = vi.fn();
+
+    const result = await runInitDependencySetup({
+      hasTemplates: true,
+      chooseConsumerLanguages: async () => ['python'],
+      choosePythonSource: async () => 'pypi',
+      installToolchain: async () => ({ installed: [] }),
+      installTypeScript,
+      installPython: (source) => ({ source }),
+      installRust,
+    });
+
+    expect(installTypeScript).not.toHaveBeenCalled();
+    expect(installRust).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      installTypeScript: false,
+      pythonSource: 'pypi',
+      installRust: false,
+      python: { source: 'pypi' },
+    });
+  });
+
+  it('asks no consumer questions when no templates were generated', async () => {
+    const chooseConsumerLanguages = vi.fn();
     const choosePythonSource = vi.fn();
     const installTypeScript = vi.fn();
     const installPython = vi.fn();
     const installRust = vi.fn();
 
     await runInitDependencySetup({
-      hasExample: false,
-      confirmTypeScript,
-      confirmPython,
-      confirmRust,
+      hasTemplates: false,
+      chooseConsumerLanguages,
       choosePythonSource,
       installToolchain: async () => ({ installed: [] }),
       installTypeScript,
@@ -150,25 +198,24 @@ describe('init dependency setup', () => {
       installRust,
     });
 
-    expect(confirmTypeScript).not.toHaveBeenCalled();
-    expect(confirmPython).not.toHaveBeenCalled();
-    expect(confirmRust).not.toHaveBeenCalled();
+    expect(chooseConsumerLanguages).not.toHaveBeenCalled();
     expect(choosePythonSource).not.toHaveBeenCalled();
     expect(installTypeScript).not.toHaveBeenCalled();
     expect(installPython).not.toHaveBeenCalled();
     expect(installRust).not.toHaveBeenCalled();
   });
 
-  it('skips the Rust question and install when Cargo is unavailable', async () => {
-    const confirmRust = vi.fn();
+  it('never offers Rust when Cargo is unavailable, even if it is selected', async () => {
     const installRust = vi.fn();
+    let offered = null;
 
     const result = await runInitDependencySetup({
-      hasExample: true,
+      hasTemplates: true,
       rustAvailable: false,
-      confirmTypeScript: async () => false,
-      confirmPython: async () => false,
-      confirmRust,
+      chooseConsumerLanguages: async (languages) => {
+        offered = languages;
+        return ['rust'];
+      },
       choosePythonSource: vi.fn(),
       installToolchain: async () => ({ installed: [] }),
       installTypeScript: vi.fn(),
@@ -176,7 +223,7 @@ describe('init dependency setup', () => {
       installRust,
     });
 
-    expect(confirmRust).not.toHaveBeenCalled();
+    expect(offered).toEqual(['typescript', 'python']);
     expect(installRust).not.toHaveBeenCalled();
     expect(result).toMatchObject({ rustAvailable: false, installRust: false, rust: null });
   });

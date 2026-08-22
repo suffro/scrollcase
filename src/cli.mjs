@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 import { auditScroll } from './build/audit.mjs';
 import {
   createScroll,
+  ensureConsumerTemplates,
   ensureExampleScroll,
   EXAMPLE_PIXI_VERSION,
 } from './build/authoring.mjs';
@@ -65,9 +66,10 @@ import {
   defaultYesConfirmation,
   resolveExampleChoice,
   resolvePythonConsumerSource,
+  resolveTemplatesChoice,
   runInitDependencySetup,
 } from './cli-init.mjs';
-import { chooseCliValue } from './cli-menu.mjs';
+import { chooseCliValue, chooseCliValues } from './cli-menu.mjs';
 import {
   buildDistributionSummary,
   commandTip,
@@ -168,12 +170,13 @@ async function selectScrollReference(name, flags) {
 }
 
 /**
- * `init` — scaffold the workspace and its disposable runnable example, then offer its dependencies.
+ * `init` — scaffold the workspace, its consumer templates and its disposable runnable example,
+ * then offer the dependencies those templates need.
  *
  * Real scroll creation remains separate: the fixed `example-box` is onboarding material, never a
- * guess at the project's identity. Whether to scaffold it is the first question asked, because it
- * decides which later questions exist at all. Toolchain and consumer installs each require
- * explicit consent.
+ * guess at the project's identity. The templates are the other half, and a separate question:
+ * declining a demo says nothing about wanting a starting point for the application that will run
+ * this project's boxes. Toolchain and consumer installs each require explicit consent.
  */
 async function init(flags) {
   const workspace = getWorkspace();
@@ -190,19 +193,32 @@ async function init(flags) {
     fail(`init accepts only the fixed example; pass ${authoringFlags.map((name) => `--${name}`).join(', ')} to scrollcase new scroll.`);
   }
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  // Asked before anything is written, so the first thing a person answers is what they get.
+  // Both asked before anything is written, so the first things a person answers are what they get.
   const wantsExample = await resolveExampleChoice({
     noExample: Boolean(flags.get('no-example')),
     interactive,
     confirmExample: () => confirm(
       'Include the runnable example?',
-      'A disposable example-box scroll and consumer templates for trying the workflow.',
+      'A disposable example-box scroll for trying the whole workflow once.',
+    ),
+  });
+  const wantsTemplates = await resolveTemplatesChoice({
+    noTemplates: Boolean(flags.get('no-templates')),
+    interactive,
+    confirmTemplates: () => confirm(
+      'Include the consumer templates?',
+      'Working Node, Python and Rust starting points for the application that runs your boxes.',
     ),
   });
   const exampleTarget = wantsExample ? nativeExampleTarget() : null;
   const result = await initProject({ root: workspace.root, scrollsDir: workspace.scrollsDir });
   for (const path of result.written) success(`Created ${path}`);
   for (const path of result.skipped) info(`Kept ${path} (already present)`);
+
+  if (wantsTemplates) {
+    const templates = await ensureConsumerTemplates({ workspace });
+    for (const path of templates.written) success(`Created ${path}`);
+  }
 
   let example = null;
   const pixiVersion = text(flags, 'pixi-version')
@@ -226,26 +242,33 @@ async function init(flags) {
 
   const always = Boolean(flags.get('install-toolchain'));
   const never = Boolean(flags.get('no-install-toolchain'));
-  const cargoAvailable = !example || !interactive || isCargoAvailable({ root: workspace.root });
-  if (example && interactive && !cargoAvailable) {
+  const cargoAvailable = !wantsTemplates || !interactive || isCargoAvailable({ root: workspace.root });
+  if (wantsTemplates && interactive && !cargoAvailable) {
     warning('Cargo was not found; kept the Rust consumer template without adding its dependency.');
     info('Install Rust, then run `cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer`.');
   }
   const setup = await runInitDependencySetup({
-    hasExample: Boolean(example),
+    hasTemplates: wantsTemplates,
     rustAvailable: cargoAvailable,
-    confirmTypeScript: () => confirm(
-      `Install scrollcase, TypeScript, and tsx in ${workspace.root}?`,
-      'What consumer-templates/run-box.ts needs to run.',
-    ),
-    confirmPython: () => confirm(
-      'Install scrollcase-consumer for Python?',
-      'What consumer-templates/run_box.py needs to run.',
-    ),
-    confirmRust: () => confirm(
-      'Install scrollcase-consumer for Rust?',
-      'Added to the generated consumer-templates/rust/Cargo.toml with cargo add.',
-    ),
+    // One menu for the set: these are the same question asked about three languages, and a project
+    // wants the ones it writes its consumer in. Nothing is preselected, and Enter with nothing
+    // ticked installs nothing.
+    chooseConsumerLanguages: async (offered) => {
+      const labels = {
+        typescript: 'TypeScript — scrollcase, tsx and typescript',
+        python: 'Python — scrollcase-consumer, from PyPI or conda-forge',
+        rust: 'Rust — scrollcase-consumer, added to the template crate',
+      };
+      const chosen = await chooseCliValues(
+        'Install dependencies for which consumer templates?',
+        offered.map((language) => labels[language]),
+        {
+          hint: `What consumer-templates/ needs to run, installed in ${workspace.root}. `
+            + 'Selecting none is a valid answer.',
+        },
+      );
+      return offered.filter((language) => chosen.includes(labels[language]));
+    },
     choosePythonSource: async () => {
       const selectedSource = await chooseCliValue(
         'Python consumer package source',
@@ -535,12 +558,11 @@ async function build(name, flags) {
     ['beta', ...CHANNELS.filter((value) => value !== 'beta')],
     { flag: text(flags, 'channel') },
   );
-  const weights = await chooseCliValue(
-    'weights mode',
-    ['embed', 'on-demand'],
-    { flag: text(flags, 'weights') },
-  );
-  step(`Building ${reference} (${channel}, ${weights})`);
+  // The weights mode is not asked. The scroll declares it, and a menu preselected on `embed` in
+  // front of every build was an override waiting to happen: pressing Enter silently repacked a box
+  // whose scroll said `on-demand`. `--weights` still overrides deliberately.
+  const weights = text(flags, 'weights');
+  step(`Building ${reference} (${channel}${weights ? `, ${weights}` : ''})`);
   const built = await buildBox(reference, {
     ...signing,
     allowDirty: Boolean(flags.get('allow-dirty')),
@@ -641,33 +663,36 @@ Commands:
 
 Init options:
   --pixi-version <version>   Install this pixi release when setup is approved
-  --no-example              Initialize an empty workspace without example-box
-                             Without it, init asks first whether to include the example,
-                             defaulting to yes; without a terminal it is included.
+  --no-example               Initialize a workspace without the example-box scroll
+  --no-templates             Initialize a workspace without the consumer templates
+                             Without them, init asks about each, defaulting to yes; without
+                             a terminal both are included. Passing both leaves an empty
+                             workspace.
   --install-toolchain        Install missing pixi/conda-pack without asking
   --no-install-toolchain     Never install them; just report what is missing
                              With neither flag, init asks before downloading anything, and
                              installs into <toolchain> after a verified checksum check.
-                             When the example is present, init separately offers to install
-                             its TypeScript and Python consumer dependencies in the project
-                             root. Missing Conda offers a PyPI fallback.
+                             When the templates are present, one multi-select menu offers
+                             their TypeScript, Python and Rust dependencies. Missing Conda
+                             offers a PyPI fallback.
 
 New scroll options:
                              Interactively it asks four things — target, box id, upstream
-                             revision, and where boxes will be published — and derives the
-                             rest. Every derived value below is still a flag.
+                             revision, and where boxes will be published — plus the execution
+                             kind, and derives the rest. Every derived value below is a flag.
   --target <targetId>        Complete target, including the CUDA ABI when applicable
   --box-id <id>              Box identity
   --source-revision <rev>    Upstream source revision recorded in provenance
   --asset-base-url <url>     Base URL used in built release documents
-  --model-id <id>            Packaged model identity (default: the box id)
+  --model-id <id>            Identity of what the box packages (default: the box id)
   --runtime-id <id>          Runtime identity (default: <box-id>-runtime)
   --version <version>        Box version (default 1.0.0)
   --scroll-version <version> Scroll authoring version (default 1.0.0)
   --python-version <version> Python dependency version, or latest
   --pixi-version <version>   pixi resolver version (default: the installed pixi)
   --min-host-app-version <v> Minimum compatible host application version
-  --weights <mode>           embed or on-demand
+  --weights <mode>           embed (default) or on-demand; only matters once the box declares
+                             assets, so it is a flag rather than a question
   --execution <kind>         python-script, python-module, or library-only
   --script <path>            Existing project script for python-script
   --generate-script          Generate a minimal project script instead
@@ -717,10 +742,9 @@ Build options:
   --target <targetId>        Select a target when <scroll> names a box
   --channel <name>           Channel the signed pointer names (nightly, beta, or stable;
                              default beta)
-  --weights <mode>           embed (default: assets packed in, works air-gapped) or
-                             on-demand (caller-materialized; verified before execution)
-                             Without either flag, build shows an arrow-key menu. With no
-                             terminal to ask, it says which default it took and carries on.
+  --weights <mode>           embed (assets packed in, works air-gapped) or on-demand
+                             (caller-materialized; verified before execution). Overrides the
+                             scroll for this build; without it the scroll's own mode is used.
   --asset-base-url <url>     Override the scroll's published base URL
   --namespace <ns>           Document kind namespace (default scrollcase.box)
   --allow-dirty              Permit a build from an uncommitted source tree

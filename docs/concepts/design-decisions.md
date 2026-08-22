@@ -265,18 +265,20 @@ anywhere against any project that declares one.
 native host. The example is a complete runnable v2 scroll produced through the same validated
 authoring path as any other scroll. It prefers Metal on Apple Silicon and CPU elsewhere, never
 guesses a CUDA ABI, and never overwrites an existing example. Whether to create it at all is the
-first question asked, ahead of the dependency offers it decides the existence of, and it defaults to
-yes; `--no-example` answers it in advance, and a run without a terminal keeps the example rather
-than dropping it, since scaffolding a disposable directory installs nothing.
+one of the two questions asked first, and it defaults to yes; `--no-example` answers it in advance,
+and a run without a terminal keeps the example rather than dropping it, since scaffolding a
+disposable directory installs nothing.
 Its application starter lives at
 `box-entrypoints/<boxId>/<targetId>/entrypoint.py`: executable input is grouped by the same box and
 target it belongs to, without adding a redundant tool-named directory.
-Three adjacent, non-overwriting consumer examples show the other side of the boundary:
+Three adjacent, non-overwriting consumer templates show the other side of the boundary:
 `scrollcase/consumer` from TypeScript, `scrollcase_consumer` from Python, and
 `scrollcase-consumer` from Rust. They accept local release and trust inputs; they do not add
 download or distribution behavior. They live under `consumer-templates/`, with Rust in its own
-small Cargo crate, while a short non-overwriting `SCROLLCASE.md` keeps the basic workflow and links
-to the canonical documentation visible in the project.
+small Cargo crate, and they are the second question — separate from the example, because a project
+that wants no demo still has a consumer application to write, and these are where it starts. The
+dependency offers that follow belong to them. A short non-overwriting `SCROLLCASE.md` keeps the
+basic workflow and links to the canonical documentation visible in the project.
 
 `scrollcase new scroll` remains the only command that authors real project identity, target,
 versions, compatibility, weights, and execution intent. A non-terminal authoring call must provide

@@ -87,7 +87,7 @@ derived field is never wrong; `pythonEntryPoint` is still checked against the ta
 | `scrollId` | no | Provenance identity. When omitted, Scrollcase derives `<boxId>-<targetId>` |
 | `scrollVersion` | no | Version of the scroll itself — bump it when you change how the box is built. Defaults to `1.0.0` |
 | `boxId` | yes | Identity of the box across versions. Appears in archive names, object keys, and the channel pointer |
-| `modelId` | yes | Identity of the packaged model |
+| `modelId` | yes | Identity of what the box packages — a model, a library, an application |
 | `runtimeId` | yes | Identity of the runtime environment the box provides |
 | `version` | yes | Version of the box this scroll produces, as it appears in the release manifest |
 | `sourceRevision` | yes | Upstream revision of the packaged source, recorded verbatim into provenance |
@@ -103,10 +103,15 @@ An explicit `scrollId` lets a project choose its source identity. It may be omit
 and `target` already contain the meaningful identity and the derived value is deterministic.
 
 ::: tip Three identifiers, three questions
-`boxId` answers *which artefact is this a version of?*, `modelId` answers *what model is inside?*,
-and `runtimeId` answers *what environment does it provide?* Several boxes may package the same
-model with different runtimes, or the same runtime for different models; keeping the three
-separate is what lets a consumer reason about that.
+`boxId` answers *which artefact is this a version of?*, `modelId` answers *what is inside?*, and
+`runtimeId` answers *what environment does it provide?* Several boxes may package the same payload
+with different runtimes, or the same runtime for different payloads; keeping the three separate is
+what lets a consumer reason about that.
+
+The name is historical: the first boxes carried models. What it identifies is whatever the box
+packages, and a box that packages a library or an application names that. A project with nothing
+to distinguish there sets it to the `boxId` — which is what `scrollcase new scroll` does when
+`--model-id` is not passed, so it is a field most scrolls never think about.
 :::
 
 ## Target

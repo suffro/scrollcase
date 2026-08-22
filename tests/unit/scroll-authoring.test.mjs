@@ -9,6 +9,7 @@ import {
   DEFAULT_PYTHON_VERSION,
   LATEST_PYTHON_VERSION,
   createScroll,
+  ensureConsumerTemplates,
   ensureExampleScroll,
   resolvePythonVersion,
 } from '../../src/build/authoring.mjs';
@@ -78,6 +79,7 @@ describe('scroll authoring', () => {
       ['Python module', 'example_model.main'],
     ]);
     const asked = [];
+    const chosen = [];
     const options = await collectNewScrollOptions(new Map(), {
       terminal: true,
       ask: async (question, promptOptions = {}) => {
@@ -92,7 +94,8 @@ describe('scroll authoring', () => {
       },
       choose: async (question, _choices, chooseOptions = {}) => {
         expect(chooseOptions.hint).toEqual(expect.any(String));
-        return question === 'weights mode' ? 'embed' : 'python-module';
+        chosen.push(question);
+        return 'python-module';
       },
       chooseTargetValue: async (_candidates, targetOptions = {}) => {
         expect(targetOptions.hint).toEqual(expect.any(String));
@@ -104,6 +107,11 @@ describe('scroll authoring', () => {
 
     // Four questions, not nine: identity, provenance, where it will be published, how it runs.
     expect(asked).toEqual([...answers.keys()]);
+    // The weights mode is not among the menus. It decides where declared assets live, and a scroll
+    // packaging plain Python declares none — so it is a flag, and the scroll takes the default.
+    expect(chosen).toEqual(['execution kind']);
+    expect(options.weights).toBe('embed');
+    expect(result.scroll.weights).toBeUndefined();
     expect(options.modelId).toBe(BASE.boxId);
     expect(options.runtimeId).toBe(`${BASE.boxId}-runtime`);
     expect(options.version).toBe('1.0.0');
@@ -328,29 +336,45 @@ describe('scroll authoring', () => {
     const current = await workspace();
     const first = await ensureExampleScroll({ workspace: current, target: TARGET });
     await writeFile(first.generatedScriptPath, 'print("customized")\n');
+
+    const second = await ensureExampleScroll({ workspace: current, target: TARGET });
+
+    expect(second.created).toBe(false);
+    expect(second.written).toEqual([]);
+    expect(await readFile(first.generatedScriptPath, 'utf8')).toBe('print("customized")\n');
+  });
+
+  it('writes the consumer templates without an example, and never over an edited one', async () => {
+    const current = await workspace();
+    // No example scroll here at all: the templates are what a real consumer application starts
+    // from, so declining the demo must not take them away.
+    const first = await ensureConsumerTemplates({ workspace: current });
     const typescriptTemplate = join(current.root, 'consumer-templates', 'run-box.ts');
     const pythonTemplate = join(current.root, 'consumer-templates', 'run_box.py');
     const rustTemplate = join(current.root, 'consumer-templates', 'rust', 'src', 'main.rs');
     const rustManifest = join(current.root, 'consumer-templates', 'rust', 'Cargo.toml');
     const packageJson = join(current.root, 'package.json');
+    expect(first.written).toContain(typescriptTemplate);
+    // They name no box of their own: the release path is a placeholder for the project's box.
+    expect(await readFile(typescriptTemplate, 'utf8')).not.toContain('example-box');
+    expect(await readFile(typescriptTemplate, 'utf8')).toContain('<box-id>/<version>');
+
     await writeFile(typescriptTemplate, '// customized\n');
     await rm(pythonTemplate);
     await writeFile(rustTemplate, '// customized\n');
     await rm(rustManifest);
     await writeFile(packageJson, '{"type":"commonjs","custom":true}\n');
 
-    const second = await ensureExampleScroll({ workspace: current, target: TARGET });
+    const second = await ensureConsumerTemplates({ workspace: current });
 
-    expect(second.created).toBe(false);
     expect(second.written).toEqual([pythonTemplate, rustManifest]);
-    expect(await readFile(first.generatedScriptPath, 'utf8')).toBe('print("customized")\n');
     expect(await readFile(typescriptTemplate, 'utf8')).toBe('// customized\n');
     expect(await readFile(pythonTemplate, 'utf8')).toContain('run_box');
     expect(await readFile(rustTemplate, 'utf8')).toBe('// customized\n');
     expect(await readFile(rustManifest, 'utf8')).toContain('scrollcase-consumer-template');
     expect(await readFile(packageJson, 'utf8')).toBe('{"type":"commonjs","custom":true}\n');
 
-    const third = await ensureExampleScroll({ workspace: current, target: TARGET });
+    const third = await ensureConsumerTemplates({ workspace: current });
     expect(third.written).toEqual([]);
   });
 

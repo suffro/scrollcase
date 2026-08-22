@@ -3504,11 +3504,24 @@ Execution intent is a closed set at this level too — `python-script`, `python-
 `library-only` — and a `library-only` scroll declaring a script, a module or default arguments is
 refused rather than silently simplified.
 
+The weights mode is not one of the decisions `new scroll` asks about. It says where declared assets
+live — inside the archive, or beside it for the caller to materialize — and a box that declares no
+assets, which is most of them, has nothing for it to decide. `createScroll` defaults it to `embed`
+and then leaves it out of the generated file, because that is the schema's own default and a scroll
+should read like the decisions its author actually made. `--weights on-demand` states the other
+choice for a box whose assets are published separately.
+
 `ensureExampleScroll()` creates the disposable `example-box` that `init` offers, through the same
-validated authoring path as any real scroll, plus three non-overwriting consumer templates. The Rust
-template is a small Cargo crate with its own manifest and `/target/` ignore. An existing target
-directory is treated as authored input and left untouched, including when a user has edited the
-starter or any consumer template.
+validated authoring path as any real scroll. An existing target directory is treated as authored
+input and left untouched, including when a user has edited the starter.
+
+`ensureConsumerTemplates()` writes the three consumer templates, and is deliberately a separate
+function called from a separate question. The Rust template is a small Cargo crate with its own
+manifest and `/target/` ignore; none of the three is ever overwritten. They were once part of the
+example, and declining a throwaway scroll took them with it — which was wrong in the case that
+matters most: a project that knows it does not want a demo is a project that has an application to
+write, and these are that application's starting point. For the same reason they name no box of
+their own, only a placeholder release path the author fills in.
 
 **Rejected:** treating setup metadata as the project's real scroll, and equally, leaving a newcomer
 with an empty directory. The example is explicitly disposable onboarding material; real inputs are
@@ -4933,7 +4946,7 @@ minutes are separated from the ones that cost milliseconds so that a failure is 
 
 | Verb | Does | Reads | Writes | Network |
 | --- | --- | --- | --- | --- |
-| `init` | Scaffold a workspace and an example, then offer the dependencies | Host, existing files | `scrollcase.config.json`, `scrolls/example-box/…`, optionally the toolchain | Only with consent |
+| `init` | Scaffold a workspace, optionally an example and the consumer templates, then offer the dependencies | Host, existing files | `scrollcase.config.json`, `scrolls/example-box/…`, `consumer-templates/…`, optionally the toolchain | Only with consent |
 | `new scroll` | Author one complete target-specific [scroll](#scroll) | Flags or prompts | `scrolls/<boxId>/<targetId>/` | No |
 | `doctor` | Report whether this machine can build | Workspace, git, pixi, conda-pack | Nothing, ever | No |
 | `keygen` | Create a local [ed25519](#ed25519) signing key | Existing key files | `signing-private.pem`, `signing-public.json` | No |
@@ -4958,9 +4971,10 @@ that the directory is still empty afterwards — no config file, no `scrolls/`.
 
 #### `init` — scaffold, then ask
 
-`init` creates the workspace files and a fixed, disposable `example-box` scroll for the native host,
-then offers three optional installations: the build toolchain, the TypeScript consumer dependencies,
-and the Python consumer package.
+`init` creates the workspace files, and offers two independent extras: a fixed, disposable
+`example-box` scroll for the native host, and the consumer templates. It then offers the optional
+installations: the build toolchain, and the dependencies of whichever consumer templates the project
+wants.
 
 It refuses to be used as an authoring command. Passing `--target`, `--platform`, `--accelerator`,
 `--cuda-version`, `--box-id`, `--model-id` or `--runtime-id` fails with a pointer to `new scroll`:
@@ -4972,9 +4986,14 @@ fail(`init accepts only the fixed example; pass ${…} to scrollcase new scroll.
 
 **Rejected:** letting `init` author the project's first real scroll from flags. The example exists to
 be run once and deleted; a scaffolded scroll that looks like a real one invites a project to inherit
-identity decisions it never made. Whether to create it is the first question `init` asks, defaulting
-to yes, and `--no-example` produces an empty workspace for a project that wants neither without
-asking at all.
+identity decisions it never made. Whether to create it is one of the two questions `init` asks first,
+both defaulting to yes, and `--no-example` answers it without asking.
+
+**Also rejected:** one question for both extras. The consumer templates were originally written by
+`ensureExampleScroll`, so declining the demo silently declined them too — and the two answer
+different needs. The example is disposable; the templates are where a project's own consumer
+application starts, in whichever of the three languages it is written in. `--no-templates` declines
+them on their own, and passing both flags is what leaves a bare workspace.
 
 The example's target is chosen by `nativeExampleTarget()` — Metal on macOS, CPU everywhere else — so
 the demo never guesses a CUDA ABI version that the host may not have.
@@ -5084,9 +5103,9 @@ derivation.
 
 <div class="h4-section">
 
-#### `build` — a long pipeline behind two questions
+#### `build` — a long pipeline behind one question
 
-`build` resolves the scroll reference, runs the signing preflight, asks two questions, and then hands
+`build` resolves the scroll reference, runs the signing preflight, asks which channel, and then hands
 everything to `buildBox`:
 
 ```js
@@ -5094,15 +5113,21 @@ everything to `buildBox`:
 await ensureBuildSigningKeys(signing);
 // Asked at the CLI edge and passed down: buildBox never reads a terminal itself.
 const channel = await chooseCliValue('channel', ['beta', …], { flag: text(flags, 'channel') });
-const weights = await chooseCliValue('weights mode', ['embed', 'on-demand'], { … });
+const weights = text(flags, 'weights');
 ```
 
 The order is the point. The preflight is a read-only check that the keys exist (section 7.6), and it
-runs *before* the questions, which run *before* the first expensive stage. A missing key costs a
+runs *before* the question, which runs *before* the first expensive stage. A missing key costs a
 second, not the twenty minutes it would cost if it were discovered at the signing stage.
 
 `beta` is listed first so it is the highlighted default in the menu and the value taken when there is
 no terminal — the channel a build should land on unless someone deliberately says otherwise.
+
+The weights mode used to be a second menu, and that was a defect rather than a convenience. It was
+preselected on `embed`, so a build of a scroll declaring `on-demand` silently repacked the assets
+into the archive for anyone who answered by pressing Enter — the scroll's own declaration overridden
+by the menu's default. It is not asked any more: `buildBox` takes the scroll's mode, `--weights`
+overrides it deliberately, and the mode in effect is logged rather than negotiated.
 
 </div>
 
@@ -5338,11 +5363,9 @@ installer runs.**
 
 ```js
 // src/cli-init.mjs
-if (hasExample) {
-  shouldInstallTypeScript = await confirmTypeScript();
-  if (await confirmPython()) pythonSource = await choosePythonSource();
-  if (rustAvailable) shouldInstallRust = await confirmRust();
-}
+const offered = CONSUMER_LANGUAGES.filter((language) => language !== 'rust' || rustAvailable);
+const selected = hasTemplates ? await chooseConsumerLanguages(offered) : [];
+if (chose('python')) pythonSource = await choosePythonSource();
 const toolchain = await installToolchain();
 const typescript = shouldInstallTypeScript ? installTypeScript() : null;
 const python = pythonSource ? installPython(pythonSource) : null;
@@ -5353,20 +5376,27 @@ Interleaving them would let a multi-minute download interrupt the remaining ques
 who walked away with a half-collected set of choices and a half-installed project. It also makes the
 whole interaction reviewable as one block before anything irreversible happens.
 
-`resolveExampleChoice` answers the question that comes before all of those, because it decides which
-of them are asked at all: whether to scaffold the example. `--no-example` decides without asking, an
-interactive caller is asked and defaults to yes, and a caller without a terminal keeps the example.
-That last branch reads backwards next to the installs, where silence means no, and it is deliberate:
-writing a disposable scaffold into the workspace the user just pointed at is not an irreversible
-act, and a non-interactive `init` therefore still produces exactly what it produced before there was
-a question to answer.
+The three languages are **one multi-select menu**, not three consecutive yes/no prompts. They are the
+same question asked about three languages, and asked one at a time they became three chances to
+answer by reflex; asked together they are a list a person reads once. Nothing is preselected, and an
+empty selection is a complete answer rather than an unfinished question. The one list,
+`CONSUMER_LANGUAGES`, builds the menu and reads its answer back, so an entry cannot be offered
+without an installer behind it.
+
+`resolveExampleChoice` and `resolveTemplatesChoice` answer the questions that come before all of
+those. The templates decide which installs are offered at all; the example decides nothing else.
+`--no-example` and `--no-templates` decide without asking, an interactive caller is asked and
+defaults to yes, and a caller without a terminal keeps both. That last branch reads backwards next to
+the installs, where silence means no, and it is deliberate: writing a disposable scaffold into the
+workspace the user just pointed at is not an irreversible act, and a non-interactive `init`
+therefore still produces exactly what it produced before there was a question to answer.
 
 `resolvePythonConsumerSource` handles the one branch that cannot be decided in advance: conda-forge
 was chosen but conda is not installed. It offers PyPI, and a declined offer returns `null` — which
 skips the Python install rather than silently substituting a different package source.
 The CLI similarly probes Cargo before entering this sequence, so a missing optional package manager
-removes the Rust question rather than turning an accepted default into a subprocess failure.
-`tests/unit/cli-init.test.mjs` asserts the example question's three branches, the ordering, the
+leaves Rust out of the menu rather than turning an accepted default into a subprocess failure.
+`tests/unit/cli-init.test.mjs` asserts both scaffold questions' three branches, the ordering, the
 declined fallback, and the unavailable-Cargo branch.
 
 </div>
@@ -5912,11 +5942,11 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `assets.test.mjs` | Only bytes matching the declared size **and** hash are written; a resumed download sends the exact `Range` header; a same-size wrong-hash response is never promoted and restarts cleanly; a dropped connection is retried through injected time and logging |
 | `build-pipeline.test.mjs` | The pipeline end to end: scroll layout and target resolution, every refusal that must happen before probing or fetching, a full build-sign-verify, signed environment propagation into both manifests and self-tests, platform-correct symlink handling, `conda-meta/` reduced to identity, the `dist/` layout with nothing written twice, a **byte-identical rebuild** of the same commit, dirty-tree and non-checkout refusals, on-demand descriptors instead of packed assets, detection of a tampered archive, rejection of an untrusted key, and manifest agreement field by field |
 | `cli-args.test.mjs` | Every application argument after `--` is preserved byte for byte; the inline, separated and bare flag forms still parse as before |
-| `cli-init.test.mjs` | `[Y/n]` accepts an empty answer as yes while rejecting unknown input; every Node, Python, Rust, and toolchain answer is collected before any installer runs; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; unavailable Cargo skips both its question and install; no consumer questions are asked when there is no example |
+| `cli-init.test.mjs` | `[Y/n]` accepts an empty answer as yes while rejecting unknown input; the example and the templates are answered independently; every consumer and toolchain answer is collected before any installer runs; only what the one menu selected is installed; PyPI is offered when conda-forge was chosen without conda; a declined fallback installs nothing; unavailable Cargo is never offered even if selected; no consumer questions are asked when there are no templates |
 | `cli-output.test.mjs` | Symbols survive redirection while ANSI does not; only the symbol is coloured; `NO_COLOR` wins even when empty; the distribution summary is relative and hash-free |
 | `cli-run.test.mjs` | Exactly one release path before the separator; `runBox` is called once and the child's exit code is preserved; environment report flags and stderr formatting; a termination signal is re-raised *after* cleanup; the real CLI preserves application arguments and exit status, and forwards Ctrl-C while still removing the temporary box; a library-only release and an unmaterialised on-demand asset are refused; a non-native target is refused before any interpreter is spawned |
 | `cli-signing.test.mjs` | The preflight fails clearly when no local keys exist, refuses to overwrite an incomplete pair, and requires the trust key for an external signer without offering to generate one |
-| `cli-target-choice.test.mjs` | The whole selection policy: sole host target without a terminal, refusal of an ambiguous non-terminal choice, the macOS Metal default and preselection, the navigable menu, explicit `--target` honoured and validated, scroll selection through the menu and its non-terminal refusal, canonical target parsing including the CUDA ABI, example-scroll creation, `--no-example`, non-terminal `new scroll`, and the channel and weights menus |
+| `cli-target-choice.test.mjs` | The whole selection policy: sole host target without a terminal, refusal of an ambiguous non-terminal choice, the macOS Metal default and preselection, the navigable menu, explicit `--target` honoured and validated, scroll selection through the menu and its non-terminal refusal, canonical target parsing including the CUDA ABI, example-scroll creation, `--no-example` and `--no-templates` each on their own and together, non-terminal `new scroll`, the channel menu, and the multi-select menu — Space toggling, an empty confirmation, and a selection outside what was offered |
 | `cli-version.test.mjs` | `-v` and `--version` print exactly the package version, run from an unrelated working directory |
 | `cli-verify.test.mjs` | `verify --extracted` delegates to the consumer, reports signed identity and entry count, names a tampered path through the CLI failure edge, emits masked and explicitly revealed environment reports, refuses archive/self-test combinations, and requires a directory value |
 | `consumer-conformance.test.mjs` | Every case in the shared fixture, through the Node consumer |
@@ -5932,7 +5962,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `environment.test.mjs` | Case-aware Windows precedence, inherited-environment preservation, compact selection, host-value masking, explicit reveal, and report formatting |
 | `parity.test.mjs` | The metrics themselves — absolute error, relative error, cosine similarity, the zero-reference case, a length mismatch, which bound was breached — and the gate: one run per accelerator under each accelerator environment with the declared box environment applied, a failing build on drift, non-finite output refused, non-numeric output refused, at least two accelerators required, and the whole gate skipped when a scroll declares none |
 | `project-surface.test.mjs` | `init` scaffolds the workspace and never overwrites, so re-running is safe; `doctor` reports every problem at once with a remedy each, reports a wrong pixi version as a failure rather than an absence, and **writes nothing**; `audit` summarises straight from the lock, writes the reviewed copy only when asked, and fails when the lock no longer matches it |
-| `scroll-authoring.test.mjs` | Every authored shape — library-only, wizard answers, a module with default arguments, the Windows interpreter and conda platform derived from the adapter — plus a staged script hashed at a safe payload path, a generated starter whose declared hash matches its bytes, an initialised example left untouched, and refusal to overwrite anything |
+| `scroll-authoring.test.mjs` | Every authored shape — library-only, wizard answers with no weights menu among them, a module with default arguments, the Windows interpreter and conda platform derived from the adapter — plus a staged script hashed at a safe payload path, a generated starter whose declared hash matches its bytes, an initialised example left untouched, consumer templates written without an example and never over an edited one, and refusal to overwrite anything |
 | `signing.test.mjs` | The external signer: a quoted command with spaces is parsed and its result verified locally; a signer that validly signs a *different* payload is rejected; an invalid signature is rejected even when the payload was echoed exactly |
 | `toolchain.test.mjs` | The published asset name and URLs per host, a null rather than a guessed URL for an unsupported host, digest parsing in both checksum-file forms, verified installation including across filesystems, a checksum mismatch installing **nothing**, the pinned digest preferred over the server's, the pinned conda-pack version, and the `init` offer — nothing downloaded on a no, only what is missing asked for, both pins recorded, an unsupported host reported |
 | `v2-migration.test.mjs` | Only the canonical v2 scroll schema is published; a v1 signed document is rejected with the migration remedy; the channel vocabulary is closed; the workspace exposes no legacy field; and no retired product terminology survives in tracked content or paths |
@@ -6120,11 +6150,11 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | --- | --- | --- |
 | `src/cli.mjs` | Argument dispatch, workspace configuration, and the single failure path | 9.1, 9.2 |
 | `src/cli-args.mjs` | The flag grammar and the `--` passthrough boundary | 9.3 |
-| `src/cli-menu.mjs` | The raw-key menu, and the policy that turns a flag or a terminal into a choice | 9.4 |
+| `src/cli-menu.mjs` | The raw-key menus, single- and multi-select, and the policy that turns a flag or a terminal into a choice | 9.4 |
 | `src/cli-targets.mjs` | Target and scroll selection, including the host defaults | 9.4 |
 | `src/cli-authoring.mjs` | Input collection for `new scroll`, from flags or prompts | 9.4 |
 | `src/cli-edit.mjs` | Which box, which target, which field: the questions an edit asks | 9.4 |
-| `src/cli-init.mjs` | The order of `init`'s questions: the example first, then every answer before any installer | 9.4 |
+| `src/cli-init.mjs` | The order of `init`'s questions: the two scaffold questions first, then every answer before any installer | 9.4 |
 | `src/cli-signing.mjs` | The read-only signing preflight | 7.6 |
 | `src/cli-run.mjs` | Translating a child's terminal result into this process's own | 8.8 |
 | `src/cli-output.mjs` | Status symbols, the shared question layout, optional colour, and the distribution summary | 9.5 |

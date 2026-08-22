@@ -51,41 +51,49 @@ that question and is described under [`add`](#where-an-edit-goes).
 
 ## `init`
 
-Initialize a workspace and a fixed, disposable `example-box` for the native host. The example is a
-complete runnable v2 scroll: Metal on Apple Silicon and CPU on Linux or Windows. It is created
-through the normal validated authoring path and never overwritten. It also includes
-`consumer-templates/run-box.ts`, `consumer-templates/run_box.py`, and a small Rust crate at
-`consumer-templates/rust/`. They demonstrate the public Node, Python, and Rust consumer APIs against
-a caller-supplied local release and include their setup commands. If no `package.json` exists, it
-creates a private one with `"type": "module"`; an existing package file is never changed. The Rust
-crate has its own non-overwriting `Cargo.toml` and ignores only its generated `target/` directory. A
-concise, linked `SCROLLCASE.md` is always created unless one already exists.
+Initialize a workspace, and offer two independent extras: a fixed, disposable `example-box` for the
+native host, and the consumer templates. A concise, linked `SCROLLCASE.md` is always created unless
+one already exists.
 
-Whether to include it is the **first** question `init` asks, before anything is written, and it
-defaults to yes (`[Y/n]`). Answering no — or passing `--no-example`, which skips the question —
-omits `example-box`, the consumer examples, and the Node package file while retaining the workspace
-guide. Without a terminal the example is included, as it always was: unlike the installs below,
-writing the scaffold is not an act silence has to withhold consent for.
+The **example** is a complete runnable v2 scroll: Metal on Apple Silicon and CPU on Linux or
+Windows. It is created through the normal validated authoring path and never overwritten. It exists
+to be built once and deleted.
 
-When it generated the consumer templates, `init` separately asks whether to install their
-Node/TypeScript dependencies, whether to install the Python consumer from PyPI with pip or
-conda-forge with conda, and whether to add the Rust consumer to the generated Cargo manifest. It
-also offers to install `pixi` and `conda-pack` if they are missing. Each question is separated by a
-blank line, defaults to yes (`[Y/n]`) in an interactive terminal, and every answer is collected
-before the first installer runs. If conda-forge is selected but `conda` cannot start, another
-default-yes question offers PyPI instead. Without a terminal every answer remains no: a pipe or CI
-job does not grant installation consent by being silent.
+The **consumer templates** are `consumer-templates/run-box.ts`, `consumer-templates/run_box.py`, and
+a small Rust crate at `consumer-templates/rust/`. They demonstrate the public Node, Python, and Rust
+consumer APIs against a caller-supplied local release and include their setup commands, and they
+name no particular box: the release path in each is a placeholder for the project's own. If no
+`package.json` exists, `init` creates a private one with `"type": "module"`; an existing package
+file is never changed. The Rust crate has its own non-overwriting `Cargo.toml` and ignores only its
+generated `target/` directory.
+
+Both questions come before anything is written and default to yes (`[Y/n]`), and they are separate
+because they answer different needs: a project that does not want a throwaway demo still has an
+application to write against its boxes. `--no-example` and `--no-templates` answer without asking;
+passing both leaves the workspace and its guide alone. Without a terminal both are included, as they
+always were: unlike the installs below, writing a scaffold is not an act silence has to withhold
+consent for.
+
+When it generated the templates, `init` asks in **one multi-select menu** which of their
+dependencies to install — TypeScript, Python, Rust — using ↑/↓ to move, Space to select and Enter to
+confirm. Nothing is preselected, and confirming an empty selection installs nothing. Selecting
+Python then asks whether to take `scrollcase-consumer` from PyPI with pip or conda-forge with conda.
+`init` also offers to install `pixi` and `conda-pack` if they are missing. Every answer is collected
+before the first installer runs. If conda-forge is selected but `conda` cannot start, a default-yes
+question offers PyPI instead. Without a terminal nothing is installed: a pipe or CI job does not
+grant installation consent by being silent.
 
 ```sh
 scrollcase init [--pixi-version <version>]
-                [--no-example]
+                [--no-example] [--no-templates]
                 [--install-toolchain | --no-install-toolchain]
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--pixi-version` | example pin | Use this exact pixi release for the example and managed toolchain |
-| `--no-example` | ask | Initialize an empty workspace without `example-box`, without asking |
+| `--no-example` | ask | Initialize without the `example-box` scroll, without asking |
+| `--no-templates` | ask | Initialize without `consumer-templates/` and its package file, without asking |
 | `--install-toolchain` | ask | Install missing tools without prompting |
 | `--no-install-toolchain` | ask | Never install; just report what is missing |
 
@@ -118,15 +126,15 @@ Nothing is added to `PATH` and nothing is installed system-wide; later commands 
 because [tool discovery](#tool-discovery) looks in the toolchain directory. Deleting
 `.scrollcase/toolchain/` undoes the whole thing.
 
-The consumer prompts are independent of this managed build toolchain. Accepting the TypeScript
-prompt runs npm in the project root to install `scrollcase`, `typescript`, and `tsx`. Accepting the
-Python prompt installs `scrollcase-consumer` with either pip or conda-forge. For a PEP 668
-externally managed interpreter, `init` retries as a user-scoped installation and keeps package
-files outside the managed prefix. The conda-forge path checks Conda before installation and offers
-the PyPI fallback when it is missing. Accepting the Rust prompt runs
-`cargo add --manifest-path consumer-templates/rust/Cargo.toml scrollcase-consumer`, modifying only
-the generated template crate. If Cargo is unavailable, `init` skips that prompt without failing,
-keeps the Rust template, and prints the same command so it can be run after Rust is installed.
+The consumer selections are independent of this managed build toolchain. Selecting TypeScript runs
+npm in the project root to install `scrollcase`, `typescript`, and `tsx`. Selecting Python installs
+`scrollcase-consumer` with either pip or conda-forge. For a PEP 668 externally managed interpreter,
+`init` retries as a user-scoped installation and keeps package files outside the managed prefix. The
+conda-forge path checks Conda before installation and offers the PyPI fallback when it is missing.
+Selecting Rust runs `cargo add --manifest-path consumer-templates/rust/Cargo.toml
+scrollcase-consumer`, modifying only the generated template crate. If Cargo is unavailable, `init`
+leaves Rust out of the menu entirely without failing, keeps the Rust template, and prints the same
+command so it can be run after Rust is installed.
 
 The example follows Scrollcase's supported box target matrix. On another host, decline it or
 initialize with `--no-example`. Toolchain-only setup can still use any host for which pixi publishes a build.
@@ -135,9 +143,15 @@ initialize with `--no-example`. Toolchain-only setup can still use any host for 
 
 Create one `scrolls/<boxId>/<targetId>/` input. With a terminal it asks **four questions** — the
 target, the box id, the upstream revision, and the base URL boxes will be published under — plus
-navigable menus for weights, execution kind, and script source. Everything else has a defensible
-default and is a flag rather than a prompt. A required answer left blank repeats the question
-instead of ending the session.
+navigable menus for execution kind and script source. Everything else has a defensible default and
+is a flag rather than a prompt. A required answer left blank repeats the question instead of ending
+the session.
+
+The weights mode is one of those defaults rather than a menu. It decides whether declared assets are
+packed into the archive, and a box that declares none — which is most of them, since a scroll
+packages a Python environment and not necessarily a model — has nothing for it to decide. New
+scrolls take `embed` and say nothing about it; `--weights on-demand` states the other choice, and
+`scrollcase edit scroll` changes it later.
 
 Every question in the CLI has the same shape: a blank line, the field's name, one line saying what
 the field is, then the answer typed after ` ↳ `. The name is coloured and the explanation is not, so
@@ -170,7 +184,7 @@ scrollcase new scroll \
 | `--box-id` | Box identity and parent directory |
 | `--source-revision` | Upstream revision recorded in provenance |
 | `--asset-base-url` | Base URL copied into built release metadata |
-| `--model-id` | Packaged model identity. Defaults to the box id |
+| `--model-id` | Identity of what the box packages. Defaults to the box id |
 | `--runtime-id` | Runtime identity. Defaults to `<box-id>-runtime` |
 | `--version` | Box version. Defaults to `1.0.0` |
 | `--scroll-version` | Version of the authoring input. Defaults to `1.0.0` |
@@ -181,7 +195,7 @@ scrollcase new scroll \
 | `--min-macos-version` | Optional macOS floor |
 | `--min-ram-gb` | Optional positive RAM requirement |
 | `--min-nvidia-driver-version` | Optional NVIDIA driver floor |
-| `--weights` | `embed` or `on-demand` |
+| `--weights` | `embed` (default, and left out of the scroll) or `on-demand` |
 | `--execution` | `python-script`, `python-module`, or `library-only` |
 | `--script` | Existing project-relative Python script |
 | `--generate-script` | Generate a minimal starter instead of using an existing script |
@@ -452,7 +466,7 @@ menu. CI and other non-interactive callers must always provide it explicitly.
 | --- | --- | --- |
 | `--target` | ask when a box has several scrolls | Canonical target scroll to build |
 | `--channel` | `beta` | Channel the signed pointer names. The v2 vocabulary is closed to `nightly`, `beta`, and `stable` |
-| `--weights` | scroll's `weights`, else `embed` | The navigable menu offers `embed`, which packs assets into the archive (works air-gapped), and `on-demand`, which leaves them out for the caller to materialize; consumers verify them before execution |
+| `--weights` | scroll's `weights`, else `embed` | Overrides the scroll for this build: `embed` packs assets into the archive (works air-gapped), `on-demand` leaves them out for the caller to materialize; consumers verify them before execution. `build` does not ask — the scroll's declaration is what it uses |
 | `--asset-base-url` | scroll's `assetBaseUrl` | Base URL the signed documents point at; one of the two must be set |
 | `--namespace` | `scrollcase.box` | Document `kind` namespace — a project with boxes already in the field keeps emitting its own |
 | `--allow-dirty` | off | Permit a build from an uncommitted tree; recorded as `sourceTreeDirty: true` in the box |
