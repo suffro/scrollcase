@@ -29,6 +29,7 @@ import {
   parsePayloadDigestStream,
 } from '../contract/payload-digest.mjs';
 import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import { IMPLICIT_RUNTIME_ID, executionAffectingVariables } from '../contract/runtimes.mjs';
 import { resolveEnvironment } from '../environment.mjs';
 
 /**
@@ -152,7 +153,7 @@ function releaseEnvironmentReport(release, options = {}) {
       { source: 'host', values: process.env },
       { source: 'release', values: release.environment },
     ],
-    executionAffectingVariables: adapter.executionAffectingEnvironmentVariables,
+    executionAffectingVariables: executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   }).report;
@@ -322,7 +323,7 @@ export async function attachExtractedBox(releaseDocumentPath, {
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    pythonVersion: release.provenance.pythonVersion,
+    runtimeVersion: release.provenance.pythonVersion,
     files,
   });
   await verifyRequiredAssets(boxRoot, requiredAssetsOf(release));

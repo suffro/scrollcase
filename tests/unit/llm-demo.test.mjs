@@ -8,6 +8,7 @@ import { auditScroll } from '../../src/build/audit.mjs';
 import { readScroll } from '../../src/build/scroll.mjs';
 import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
 import { boxTargetAdapter, condaSubdir } from '../../src/contract/targets.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const example = join(root, 'examples', 'llm-demo');
@@ -190,7 +191,7 @@ describe('published local LLM demo box', () => {
       const manifest = await readFile(join(example, target, 'pixi.toml'), 'utf8');
       expect(manifest, target).toContain(`platforms = ["${condaSubdir(scroll.target)}"]`);
       expect(scroll.pythonEntryPoint, target)
-        .toBe(boxTargetAdapter(scroll.target).python.entryPoint);
+        .toBe(runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(boxTargetAdapter(scroll.target)).entryPoint);
     }
   });
 

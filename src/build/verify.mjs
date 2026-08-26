@@ -13,8 +13,18 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { assertNativeHost, assertPythonEntryPoint, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
-import { BOX_SCHEMA_VERSION, parseDocumentKind } from '../contract/documents.mjs';
+import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  IMPLICIT_RUNTIME_ID,
+  assertRuntimeEntryPoint,
+  executionAffectingVariables,
+  runtimeAdapter,
+} from '../contract/runtimes.mjs';
+import {
+  BOX_SCHEMA_VERSION,
+  parseDocumentKind,
+  unsupportedSchemaVersionMessage,
+} from '../contract/documents.mjs';
 import { resolveTrustedKeys, verifySignedDocument } from '../sign/index.mjs';
 
 const AGREEMENT_FIELDS = [
@@ -83,18 +93,15 @@ export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, 
   const releasePath = resolve(releaseDocumentPath);
   const signed = JSON.parse(await readFile(releasePath, 'utf8'));
   if (signed?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+    fail(unsupportedSchemaVersionMessage(1));
   }
   const [releaseSchema, boxSchema, targetSchema, executionSchema, signedSchema] =
     await loadManifestSchemas();
   const signedError = schemaValidationError(signed, signedSchema);
   if (signedError) fail(`Invalid signed document: ${signedError}.`);
   const release = await verifySignedDocument(signed, await resolveTrustedKeys({ publicPath, trustedKeys }));
-  if (release?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
-  }
   if (release?.schemaVersion !== BOX_SCHEMA_VERSION) {
-    fail(`Unsupported schemaVersion ${String(release?.schemaVersion)}; expected ${BOX_SCHEMA_VERSION}.`);
+    fail(unsupportedSchemaVersionMessage(release?.schemaVersion));
   }
   const releaseError = schemaValidationError(
     release,
@@ -104,7 +111,7 @@ export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, 
   if (releaseError) fail(`Invalid release manifest: ${releaseError}.`);
   if (parseDocumentKind(release.kind)?.type !== 'release') fail('Document is not a box release.');
   const adapter = boxTargetAdapter(release.target);
-  assertPythonEntryPoint(adapter, release.pythonEntryPoint);
+  assertRuntimeEntryPoint(IMPLICIT_RUNTIME_ID, adapter, release.pythonEntryPoint);
   // Describes the extracted tree rather than the archive, so it belongs on this side of the split.
   // `payloadDigest` needs no companion check: its `format` is a schema `const`, so a release naming
   // a format this build cannot read is already refused above, by name, as an invalid manifest.
@@ -164,7 +171,7 @@ export async function inspectBoxArchive(releaseDocumentPath, options = {}) {
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    pythonVersion: release.provenance.pythonVersion,
+    runtimeVersion: release.provenance.pythonVersion,
     files: resolvablePaths,
   });
 
@@ -213,7 +220,7 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
   const resolvedEnvironment = resolveEnvironment({
     platform: adapter.platform,
     layers: environmentLayers,
-    executionAffectingVariables: adapter.executionAffectingEnvironmentVariables,
+    executionAffectingVariables: executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   });
@@ -239,7 +246,13 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
         fail('Extracted payload does not match the signed release.');
       }
       const python = join(extracted, safeRelativePath(release.pythonEntryPoint));
-      run(python, ['-c', `${adapter.selfTestPython}\nimport ${release.selfTest.pythonImports.join(', ')}`], {
+      // The signed subset only: a consumer repeating this check has the imports and nothing else,
+      // and the runtime is the only thing that knows how to turn them into a command line.
+      const argv = runtimeAdapter(IMPLICIT_RUNTIME_ID).selfTestArgv({
+        probe: { imports: release.selfTest.pythonImports },
+        target: adapter,
+      });
+      run(python, argv, {
         cwd: extracted,
         env: resolvedEnvironment.environment,
       });

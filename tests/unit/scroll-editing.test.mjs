@@ -11,7 +11,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { addDependency, readRequirements, withDependency } from '../../src/build/dependencies.mjs';
+import { addDependency, withDependency } from '../../src/build/dependencies.mjs';
+import { readRequirements } from '../../src/runtimes/python/dependencies.mjs';
 import { sha256File } from '../../src/build/filesystem.mjs';
 import { readScroll } from '../../src/build/scroll.mjs';
 import {

@@ -10,7 +10,7 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from ._contract import target_adapter
+from ._contract import execution_affecting_variables, target_adapter
 from .errors import ScrollcaseConsumerError
 from .models import (
     BoxTarget,
@@ -76,7 +76,7 @@ def resolve_environment(
 
     dangerous = {
         _normalized_name(name, target.platform)
-        for name in adapter.execution_affecting_environment_variables
+        for name in execution_affecting_variables(adapter)
     }
     variables: list[tuple[EnvironmentVariableReport, bool]] = []
     for normalized, sources in records.items():

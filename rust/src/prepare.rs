@@ -20,6 +20,7 @@ use crate::archive::extract_zip_archive;
 use crate::contract::payload_digest::{
     parse_payload_digest_stream, PayloadDigestKind, MAX_PAYLOAD_DIGEST_BYTES, PAYLOAD_DIGEST_FILE,
 };
+use crate::contract::runtimes::{execution_affecting_variables, IMPLICIT_RUNTIME_ID};
 use crate::contract::targets::{assert_native_host, box_target_id, BoxTargetAdapter};
 use crate::environment::{
     resolve_environment, EnvironmentLayer, EnvironmentReport, EnvironmentSource, ResolveOptions,
@@ -311,7 +312,7 @@ fn release_environment_report(
                 values: release_pairs,
             },
         ],
-        execution_affecting_variables: adapter.execution_affecting_environment_variables,
+        execution_affecting_variables: &execution_affecting_variables(IMPLICIT_RUNTIME_ID, adapter)?,
         expanded: options.env_report || options.env_report_values,
         reveal_host_values: options.env_report_values,
     })?

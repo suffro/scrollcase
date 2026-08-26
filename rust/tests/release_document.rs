@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+use scrollcase_consumer::contract::runtimes::{runtime_adapter, IMPLICIT_RUNTIME_ID};
 use scrollcase_consumer::trust::TrustAnchors;
 use scrollcase_consumer::verify::inspect_release_document;
 
@@ -50,7 +51,11 @@ fn a_genuine_signed_release_is_accepted_and_fully_interpreted() {
     // The adapter is resolved from the signed target, and the entry point agreed with it.
     assert_eq!(
         inspected.release.python_entry_point,
-        inspected.adapter.python.entry_point
+        runtime_adapter(IMPLICIT_RUNTIME_ID)
+            .unwrap()
+            .layout(inspected.adapter.platform)
+            .unwrap()
+            .entry_point
     );
     assert_eq!(inspected.signed.signatures.len(), 1);
 }

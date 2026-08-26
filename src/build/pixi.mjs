@@ -18,9 +18,10 @@ import { chmod, copyFile, cp, mkdir, readFile, readdir, readlink, realpath, rm, 
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import * as tar from 'tar';
 import { resolvePayloadLinkTarget, targetCarriesLinks } from '../contract/links.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../contract/runtimes.mjs';
 import { compareStableStrings, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult as defaultRunResult } from './process.mjs';
-import { repairPosixLaunchers } from './launchers.mjs';
+import { repairPosixLaunchers } from '../runtimes/python/launchers.mjs';
 import { CONDA_PACK_VERSION, toolchainPaths } from './toolchain.mjs';
 import { getWorkspace } from './workspace.mjs';
 
@@ -313,14 +314,18 @@ async function keepsAsLink(root, linkPath, canonicalRoot) {
 }
 
 /**
- * Builds the box's `venv/` prefix from a scroll's committed pixi.lock and packs it for relocation.
+ * Builds the box's runtime prefix from a scroll's committed pixi.lock and packs it for relocation.
  *
  * Flow: install the exact locked env into an isolated workspace so pixi's `.pixi/envs` never
  * lands in the tracked scroll dir; conda-pack the prefix into a relocatable tarball; extract it
- * into `payloadDir/venv`; remove the service files that carry the build prefix (conda-unpack is
- * never run — see below); then dereference every symlink so the payload is link-free for the
- * archive layer. The multi-gigabyte workspace and tarball are removed before the payload is
- * archived.
+ * into the runtime's payload root; remove the service files that carry the build prefix
+ * (conda-unpack is never run — see below); then dereference every symlink so the payload is
+ * link-free for the archive layer. The multi-gigabyte workspace and tarball are removed before the
+ * payload is archived.
+ *
+ * Where that prefix lands and what the interpreter inside it is called are the runtime's answers,
+ * not this module's. Packing is substrate work — one pixi, one conda-pack, one tarball, whatever is
+ * inside it.
  *
  * `run` is injected so this composes with the orchestrator's logging and error model.
  *
@@ -333,8 +338,9 @@ async function keepsAsLink(root, linkPath, canonicalRoot) {
  *   payloadDir: string,
  *   adapter: import('../contract/targets.mjs').BoxTargetAdapter,
  *   run: typeof import('./process.mjs').run,
+ *   runtimeId?: string,
  * }} options
- * @returns {Promise<{ interpreter: string, prefix: string }>}
+ * @returns {Promise<{ interpreter: string, venvDir: string, sitePackagesRelative: string }>}
  */
 export async function installAndPackPixiEnvironment({
   pixi,
@@ -345,7 +351,9 @@ export async function installAndPackPixiEnvironment({
   payloadDir,
   adapter,
   run,
+  runtimeId = IMPLICIT_RUNTIME_ID,
 }) {
+  const layout = runtimeAdapter(runtimeId).layout(adapter);
   const workspace = join(buildDir, 'pixi-workspace');
   await rm(workspace, { recursive: true, force: true });
   await mkdir(workspace, { recursive: true });
@@ -360,7 +368,7 @@ export async function installAndPackPixiEnvironment({
   await rm(packPath, { force: true });
   run(condaPack, condaPackArguments(prefix, packPath));
 
-  const venvDir = join(payloadDir, 'venv');
+  const venvDir = join(payloadDir, ...layout.root.split('/'));
   await rm(venvDir, { recursive: true, force: true });
   await mkdir(venvDir, { recursive: true });
   // conda-pack emits the prefix contents at the tar root, so extracting into `venv` yields the
@@ -405,7 +413,7 @@ export async function installAndPackPixiEnvironment({
     await symlink(link.target, linkPath, type);
   }
 
-  const interpreter = join(payloadDir, ...adapter.python.entryPoint.split('/'));
+  const interpreter = join(payloadDir, ...layout.entryPoint.split('/'));
   // Deliberately do NOT run conda-unpack. conda-pack already replaces the build prefix with a
   // neutral placeholder, and the box imports and runs fine that way (a cold import from a moved
   // prefix was proven before any fixer). Running the fixer here would stamp the *build machine's*
@@ -429,7 +437,7 @@ export async function installAndPackPixiEnvironment({
   // conda console scripts (tqdm, isympy, …) embed the absolute build interpreter in a shell
   // trampoline shebang. Rewrite them to resolve Python next to themselves, so no build path
   // ships inside the box.
-  await repairPosixLaunchers(adapter, payloadDir, [prefix, workspace, payloadDir]);
+  await repairPosixLaunchers(layout, payloadDir, [prefix, workspace, payloadDir]);
 
   await rm(workspace, { recursive: true, force: true });
   await rm(packPath, { force: true });

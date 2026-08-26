@@ -13,6 +13,11 @@ import { collectFiles, safeRelativePath } from '../build/filesystem.mjs';
 import { assertExecutionFiles } from '../build/execution.mjs';
 import { fail } from '../build/process.mjs';
 import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  IMPLICIT_RUNTIME_ID,
+  executionAffectingVariables,
+  runtimeAdapter,
+} from '../contract/runtimes.mjs';
 import { resolveEnvironment } from '../environment.mjs';
 import { preparedBoxState, verifyRequiredAssets } from './verify-and-extract.mjs';
 
@@ -119,16 +124,22 @@ export async function runExtractedBox(prepared, options = {}) {
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    pythonVersion: release.provenance.pythonVersion,
+    runtimeVersion: release.provenance.pythonVersion,
     files,
   });
   await verifyRequiredAssets(prepared.root, prepared.requiredAssets);
 
   const python = join(prepared.root, ...safeRelativePath(release.pythonEntryPoint).split('/'));
-  const executionArgs = release.execution.kind === 'python-script'
-    ? [join(prepared.root, ...safeRelativePath(release.execution.script).split('/'))]
-    : ['-m', release.execution.module];
-  executionArgs.push(...release.execution.defaultArgs, ...callerArgs);
+  // The runtime states the command line in payload-relative terms and this end joins it: a box root
+  // is a real path on this host, and the format has no business deciding what one looks like.
+  const { args } = runtimeAdapter(IMPLICIT_RUNTIME_ID).buildArgv({
+    execution: release.execution,
+    target: adapter,
+  });
+  const executionArgs = args.map((argument) => (argument.kind === 'payload-path'
+    ? join(prepared.root, ...safeRelativePath(argument.value).split('/'))
+    : argument.value));
+  executionArgs.push(...callerArgs);
 
   const { environment, report: environmentReport } = resolveEnvironment({
     platform: adapter.platform,
@@ -137,7 +148,7 @@ export async function runExtractedBox(prepared, options = {}) {
       { source: 'caller', values: options.env },
       { source: 'release', values: release.environment },
     ],
-    executionAffectingVariables: adapter.executionAffectingEnvironmentVariables,
+    executionAffectingVariables: executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   });

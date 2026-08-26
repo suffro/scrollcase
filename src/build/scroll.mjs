@@ -14,7 +14,12 @@
 
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { assertPythonEntryPoint, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import { boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  IMPLICIT_RUNTIME_ID,
+  assertRuntimeEntryPoint,
+  runtimeAdapter,
+} from '../contract/runtimes.mjs';
 import { compareStableStrings, fileExists, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult } from './process.mjs';
 import { schemaValidationError } from './schema-validation.mjs';
@@ -218,7 +223,8 @@ function effectiveScroll(scroll, adapter, targetId) {
     scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
     scrollVersion: scroll.scrollVersion ?? '1.0.0',
     compatibility: scroll.compatibility ?? {},
-    pythonEntryPoint: scroll.pythonEntryPoint ?? adapter.python.entryPoint,
+    pythonEntryPoint: scroll.pythonEntryPoint
+      ?? runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(adapter).entryPoint,
     modelCacheSubdir: scroll.modelCacheSubdir ?? `model-cache/${scroll.boxId}`,
     assets: scroll.assets ?? [],
     selfTest: { ...scroll.selfTest, files: scroll.selfTest.files ?? [] },
@@ -274,7 +280,7 @@ async function readExactScroll(reference) {
   if (targetDirectory !== targetId) {
     fail(`Nested scroll target directory ${targetDirectory} does not match declared target ${targetId}.`);
   }
-  assertPythonEntryPoint(adapter, scroll.pythonEntryPoint);
+  assertRuntimeEntryPoint(IMPLICIT_RUNTIME_ID, adapter, scroll.pythonEntryPoint);
   return { adapter, dir, scroll, reference: normalized, targetId };
 }
 

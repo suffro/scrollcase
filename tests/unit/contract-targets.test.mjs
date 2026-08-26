@@ -46,13 +46,21 @@ describe('target adapters', () => {
     }
   });
 
-  it('describes a payload layout consumers can rely on', () => {
+  it('describes the substrate and archive facts a build depends on', () => {
     for (const adapter of boxTargetAdapters()) {
-      expect(adapter.python.payloadRoot, adapter.id).toBe('venv');
-      expect(adapter.python.entryPoint, adapter.id).toMatch(/^venv\//);
       expect(adapter.archive.format, adapter.id).toBe('zip');
-      // The scripts directory must sit inside the payload root, or an installed box cannot find it.
-      expect(adapter.python.scriptsDirectory, adapter.id).toMatch(/^venv/);
+      expect(adapter.condaSubdir, adapter.id).toMatch(/^(osx-arm64|linux-64|win-64)$/);
+      expect(adapter.nativeLibraryInspection.command, adapter.id).toBeTruthy();
+    }
+  });
+
+  it('carries only the operating system half of the execution-affecting variables', () => {
+    // The runtime contributes the rest. A target adapter that named PYTHONPATH would be saying a
+    // box is a Python box, which is exactly the coupling `runtimes.mjs` exists to remove.
+    for (const adapter of boxTargetAdapters()) {
+      for (const variable of adapter.executionAffectingEnvironmentVariables) {
+        expect(variable, adapter.id).not.toMatch(/^PYTHON/);
+      }
     }
   });
 

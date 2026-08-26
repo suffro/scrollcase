@@ -20,6 +20,9 @@ use std::time::Duration;
 use crate::environment::{
     resolve_environment, EnvironmentLayer, EnvironmentReport, EnvironmentSource, ResolveOptions,
 };
+use crate::contract::runtimes::{
+    execution_affecting_variables, runtime_adapter, RuntimeArgument, IMPLICIT_RUNTIME_ID,
+};
 use crate::error::{fail, Error, Result};
 use crate::execution::assert_execution_files;
 use crate::filesystem::collect_files;
@@ -28,7 +31,6 @@ use crate::prepare::{
     verify_and_extract_box, verify_required_assets, EnvironmentReportOptions, PrepareOptions,
     PreparedBox,
 };
-use crate::release::Execution;
 use crate::trust::TrustAnchors;
 
 /// What would be spawned, once the trust chain has finished and the environment is resolved.
@@ -241,7 +243,7 @@ fn resolve_run_environment(
                     .collect(),
             },
         ],
-        execution_affecting_variables: adapter.execution_affecting_environment_variables,
+        execution_affecting_variables: &execution_affecting_variables(IMPLICIT_RUNTIME_ID, adapter)?,
         expanded: options.environment.env_report || options.environment.env_report_values,
         reveal_host_values: options.environment.env_report_values,
     })
@@ -289,17 +291,19 @@ pub fn run_extracted_box(prepared: &PreparedBox, options: &RunOptions<'_>) -> Re
     verify_required_assets(root, prepared.required_assets())?;
 
     let python = join_relative(root, &safe_relative_path(&release.python_entry_point)?);
-    let mut arguments: Vec<String> = match execution {
-        Execution::PythonScript { script, .. } => vec![join_relative(root, &safe_relative_path(script)?)
-            .to_string_lossy()
-            .into_owned()],
-        Execution::PythonModule { module, .. } => vec!["-m".to_string(), module.clone()],
-    };
-    match execution {
-        Execution::PythonScript { default_args, .. }
-        | Execution::PythonModule { default_args, .. } => {
-            arguments.extend(default_args.iter().cloned());
-        }
+    // The runtime states the command line in payload-relative terms and this end joins it: a box
+    // root is a real path on this host, and the format has no business deciding what one looks
+    // like.
+    let invocation = runtime_adapter(IMPLICIT_RUNTIME_ID)?
+        .build_argv(&execution.as_runtime(), adapter.platform)?;
+    let mut arguments: Vec<String> = Vec::with_capacity(invocation.args.len() + options.args.len());
+    for argument in &invocation.args {
+        arguments.push(match argument {
+            RuntimeArgument::Literal(value) => value.clone(),
+            RuntimeArgument::PayloadPath(value) => join_relative(root, &safe_relative_path(value)?)
+                .to_string_lossy()
+                .into_owned(),
+        });
     }
     arguments.extend(options.args.iter().cloned());
 

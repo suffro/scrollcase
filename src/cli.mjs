@@ -33,7 +33,8 @@ import {
   installTypeScriptConsumerDependencies,
   SCROLLCASE_NPM_VERSION,
 } from './build/consumer-setup.mjs';
-import { addDependency, readRequirements } from './build/dependencies.mjs';
+import { addDependency } from './build/dependencies.mjs';
+import { readRequirements } from './runtimes/python/dependencies.mjs';
 import { findPixi, pixiLockArguments } from './build/pixi.mjs';
 import { fail, run } from './build/process.mjs';
 import { diagnose, ensureToolchain, initProject } from './build/project.mjs';

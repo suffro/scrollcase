@@ -397,7 +397,7 @@ The single source of truth for what a box is. See [The Box Format](/reference/bo
 | `condaSubdir` | `(target) => string` | The conda platform subdir (`osx-arm64`, `linux-64`, `win-64`) |
 | `pixiAccelerator` | `(scroll) => { accelerator, cudaVersion }` | The conda accelerator descriptor a scroll selects, rejecting target drift |
 | `assertNativeHost` | `(adapter, host = process) => void` | Throws unless the current host matches the adapter's OS and architecture |
-| `assertPythonEntryPoint` | `(adapter, entryPoint) => void` | Throws unless the entry point matches the adapter's layout |
+| `assertPythonEntryPoint` | `(adapter, entryPoint) => void` | Throws unless the entry point matches the runtime's layout for the target |
 
 ```js
 import { boxTargetId } from 'scrollcase/contract';

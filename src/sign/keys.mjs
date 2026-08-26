@@ -20,7 +20,11 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fail } from '../build/process.mjs';
 import { fileExists } from '../build/filesystem.mjs';
-import { BOX_SCHEMA_VERSION, PAYLOAD_ENCODING } from '../contract/document-shape.mjs';
+import {
+  BOX_SCHEMA_VERSION,
+  PAYLOAD_ENCODING,
+  unsupportedSchemaVersionMessage,
+} from '../contract/document-shape.mjs';
 
 /**
  * A published public key, as written by `keygen` and read back when verifying.
@@ -184,7 +188,7 @@ export function signWithLocalKey(payloadBytes, { privateKey, metadata }) {
  */
 export function decodeSignedDocument(document) {
   if (document?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+    fail(unsupportedSchemaVersionMessage(1));
   }
   if (document?.schemaVersion !== BOX_SCHEMA_VERSION || document?.payloadEncoding !== PAYLOAD_ENCODING) {
     fail('Unsupported signed document.');

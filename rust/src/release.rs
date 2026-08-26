@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::contract::documents::{parse_document_kind, DocumentType, BOX_SCHEMA_VERSION};
+use crate::contract::runtimes::RuntimeExecution;
 use crate::contract::targets::BoxTarget;
 use crate::error::{fail, Result};
 use crate::path::safe_relative_path;
@@ -125,6 +126,33 @@ pub enum Execution {
         /// Arguments always passed before a caller's own.
         default_args: Vec<String>,
     },
+}
+
+impl Execution {
+    /// Borrows this declaration in the terms the runtime rules read.
+    ///
+    /// The conversion lives here rather than in the contract mirror so that
+    /// [`crate::contract::runtimes`] never has to know the document model — it states rules about
+    /// names, and this is the document handing it the names.
+    #[must_use]
+    pub fn as_runtime(&self) -> RuntimeExecution<'_> {
+        match self {
+            Execution::PythonScript {
+                script,
+                default_args,
+            } => RuntimeExecution::Script {
+                script,
+                default_args,
+            },
+            Execution::PythonModule {
+                module,
+                default_args,
+            } => RuntimeExecution::Module {
+                module,
+                default_args,
+            },
+        }
+    }
 }
 
 /// How the box was produced. Recorded, signed, and never fabricated.

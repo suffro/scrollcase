@@ -24,6 +24,7 @@ from ._contract import (
     assert_execution_files,
     assert_native_host,
     path_under,
+    runtime_adapter,
 )
 from .errors import ScrollcaseConsumerError
 from .environment import resolve_environment
@@ -32,8 +33,6 @@ from .models import (
     BoxRunResult,
     EnvironmentReport,
     PreparedBox,
-    PythonModuleExecution,
-    PythonScriptExecution,
 )
 from .verify import prepared_box_state, verify_and_extract_box, verify_required_assets
 
@@ -165,15 +164,15 @@ def run_extracted_box(
     verify_required_assets(Path(prepared.root), prepared.required_assets)
 
     python = path_under(root, prepared.python_entry_point)
-    if isinstance(execution, PythonScriptExecution):
-        execution_args = [str(path_under(root, execution.script))]
-    elif isinstance(execution, PythonModuleExecution):
-        execution_args = ["-m", execution.module]
-    else:
-        raise ScrollcaseConsumerError(
-            f"Unsupported execution kind: {execution.kind}."
-        )
-    execution_args.extend(execution.default_args)
+    # The runtime states the command line in payload-relative terms and this end joins it: a box
+    # root is a real path on this host, and the format has no business deciding what one looks like.
+    invocation = runtime_adapter().build_argv(execution, state.target.platform)
+    execution_args = [
+        str(path_under(root, argument.value))
+        if argument.kind == "payload-path"
+        else argument.value
+        for argument in invocation.args
+    ]
     execution_args.extend(caller_args)
     environment, environment_report = resolve_environment(
         state.target,

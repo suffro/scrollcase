@@ -10,4 +10,4 @@
  * @throws {Error} when the embedded payload hash does not match the bytes
  */
 export function decodeDocumentPayload(document: import("./types/index.d.ts").SignedBoxDocument): unknown;
-export { BOX_SCHEMA_VERSION, CHANNELS, DEFAULT_DOCUMENT_NAMESPACE, PAYLOAD_ENCODING, SIGNATURE_ALGORITHM, documentKinds, isSignedBoxDocument, parseDocumentKind } from "./document-shape.mjs";
+export { BOX_SCHEMA_VERSION, CHANNELS, DEFAULT_DOCUMENT_NAMESPACE, PAYLOAD_ENCODING, SIGNATURE_ALGORITHM, documentKinds, isSignedBoxDocument, parseDocumentKind, unsupportedSchemaVersionMessage } from "./document-shape.mjs";

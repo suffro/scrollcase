@@ -29,6 +29,7 @@ import {
   payloadDigestStream,
 } from '../../src/contract/payload-digest.mjs';
 import { boxTargetAdapter, boxTargetId } from '../../src/contract/targets.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import {
   attachExtractedBox,
   runBox,
@@ -413,7 +414,7 @@ function replaceTokens(value, root = null) {
   if (typeof value === 'string') {
     const adapter = boxTargetAdapter(nativeTarget());
     return value
-      .replaceAll('$NATIVE_PYTHON', adapter.python.entryPoint)
+      .replaceAll('$NATIVE_PYTHON', runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(adapter).entryPoint)
       .replaceAll('$NATIVE_TARGET', boxTargetId(nativeTarget()))
       .replaceAll('$BOX', root ?? '$BOX');
   }

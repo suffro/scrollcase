@@ -5,11 +5,18 @@
  * absolute interpreter path in their shebang. That path means nothing on a user's machine, and
  * shipping it also leaks a developer's directory layout. Rewriting them to resolve Python next to
  * themselves is what makes the packed environment genuinely relocatable.
+ *
+ * It lives under the Python runtime rather than in `src/build/` because the trampoline it parses is
+ * a Python fact: the `'''exec'` header is what setuptools and conda generate when an absolute
+ * shebang would exceed the POSIX length limit, and the body left behind is Python source. Another
+ * runtime packed from the same conda-forge substrate may well need its shebangs rewritten too, but
+ * it will not need *this* parser, and pretending otherwise is how a shared helper acquires a
+ * per-runtime branch.
  */
 
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { collectFiles, fileExists } from './filesystem.mjs';
+import { collectFiles, fileExists } from '../../build/filesystem.mjs';
 
 /**
  * Removes either a direct shebang or a shell trampoline header from a launcher, leaving the Python
@@ -31,15 +38,16 @@ function posixLauncherBody(text) {
 /**
  * Makes generated POSIX console scripts resolve Python relative to their own installed path.
  *
- * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {import('../../contract/runtimes.mjs').BoxRuntimeLayout} layout where the runtime sits in
+ *   the payload, for the target being packed
  * @param {string} payloadDir
  * @param {readonly string[]} forbiddenPaths
  * @returns {Promise<void>}
  */
-export async function repairPosixLaunchers(adapter, payloadDir, forbiddenPaths) {
-  const scriptsRoot = join(payloadDir, ...adapter.python.scriptsDirectory.split('/'));
+export async function repairPosixLaunchers(layout, payloadDir, forbiddenPaths) {
+  const scriptsRoot = join(payloadDir, ...layout.scriptsDirectory.split('/'));
   if (!await fileExists(scriptsRoot)) return;
-  const pythonName = basename(adapter.python.entryPoint);
+  const pythonName = basename(layout.entryPoint);
   for (const file of await collectFiles(scriptsRoot)) {
     const path = join(scriptsRoot, ...file.split('/'));
     const bytes = await readFile(path);

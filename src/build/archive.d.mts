@@ -11,9 +11,10 @@
  * @param {string} archivePath
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
  * @param {readonly string[]} [uncompressedPaths] payload paths stored rather than deflated
+ * @param {string} [runtimeId] whose layout decides which entries carry the executable bit
  * @returns {Promise<void>}
  */
-export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, uncompressedPaths?: readonly string[]): Promise<void>;
+export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, uncompressedPaths?: readonly string[], runtimeId?: string): Promise<void>;
 /**
  * Lists and validates all entries before any ZIP data is trusted or extracted.
  *

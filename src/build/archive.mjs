@@ -20,6 +20,11 @@ import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { findEntryThroughLink, findUnresolvableLink } from '../contract/links.mjs';
 import {
+  IMPLICIT_RUNTIME_ID,
+  isExecutablePayloadPath,
+  runtimeAdapter,
+} from '../contract/runtimes.mjs';
+import {
   FIXED_ARCHIVE_TIME,
   collectEntries,
   collectFiles,
@@ -34,13 +39,17 @@ const ZIP_REGULAR_FILE = 0o100000;
 const ZIP_DIRECTORY = 0o040000;
 const ZIP_SYMBOLIC_LINK = 0o120000;
 
-/** Returns the stable archive mode for a box payload file. */
-function archiveFileMode(adapter, relativePath) {
+/**
+ * Returns the stable archive mode for a box payload file.
+ *
+ * Which paths need the bit is the runtime's rule, not the target's: a conda prefix generates
+ * hundreds of console scripts that no scroll could name, and the runtime is what knows where they
+ * land. The mode is still *synthesised* rather than read off disk, which is what keeps two builds
+ * of one commit byte-identical and keeps `payload-digest.v1` — which excludes mode — honest.
+ */
+function archiveFileMode(adapter, relativePath, executablePaths) {
   if (adapter.host.platform === 'win32') return 0o100644;
-  const scriptsDirectory = adapter.python.scriptsDirectory;
-  return relativePath === adapter.python.entryPoint || relativePath.startsWith(`${scriptsDirectory}/`)
-    ? 0o100755
-    : 0o100644;
+  return isExecutablePayloadPath(executablePaths, relativePath) ? 0o100755 : 0o100644;
 }
 
 /**
@@ -72,10 +81,18 @@ function isDeclaredUncompressed(path, declared) {
  * @param {string} archivePath
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
  * @param {readonly string[]} [uncompressedPaths] payload paths stored rather than deflated
+ * @param {string} [runtimeId] whose layout decides which entries carry the executable bit
  * @returns {Promise<void>}
  */
-export async function createDeterministicZip(payloadDir, archivePath, adapter, uncompressedPaths = []) {
+export async function createDeterministicZip(
+  payloadDir,
+  archivePath,
+  adapter,
+  uncompressedPaths = [],
+  runtimeId = IMPLICIT_RUNTIME_ID,
+) {
   const entries = await collectEntries(payloadDir);
+  const executablePaths = runtimeAdapter(runtimeId).executablePayloadPaths(adapter);
   assertPayloadLinksAreCarryable(entries);
   await rm(archivePath, { force: true });
   await mkdir(dirname(archivePath), { recursive: true });
@@ -100,7 +117,7 @@ export async function createDeterministicZip(payloadDir, archivePath, adapter, u
       compress: compressionLevel !== 0,
       compressionLevel,
       mtime: FIXED_ARCHIVE_TIME,
-      mode: archiveFileMode(adapter, entry.path),
+      mode: archiveFileMode(adapter, entry.path, executablePaths),
       forceDosTimestamp: true,
     });
   }

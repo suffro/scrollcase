@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { assertNativeHost, boxTargetId } from '../contract/targets.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../contract/runtimes.mjs';
 import { CHANNELS, documentKinds } from '../contract/documents.mjs';
 import { mergeEnvironmentLayers } from '../environment.mjs';
 import {
@@ -67,11 +68,13 @@ async function selfTestExtraCode(scroll, projectRoot) {
 
 /** Runs the scroll's self-test with the payload's own interpreter, under the target's environment. */
 function runSelfTest({ interpreter, adapter, scroll, payloadDir, run, extraCode = null }) {
-  const imports = `import ${scroll.selfTest.imports.join(', ')}`;
-  const code = extraCode
-    ? `${adapter.selfTestPython}\n${imports}\n${extraCode}`
-    : `${adapter.selfTestPython}\n${imports}`;
-  run(interpreter, ['-c', code], {
+  // The builder's probe is the signed one plus whatever extra source the scroll declared, and the
+  // runtime is the only thing that knows how to turn either into a command line.
+  const argv = runtimeAdapter(IMPLICIT_RUNTIME_ID).selfTestArgv({
+    probe: { imports: scroll.selfTest.imports, code: extraCode },
+    target: adapter,
+  });
+  run(interpreter, argv, {
     cwd: payloadDir,
     env: mergeEnvironmentLayers(
       adapter.platform,
@@ -230,7 +233,7 @@ export async function buildBox(name, options = {}) {
   assertExecutionFiles({
     execution: scroll.execution,
     adapter,
-    pythonVersion: scroll.pythonVersion,
+    runtimeVersion: scroll.pythonVersion,
     files: new Set(await collectFiles(payloadDir)),
   });
   // Everything needed to answer "where did this box come from, and could I rebuild it?".

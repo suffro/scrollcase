@@ -1,0 +1,269 @@
+{
+  "description": "Golden cases for the Scrollcase runtime model: where a runtime lives inside a box, which payload paths it needs the executable bit on, which paths a declared execution could resolve to, and the shell-free command line that runs it. Every implementation of the format proves its mirror against this file. Paths stay payload-relative on purpose: a box root is a real filesystem path and each language joins one in its own terms, so a joined expectation here would only pin the host that read it.",
+  "runtimes": [
+    {
+      "id": "python",
+      "executionKinds": ["python-script", "python-module"],
+      "executionEnvironmentVariables": [
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONSTARTUP",
+        "PYTHONBREAKPOINT"
+      ],
+      "layouts": [
+        {
+          "platform": "macos",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/bin/python",
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": "venv/lib",
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": ["venv/bin/python"],
+            "directories": ["venv/bin"]
+          }
+        },
+        {
+          "platform": "linux",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/bin/python",
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": "venv/lib",
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": ["venv/bin/python"],
+            "directories": ["venv/bin"]
+          }
+        },
+        {
+          "platform": "windows",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/python.exe",
+            "scriptsDirectory": "venv/Scripts",
+            "standardLibrary": "venv/Lib",
+            "executableSuffix": ".exe",
+            "launcherKind": "uv-windows-pe"
+          },
+          "executablePayloadPaths": {
+            "files": ["venv/python.exe"],
+            "directories": ["venv/Scripts"]
+          }
+        }
+      ]
+    }
+  ],
+  "executableMatches": [
+    {
+      "name": "the interpreter itself, by exact name",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "venv/bin/python",
+      "executable": true
+    },
+    {
+      "name": "a generated console script, by directory",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "venv/bin/tqdm",
+      "executable": true
+    },
+    {
+      "name": "a nested path under the scripts directory",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "venv/bin/nested/tool",
+      "executable": true
+    },
+    {
+      "name": "a library the interpreter loads but never executes",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "venv/lib/python3.14/os.py",
+      "executable": false
+    },
+    {
+      "name": "a sibling directory whose name only starts the same way",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "venv/binary-blob",
+      "executable": false
+    },
+    {
+      "name": "the application's own entry point, which the runtime never claims",
+      "runtime": "python",
+      "platform": "linux",
+      "path": "entrypoint.py",
+      "executable": false
+    },
+    {
+      "name": "the Windows interpreter, which sits outside its scripts directory",
+      "runtime": "python",
+      "platform": "windows",
+      "path": "venv/python.exe",
+      "executable": true
+    },
+    {
+      "name": "a Windows console script",
+      "runtime": "python",
+      "platform": "windows",
+      "path": "venv/Scripts/pip.exe",
+      "executable": true
+    },
+    {
+      "name": "the POSIX scripts directory on a Windows box",
+      "runtime": "python",
+      "platform": "windows",
+      "path": "venv/bin/tqdm",
+      "executable": false
+    }
+  ],
+  "executionDiscovery": [
+    {
+      "name": "a script resolves at exactly the path it declares",
+      "runtime": "python",
+      "platform": "linux",
+      "runtimeVersion": "3.11.15",
+      "execution": { "kind": "python-script", "script": "app/main.py", "defaultArgs": [] },
+      "candidates": ["app/main.py"]
+    },
+    {
+      "name": "a POSIX module is looked for at the root, in the standard library, and in site-packages",
+      "runtime": "python",
+      "platform": "linux",
+      "runtimeVersion": "3.11.15",
+      "execution": {
+        "kind": "python-module",
+        "module": "example_model.main",
+        "defaultArgs": ["--serve"]
+      },
+      "candidates": [
+        "example_model/main.py",
+        "example_model/main/__main__.py",
+        "venv/lib/python3.11/example_model/main.py",
+        "venv/lib/python3.11/example_model/main/__main__.py",
+        "venv/lib/python3.11/site-packages/example_model/main.py",
+        "venv/lib/python3.11/site-packages/example_model/main/__main__.py"
+      ]
+    },
+    {
+      "name": "a patch component names the same standard library directory",
+      "runtime": "python",
+      "platform": "macos",
+      "runtimeVersion": "3.12.4",
+      "execution": { "kind": "python-module", "module": "pkg", "defaultArgs": [] },
+      "candidates": [
+        "pkg.py",
+        "pkg/__main__.py",
+        "venv/lib/python3.12/pkg.py",
+        "venv/lib/python3.12/pkg/__main__.py",
+        "venv/lib/python3.12/site-packages/pkg.py",
+        "venv/lib/python3.12/site-packages/pkg/__main__.py"
+      ]
+    },
+    {
+      "name": "Windows names its standard library once, without an interpreter version",
+      "runtime": "python",
+      "platform": "windows",
+      "runtimeVersion": "3.11.15",
+      "execution": { "kind": "python-module", "module": "pkg", "defaultArgs": [] },
+      "candidates": [
+        "pkg.py",
+        "pkg/__main__.py",
+        "venv/Lib/pkg.py",
+        "venv/Lib/pkg/__main__.py",
+        "venv/Lib/site-packages/pkg.py",
+        "venv/Lib/site-packages/pkg/__main__.py"
+      ]
+    }
+  ],
+  "invalidRuntimeVersions": ["", "3", "3.x", "x.1", "3."],
+  "argv": [
+    {
+      "name": "a script runs as a payload path, with its declared arguments after it",
+      "runtime": "python",
+      "platform": "linux",
+      "execution": {
+        "kind": "python-script",
+        "script": "app/main.py",
+        "defaultArgs": ["--serve", "--port", "8080"]
+      },
+      "command": { "kind": "payload-path", "value": "venv/bin/python" },
+      "args": [
+        { "kind": "payload-path", "value": "app/main.py" },
+        { "kind": "literal", "value": "--serve" },
+        { "kind": "literal", "value": "--port" },
+        { "kind": "literal", "value": "8080" }
+      ]
+    },
+    {
+      "name": "a module runs through -m and is never a path",
+      "runtime": "python",
+      "platform": "macos",
+      "execution": {
+        "kind": "python-module",
+        "module": "example_model.main",
+        "defaultArgs": []
+      },
+      "command": { "kind": "payload-path", "value": "venv/bin/python" },
+      "args": [
+        { "kind": "literal", "value": "-m" },
+        { "kind": "literal", "value": "example_model.main" }
+      ]
+    },
+    {
+      "name": "a Windows box runs the same declaration through its own interpreter",
+      "runtime": "python",
+      "platform": "windows",
+      "execution": {
+        "kind": "python-script",
+        "script": "app/main.py",
+        "defaultArgs": []
+      },
+      "command": { "kind": "payload-path", "value": "venv/python.exe" },
+      "args": [{ "kind": "payload-path", "value": "app/main.py" }]
+    }
+  ],
+  "selfTest": [
+    {
+      "name": "macOS asserts Darwin before importing anything",
+      "runtime": "python",
+      "platform": "macos",
+      "probe": { "imports": ["json"] },
+      "args": ["-c", "import sys; assert sys.platform == 'darwin'\nimport json"]
+    },
+    {
+      "name": "Linux accepts any linux variant",
+      "runtime": "python",
+      "platform": "linux",
+      "probe": { "imports": ["json", "numpy"] },
+      "args": [
+        "-c",
+        "import sys; assert sys.platform.startswith('linux')\nimport json, numpy"
+      ]
+    },
+    {
+      "name": "Windows asserts win32",
+      "runtime": "python",
+      "platform": "windows",
+      "probe": { "imports": ["json"] },
+      "args": ["-c", "import sys; assert sys.platform == 'win32'\nimport json"]
+    },
+    {
+      "name": "the builder appends the extra source a scroll declared",
+      "runtime": "python",
+      "platform": "linux",
+      "probe": { "imports": ["json"], "code": "print(\"self-test ok\")\n" },
+      "args": [
+        "-c",
+        "import sys; assert sys.platform.startswith('linux')\nimport json\nprint(\"self-test ok\")\n"
+      ]
+    }
+  ]
+}

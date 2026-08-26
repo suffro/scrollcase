@@ -1560,28 +1560,27 @@ different one.
 #### Target adapters
 
 An adapter states what a target implies for the built payload. It is part of the format rather than
-an implementation detail, because a consumer unpacking a box relies on that layout to find the
-interpreter.
+an implementation detail, because a consumer unpacking a box relies on it.
 
 | Field | `macos-aarch64` | `linux-x86_64` | `windows-x86_64` |
 | --- | --- | --- | --- |
 | `host.platform` / `host.arch` | `darwin` / `arm64` | `linux` / `x64` | `win32` / `x64` |
 | `condaSubdir` | `osx-arm64` | `linux-64` | `win-64` |
-| `python.payloadRoot` | `venv` | `venv` | `venv` |
-| `python.entryPoint` | `venv/bin/python` | `venv/bin/python` | `venv/python.exe` |
-| `python.scriptsDirectory` | `venv/bin` | `venv/bin` | `venv/Scripts` |
-| `python.executableSuffix` | *(empty)* | *(empty)* | `.exe` |
-| `python.launcherKind` | `posix-polyglot` | `posix-polyglot` | `uv-windows-pe` |
 | `nativeLibraryInspection` | `otool -L`, `.dylib` `.so` | `ldd`, `.so` | `dumpbin /DEPENDENTS`, `.dll` `.pyd` |
 | `validationEnvironments` | `cpu`, `metal` | `cpu`, `cuda` | `cpu`, `cuda` |
-| `executionAffectingEnvironmentVariables` | Python controls + `DYLD_INSERT_LIBRARIES` | Python controls + `LD_PRELOAD` | Python controls |
-| `selfTestPython` | `assert sys.platform == 'darwin'` | `assert sys.platform.startswith('linux')` | `assert sys.platform == 'win32'` |
+| `executionAffectingEnvironmentVariables` | `DYLD_INSERT_LIBRARIES` | `LD_PRELOAD` | *(none)* |
 | `archive` | shared backend descriptor | shared backend descriptor | shared backend descriptor |
 
 Every adapter is deeply frozen, and `boxTargetAdapters()` hands out a fresh array, so a caller
 cannot mutate the format for everyone else in the process.
 
-Three details deserve their own note.
+**What an adapter deliberately does not state is the runtime inside the box.** The interpreter
+layout, the execution kinds and the runtime's own environment variables belong to
+[the runtime model](#_5-2a-the-runtime-model-—-runtimes-mjs). While they lived here, every target
+adapter was also a statement that a box is a Python box, and a second runtime would have been a fork
+of this table rather than one more adapter beside it.
+
+Two details deserve their own note.
 
 **`validationEnvironments` are how an accelerator is forced.** Each is a small environment map
 applied to validation runs — `CUDA_VISIBLE_DEVICES: ''` to force CPU, `CUDA_VISIBLE_DEVICES: '0'` to
@@ -1589,37 +1588,30 @@ force CUDA, `PYTORCH_ENABLE_MPS_FALLBACK: '0'` so a Metal run fails loudly inste
 falling back to CPU. Without that last one, a [parity](#parity) check comparing Metal against CPU
 could pass by comparing CPU against itself.
 
-**`executionAffectingEnvironmentVariables` drives diagnostics, not policy.** The shared Python set
-is `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, and `PYTHONBREAKPOINT`; the two POSIX loaders add
-their platform-specific injection variable. Their presence is reported because it can change which
-code runs. No adapter filters them.
-
-**`selfTestPython` is prepended to every self-test**, so the check begins by asserting it is running
-on the platform the box claims. A box that somehow reached the wrong operating system fails at the
-first line rather than at an import that happens to exist on both.
-
-**`launcherKind: 'uv-windows-pe'` is a frozen wire string.** It reads like a reference to a tool this
-project does not use, and it is: the value is inert, and only names a launcher shape. It is recorded
-here because it is the single most likely thing in the contract for a well-meaning cleanup to
-"correct", and changing it would change the format for every client that already reads it.
+**`executionAffectingEnvironmentVariables` drives diagnostics, not policy**, and is only half the
+list. A target contributes the operating system's own dynamic-linker controls — the two POSIX
+loaders have one each, and Windows has none worth naming, because `PATH` decides DLL resolution and
+is far too broad. The runtime contributes the rest, and
+`executionAffectingVariables(runtimeId, adapter)` is what joins the two halves, runtime first.
+Their presence is reported because it can change which code runs. No adapter filters them.
 
 </div>
 
 <div class="h4-section">
 
-#### Host and layout assertions
-
-Two guards are exported beside the model, and both are refusals rather than conveniences.
+#### Host assertion
 
 `assertNativeHost(adapter, host)` refuses to build or lock a target on a machine that is not the one
 it ships for. There is no cross-compilation: the environment being packed contains native code
 solved and installed for one platform, and a self-test run on the wrong host would prove nothing
 about the box.
 
-`assertPythonEntryPoint(adapter, entryPoint)` refuses a scroll whose declared interpreter path
-disagrees with the adapter's layout. The entry point is not free-form input — it is a fact about the
-target — and accepting a disagreement would produce a signed release whose `pythonEntryPoint`
-pointed at nothing.
+The layout assertion beside it — `assertPythonEntryPoint(adapter, entryPoint)` — keeps its published
+name while the wire format still spells the field `pythonEntryPoint`, and delegates to
+`assertRuntimeEntryPoint()` in the runtime model. It refuses a scroll whose declared interpreter
+path disagrees with the runtime's layout for that target. The entry point is not free-form input —
+it is a fact about the runtime and the target together — and accepting a disagreement would produce
+a signed release whose `pythonEntryPoint` pointed at nothing.
 
 </div>
 
@@ -1636,6 +1628,95 @@ is the default build — while `cuda` returns the version that pins a `cuda-vers
 system requirement that makes the solver select GPU builds.
 
 Reference: `tests/unit/contract-targets.test.mjs`.
+
+</div>
+
+<div class="h3-section-initial-part">
+
+### 5.2a The runtime model — `runtimes.mjs`
+
+
+A [target](#target) says which machine a box runs on. A **runtime** says what runs inside it: where
+the interpreter sits in the payload, which `execution.kind` values exist, how a declared entry point
+becomes a command line, and which inherited environment variables can change what that command
+loads. Those are different questions, and until the seam was cut they lived in one table.
+
+The module is contract-level for the same reason `targets.mjs` is: a consumer unpacking a box relies
+on the layout, and a consumer running one relies on the argv rule. `fixtures/runtime-contract.json`
+is what "the implementations agree" means here, and both mirrors — `rust/src/contract/runtimes.rs`
+and `python/src/scrollcase_consumer/_contract.py` — validate themselves against it.
+
+</div>
+
+<div class="h4-section">
+
+#### What an adapter states
+
+| Member | Answer for `python` |
+| --- | --- |
+| `id` | `python` |
+| `executionKinds` | `python-script`, `python-module` |
+| `executionEnvironmentVariables` | `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PYTHONBREAKPOINT` |
+| `layout(target)` | `root`, `entryPoint`, `scriptsDirectory`, `standardLibrary`, `executableSuffix`, `launcherKind` |
+| `executablePayloadPaths(target)` | the interpreter by name, and the scripts directory by prefix |
+| `resolveExecutionFiles({ execution, runtimeVersion, target })` | every payload path the declaration could resolve to, and the message for when none does |
+| `buildArgv({ execution, target })` | the shell-free command line, in payload-relative terms |
+| `selfTestArgv({ probe, target })` | the arguments that follow the interpreter for a self-test |
+
+The layout is `venv` on every target; what differs is where the interpreter and its generated
+scripts land inside it — `venv/bin/python` and `venv/bin` on POSIX, `venv/python.exe` and
+`venv/Scripts` on Windows — and where the standard library is, which is `venv/lib/python<major>.<minor>`
+on POSIX and `venv/Lib` on Windows, with no interpreter version in the path.
+
+**`launcherKind: 'uv-windows-pe'` is a frozen wire string.** It reads like a reference to a tool this
+project does not use, and it is: the value is inert, and only names a launcher shape. It is recorded
+here because it is the single most likely thing in the contract for a well-meaning cleanup to
+"correct", and changing it would change the format for every client that already reads it.
+
+**The self-test opens with a platform assertion**, so the check begins by proving it is running on
+the platform the box claims. A box that somehow reached the wrong operating system fails at the
+first line rather than at an import that happens to exist on both.
+
+</div>
+
+<div class="h4-section">
+
+#### Two shapes, and why they are shaped that way
+
+**`buildArgv` returns payload-relative paths tagged as paths, not a joined command line.** Each
+element is `{ kind: 'literal' | 'payload-path', value }`, and the caller resolves the payload paths
+against the box root it is holding. A box root is a real filesystem path; returning a joined string
+would put "what a Windows path looks like" inside the format, and would make the golden fixture
+depend on the host that happened to read it. The three consumers join in their own platform's
+terms — Node with `path.join`, Rust with `PathBuf`, Python with `Path.joinpath` — and the fixture
+pins the part they must agree on.
+
+**`resolveExecutionFiles` returns candidates plus a message, rather than throwing.** The caller owns
+the error path: `fail()` in the builder, a typed error in each consumer. The wording is part of the
+contract, so it lives beside the rule that produces it instead of being restated at every call site.
+
+Nothing in the module reads a file, joins a host path or starts a process. Every function is a
+statement about names, which is what makes the mirror provable at all. The builder-side half —
+launcher repair, authoring templates, the pixi dependency a runtime contributes — lives under
+`src/runtimes/<id>/`, where all three are allowed.
+
+</div>
+
+<div class="h4-section">
+
+#### One runtime, registered rather than assumed
+
+Only `python` is registered, and `runtimeAdapter('node')` is a `TypeError` rather than a stub. A
+registry that answered for a runtime no build can produce would move the failure somewhere further
+down, where the message no longer says what went wrong.
+
+The wire format carries no runtime declaration yet — a box records a Python entry point and Python
+execution kinds and nothing that says "Python" — so a reader that must name one names
+`IMPLICIT_RUNTIME_ID`, from a single place. Adding the declaration later changes an argument rather
+than starting a hunt for hard-coded strings.
+
+Reference: `tests/unit/contract-runtimes.test.mjs`, `rust/tests/contract.rs`,
+`python/tests/test_contract.py`.
 
 </div>
 
@@ -1735,7 +1816,10 @@ signature.
 
 1. **Refuse `schemaVersion: 1` explicitly**, with the remedy in the message —
    `Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.` A v1 document is not
-   reinterpreted, and it is not rejected as merely malformed either; it is named.
+   reinterpreted, and it is not rejected as merely malformed either; it is named. The wording comes
+   from `unsupportedSchemaVersionMessage()` in `document-shape.mjs`, so the payload decoder, the key
+   loader and the release verifier say one thing rather than three copies of it — which is what the
+   next version bump has to change in one place instead of four.
 2. **Refuse anything that fails the shape check.**
 3. **Hash the decoded bytes and compare against `payloadSha256`** *before* parsing them as JSON. A
    truncated or edited document is caught before its contents are read at all.
@@ -2353,7 +2437,7 @@ interpreter first runs should be able to see it without following a call graph.
 | 2 | Validate the build options | `box.mjs` | Channel in `CHANNELS`; weights mode; on-demand refuses `assetArchives` |
 | 3 | Refuse an unusable host, toolchain or tree | `targets.mjs`, `pixi.mjs`, `scroll.mjs` | `assertNativeHost`; pinned pixi and conda-pack located; `pixi.lock` present and hashed; git revision read, dirty tree refused |
 | 4 | Prepare the build tree | `box.mjs` | Removes and recreates `<buildDir>/<scrollId>/payload/`; clears the target's object directory under `dist/` |
-| 5 | Solve, pack and relocate | `pixi.mjs`, `launchers.mjs` | Installs into a build-local pixi workspace, packs it, extracts into `payload/venv/`, repairs it, deletes the workspace and tarball |
+| 5 | Solve, pack and relocate | `pixi.mjs`, `runtimes/python/launchers.mjs` | Installs into a build-local pixi workspace, packs it, extracts into `payload/venv/`, repairs it, deletes the workspace and tarball |
 | 6 | Stage assets | `assets.mjs` | Downloads verified assets, copies verified local files, expands asset archives — the downloads and the archives only when weights are embedded, the local files always |
 | 7 | Prune | `box.mjs` | Deletes each `prunePaths` entry from the payload |
 | 8 | Licence inventory | `licenses.mjs` | When the scroll declares a reviewed audit: recomputes from the lock, compares against it, writes `payload/THIRD_PARTY_NOTICES/conda-distributions.json` |
@@ -2481,7 +2565,8 @@ installed.
    path.
 6. **The directory names agree with the declarations.** The parent directory must equal `boxId` and
    the child must equal the canonical [target ID](#target-id).
-7. **The entry point agrees with the adapter**, via `assertPythonEntryPoint`.
+7. **The entry point agrees with the runtime's layout for the target**, via
+   `assertRuntimeEntryPoint`.
 
 Check 6 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
 are *checked context*, not identity: the scroll declares both facts, and the filesystem is required
@@ -2550,8 +2635,9 @@ on its own.
 Deriving in the reader rather than at each use is the whole point. The alternative — a `??` at every
 call site — spreads the definition of "what this field means when absent" across the builder, where
 two of them eventually disagree. Here there is one place to read, and a scroll that spells a derived
-field out explicitly produces exactly the same object as one that omits it; `assertPythonEntryPoint`
-still runs either way, so declaring the wrong interpreter is as much an error as it ever was.
+field out explicitly produces exactly the same object as one that omits it;
+`assertRuntimeEntryPoint` still runs either way, so declaring the wrong interpreter is as much an
+error as it ever was.
 
 </div>
 
@@ -2808,7 +2894,7 @@ lexical check cannot see — and both must say yes.
 
 <div class="h3-section-initial-part">
 
-### 6.6 Repairing launchers — `launchers.mjs`
+### 6.6 Repairing launchers — `runtimes/python/launchers.mjs`
 
 
 Console scripts generated at solve time (`tqdm`, `isympy`, `f2py`, …) carry the build machine's
@@ -3018,18 +3104,20 @@ For a **module**, the check enumerates the places Python would find it and asks 
 as a regular file:
 
 ```js
-// src/build/execution.mjs
+// src/contract/runtimes.mjs
 const relativeCandidates = [`${modulePath}.py`, `${modulePath}/__main__.py`];
-const standardLibrary = adapter.platform === 'windows'
-  ? 'venv/Lib'
-  : `venv/lib/python${pythonMajorMinor(pythonVersion)}`;
+const standardLibrary = target.platform === 'windows'
+  ? layout.standardLibrary
+  : `${layout.standardLibrary}/python${pythonMajorMinor(runtimeVersion)}`;
 const roots = ['', standardLibrary, `${standardLibrary}/site-packages`];
 ```
 
 Both `foo/bar.py` and `foo/bar/__main__.py` are accepted, since `python -m` runs either. The roots
 are the payload root, the standard library and `site-packages`, and the Windows standard library
 lives at `venv/Lib` rather than under a version-named directory — one of the three-target
-differences that no single-host test suite can catch.
+differences that no single-host test suite can catch. It is a *data* difference now rather than a
+branch: `standardLibrary` is a field of the runtime layout, and `src/build/execution.mjs` asks for
+candidates rather than deriving them.
 
 **Rejected:** proving a module by importing it. Importing runs `__init__.py`, which is application
 code, and would turn validation into execution before the trust chain has finished. The whole point
@@ -3592,7 +3680,9 @@ No version is looked up. An added dependency defaults to `*` and the committed `
 what was actually solved. **Rejected:** asking the network for a "latest" to write into the manifest,
 which would put a second, weaker pin beside the real one and leave the two to drift.
 
-`readRequirements` translates a pip `requirements.txt`. The table of PyPI names whose conda-forge
+`readRequirements`, in `src/runtimes/python/dependencies.mjs`, translates a pip `requirements.txt` —
+a Python fact, kept beside the runtime rather than in the substrate module that edits the manifest.
+The table of PyPI names whose conda-forge
 package is called something else is deliberately short — every entry is one this project can state
 with confidence — and **every rename and every skip is reported**, because a name guessed wrongly
 produces a lock that resolves and a box that cannot import what it was built for. That failure
@@ -3920,7 +4010,7 @@ theatre. Every code path that consumes a signed document — `build` re-verifyin
 // src/sign/keys.mjs
 export function decodeSignedDocument(document) {
   if (document?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+    fail(unsupportedSchemaVersionMessage(1));
   }
   if (document?.schemaVersion !== BOX_SCHEMA_VERSION || document?.payloadEncoding !== PAYLOAD_ENCODING) {
     fail('Unsupported signed document.');
@@ -6087,6 +6177,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/contract/index.mjs` | The contract entry point: the single source of truth for what a box is | 5.1 |
 | `src/contract/browser.mjs` | The same model without any Node built-in, for a browser or an edge runtime | 5.1 |
 | `src/contract/targets.mjs` | The [target](#target) model, the identity rule, and the adapter per target | 5.2 |
+| `src/contract/runtimes.mjs` | The runtime model: layout, execution kinds, discovery and shell-free argv | 5.2 |
 | `src/contract/document-shape.mjs` | The platform-neutral parts of the [envelope](#envelope): shape checks and namespacing | 5.3 |
 | `src/contract/documents.mjs` | The envelope reference implementation, including payload decoding | 5.3 |
 | `src/contract/links.mjs` | The rule deciding which [symbolic links](#symbolic-link) a payload may carry | 5.4 |
@@ -6106,7 +6197,6 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/workspace.mjs` | [Workspace](#workspace) discovery and path resolution | 6.3 |
 | `src/build/schema-validation.mjs` | Dependency-free runtime validation against the shipped schemas | 6.4 |
 | `src/build/pixi.mjs` | Tool discovery, the exact pixi and conda-pack arguments, packing and relocation | 6.5 |
-| `src/build/launchers.mjs` | Repairing the console scripts a conda environment generates | 6.6 |
 | `src/build/assets.mjs` | Verified download, verified copy, archive expansion, and the publish-ready move | 6.7 |
 | `src/build/licenses.mjs` | The [SPDX](#spdx) licence inventory derived from the [lockfile](#lockfile) | 6.8 |
 | `src/build/audit.mjs` | `auditScroll` — the inventory as a command, with the reviewed-copy comparison | 6.8 |
@@ -6123,6 +6213,24 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/consumer-setup.mjs` | The optional consumer dependencies an initialised project may want | 6.16 |
 | `src/build/toolchain.mjs` | Checksum-verified installation of pixi and conda-pack, only on consent | 4.2 |
 | `src/build/process.mjs` | `fail`, `run` and `runResult` — the one error path and the subprocess seam | 6.17 |
+
+</div>
+
+<div class="h4-section">
+
+#### `src/runtimes/` — what the substrate packs
+
+The builder-side half of the runtime seam. `src/contract/runtimes.mjs` states what a consumer must
+agree with and is mirrored in every language; these modules are the builder's alone, and they are
+what a box's runtime is allowed to need that another runtime would not.
+
+| Module | Role | Section |
+| --- | --- | --- |
+| `src/runtimes/index.mjs` | The registry of builder-side runtime adapters | 6.6 |
+| `src/runtimes/python/index.mjs` | The Python adapter: its pixi dependency, its launcher repair, its starter files | 6.6 |
+| `src/runtimes/python/launchers.mjs` | Repairing the console scripts a conda environment generates | 6.6 |
+| `src/runtimes/python/dependencies.mjs` | Reading a pip `requirements.txt` into conda-forge terms | 6.16 |
+| `src/runtimes/python/templates/index.mjs` | The Python source `new scroll` writes, and the interpreter constraint a generated manifest declares | 6.16 |
 
 </div>
 
@@ -6171,7 +6279,7 @@ Published separately, and listed here because it implements the same section 8 a
 | --- | --- | --- |
 | `error.rs` | One opaque error type and the `fail!` macro — the single failure path, deliberately not an enum a caller could match on and come to depend on | 8.1 |
 | `path.rs` | The path-safety primitive every extraction and attachment goes through | 8.2 |
-| `contract/` | The mirror: `targets.rs`, `documents.rs`, `links.rs`, `payload_digest.rs` | 5.2–5.5 |
+| `contract/` | The mirror: `targets.rs`, `runtimes.rs`, `documents.rs`, `links.rs`, `payload_digest.rs` | 5.2–5.5 |
 | `trust.rs` | Trust anchors from either source, key rotation, and strict ed25519 verification | 7.4 |
 | `release.rs` | The typed release and box manifests, refusing an unknown field where the others run a schema — except in `compatibility`, the one object the schema leaves open, whose unfamiliar constraints are carried to the caller | 8.1 |
 | `archive.rs` | Defensive reading and extraction, including the duplicate-name check the ZIP backend cannot make; that check locates EOCD or EOCD64 and streams only the declared central-directory records, because identical index bytes inside stored nested archives are payload data | 8.2, 8.6 |
@@ -6231,7 +6339,7 @@ consumer-only dependent avoid the entire build layer.
 | `condaSubdir` | function | The [conda subdir](#conda-subdir) a target maps to |
 | `pixiAccelerator` | function | The accelerator descriptor a scroll selects |
 | `assertNativeHost` | function | Refuses a build on a host that is not the target it ships for |
-| `assertPythonEntryPoint` | function | Refuses an entry point that disagrees with the adapter layout |
+| `assertPythonEntryPoint` | function | Refuses an entry point that disagrees with the runtime's layout for the target |
 | `documentKinds` | function | The three `kind` strings for a publishing project's namespace |
 | `parseDocumentKind` | function | Splits a `kind` back into namespace and document type |
 | `isSignedBoxDocument` | function | The structural envelope guard — shape only, never trust |

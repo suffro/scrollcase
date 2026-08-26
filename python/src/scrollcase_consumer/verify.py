@@ -34,6 +34,7 @@ from ._contract import (
     parse_payload_digest_stream,
     path_under,
     required_assets_from_json,
+    runtime_adapter,
     target_adapter,
     target_from_json,
     target_id,
@@ -301,10 +302,11 @@ def _inspect_release_document(
 
     target = target_from_json(cast(dict[str, Any], release["target"]))
     adapter = target_adapter(target)
-    if release["pythonEntryPoint"] != adapter.python_entry_point:
+    expected_entry_point = runtime_adapter().layout(adapter.platform).entry_point
+    if release["pythonEntryPoint"] != expected_entry_point:
         raise ScrollcaseConsumerError(
             f"{adapter.platform}-{adapter.arch} boxes must use Python entry point "
-            f"{adapter.python_entry_point}"
+            f"{expected_entry_point}"
         )
     return _InspectedRelease(
         release_path=release_path,

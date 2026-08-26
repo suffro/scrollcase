@@ -6,6 +6,40 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The box format now models the **runtime** separately from the **target**. A target says which
+  machine a box runs on; a runtime says what runs inside it — where the interpreter sits, which
+  execution kinds exist, how a declared entry point becomes a command line, and which inherited
+  environment variables can change what that command loads. Those facts lived inside the target
+  adapter, which made every target a statement that a box is a Python box and would have made a
+  second runtime a fork of that table. They now live in `src/contract/runtimes.mjs`, mirrored by
+  `rust/src/contract/runtimes.rs` and `python/src/scrollcase_consumer/_contract.py` and proven
+  against a new shared fixture, `src/contract/fixtures/runtime-contract.json`. **No wire format,
+  document, schema or existing fixture changes**, and the archive a given commit produces is
+  byte-for-byte what it produced before.
+
+- `boxTargetAdapter()` no longer returns a `python` block or a `selfTestPython` string, and its
+  `executionAffectingEnvironmentVariables` is now the operating system's half of the list only —
+  `DYLD_INSERT_LIBRARIES` on macOS, `LD_PRELOAD` on Linux, nothing on Windows. The runtime
+  contributes the `PYTHON*` half, and `executionAffectingVariables(runtimeId, adapter)` joins the
+  two in the order a diagnostic report prints them. The Rust `BoxTargetAdapter` and the Python
+  `TargetAdapter` lost the same fields, for the same reason. `assertPythonEntryPoint` keeps its
+  published name and signature in all three, and delegates to the runtime rule.
+
+- The builder-side half of a runtime now lives under `src/runtimes/<id>/`. `repairPosixLaunchers`
+  moved from `src/build/launchers.mjs` to `src/runtimes/python/launchers.mjs` — the conda shebang
+  trampoline it parses is a Python fact, not a build fact — and is still re-exported from
+  `scrollcase/build` under the same name. The pip `requirements.txt` reader moved beside it, and the
+  starter script, starter self-test and interpreter constraint that `new scroll` writes moved to
+  `src/runtimes/python/templates/`. The three places that had bypassed the adapter and hard-coded
+  `venv/`, or re-derived the Windows standard-library path in a branch, now ask the runtime.
+
+- The four Node call sites that each carried their own copy of the unsupported-`schemaVersion`
+  message share one `unsupportedSchemaVersionMessage()` in `src/contract/document-shape.mjs`. The
+  wording is unchanged; the next format version now has one sentence to edit per language rather
+  than four.
+
 ## [0.12.0] — 2026-08-22
 
 ### Added

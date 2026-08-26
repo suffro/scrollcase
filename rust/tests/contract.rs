@@ -12,10 +12,14 @@ use sha2::{Digest, Sha256};
 use scrollcase_consumer::contract::payload_digest::{
     payload_digest_stream, PayloadDigestEntry, PayloadDigestKind,
 };
+use scrollcase_consumer::contract::runtimes::{
+    runtime_adapter, runtime_adapters, RuntimeArgument, RuntimeExecution, SelfTestProbe,
+};
 use scrollcase_consumer::contract::targets::{box_target_id, BoxTarget};
 
 const TARGET_ID_CONTRACT: &str = include_str!("../fixtures/target-id-contract.json");
 const PAYLOAD_DIGEST_CONTRACT: &str = include_str!("../fixtures/payload-digest-contract.json");
+const RUNTIME_CONTRACT: &str = include_str!("../fixtures/runtime-contract.json");
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -67,6 +71,259 @@ fn matches_the_shared_target_id_contract() {
             Err(_) => true,
         };
         assert!(refused, "{} produced a target id", case.name);
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeContract {
+    runtimes: Vec<RuntimeCase>,
+    executable_matches: Vec<ExecutableMatchCase>,
+    execution_discovery: Vec<ExecutionDiscoveryCase>,
+    invalid_runtime_versions: Vec<String>,
+    argv: Vec<ArgvCase>,
+    self_test: Vec<SelfTestCase>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeCase {
+    id: String,
+    execution_kinds: Vec<String>,
+    execution_environment_variables: Vec<String>,
+    layouts: Vec<LayoutCase>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutCase {
+    platform: String,
+    layout: LayoutFields,
+    executable_payload_paths: ExecutablePathsFields,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutFields {
+    root: String,
+    entry_point: String,
+    scripts_directory: String,
+    standard_library: String,
+    executable_suffix: String,
+    launcher_kind: String,
+}
+
+#[derive(Deserialize)]
+struct ExecutablePathsFields {
+    files: Vec<String>,
+    directories: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ExecutableMatchCase {
+    name: String,
+    runtime: String,
+    platform: String,
+    path: String,
+    executable: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecutionDiscoveryCase {
+    name: String,
+    runtime: String,
+    platform: String,
+    runtime_version: String,
+    execution: ExecutionFields,
+    candidates: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ArgvCase {
+    name: String,
+    runtime: String,
+    platform: String,
+    execution: ExecutionFields,
+    command: ArgumentFields,
+    args: Vec<ArgumentFields>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SelfTestCase {
+    name: String,
+    runtime: String,
+    platform: String,
+    probe: ProbeFields,
+    args: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ProbeFields {
+    imports: Vec<String>,
+    #[serde(default)]
+    code: Option<String>,
+}
+
+/// The execution declaration as the fixture spells it, so the vectors are read exactly as the other
+/// implementations read them rather than through this crate's own release model.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecutionFields {
+    kind: String,
+    #[serde(default)]
+    script: Option<String>,
+    #[serde(default)]
+    module: Option<String>,
+    default_args: Vec<String>,
+}
+
+impl ExecutionFields {
+    fn as_runtime(&self) -> RuntimeExecution<'_> {
+        match self.kind.as_str() {
+            "python-script" => RuntimeExecution::Script {
+                script: self.script.as_deref().expect("a script case declares a script"),
+                default_args: &self.default_args,
+            },
+            "python-module" => RuntimeExecution::Module {
+                module: self.module.as_deref().expect("a module case declares a module"),
+                default_args: &self.default_args,
+            },
+            other => panic!("the fixture declares an execution kind this mirror has no shape for: {other}"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ArgumentFields {
+    kind: String,
+    value: String,
+}
+
+impl ArgumentFields {
+    fn matches(&self, argument: &RuntimeArgument) -> bool {
+        match (self.kind.as_str(), argument) {
+            ("literal", RuntimeArgument::Literal(value))
+            | ("payload-path", RuntimeArgument::PayloadPath(value)) => value == &self.value,
+            _ => false,
+        }
+    }
+}
+
+/// The Rust half of the shared runtime vectors.
+///
+/// Everything the runtime model states about a box — where the interpreter sits, which paths need
+/// the executable bit, what a declaration could resolve to, and the command line that runs it — is
+/// asserted here against the same file the Node and Python implementations read.
+#[test]
+fn matches_the_shared_runtime_contract() {
+    let contract: RuntimeContract = serde_json::from_str(RUNTIME_CONTRACT).unwrap();
+
+    let mirrored: Vec<&str> = runtime_adapters().iter().map(|runtime| runtime.id).collect();
+    let declared: Vec<&str> = contract.runtimes.iter().map(|case| case.id.as_str()).collect();
+    assert_eq!(mirrored, declared);
+
+    for case in &contract.runtimes {
+        let runtime = runtime_adapter(&case.id).unwrap();
+        assert_eq!(runtime.execution_kinds, case.execution_kinds, "{}", case.id);
+        assert_eq!(
+            runtime.execution_environment_variables, case.execution_environment_variables,
+            "{}",
+            case.id
+        );
+        for platform in &case.layouts {
+            let layout = runtime.layout(&platform.platform).unwrap();
+            let expected = &platform.layout;
+            assert_eq!(layout.root, expected.root, "{}", platform.platform);
+            assert_eq!(layout.entry_point, expected.entry_point, "{}", platform.platform);
+            assert_eq!(
+                layout.scripts_directory, expected.scripts_directory,
+                "{}",
+                platform.platform
+            );
+            assert_eq!(
+                layout.standard_library, expected.standard_library,
+                "{}",
+                platform.platform
+            );
+            assert_eq!(
+                layout.executable_suffix, expected.executable_suffix,
+                "{}",
+                platform.platform
+            );
+            assert_eq!(layout.launcher_kind, expected.launcher_kind, "{}", platform.platform);
+
+            let rule = runtime.executable_payload_paths(&platform.platform).unwrap();
+            assert_eq!(rule.files, platform.executable_payload_paths.files, "{}", platform.platform);
+            assert_eq!(
+                rule.directories, platform.executable_payload_paths.directories,
+                "{}",
+                platform.platform
+            );
+        }
+    }
+
+    for case in &contract.executable_matches {
+        let rule = runtime_adapter(&case.runtime)
+            .unwrap()
+            .executable_payload_paths(&case.platform)
+            .unwrap();
+        assert_eq!(rule.matches(&case.path), case.executable, "{}", case.name);
+    }
+
+    for case in &contract.execution_discovery {
+        let resolved = runtime_adapter(&case.runtime)
+            .unwrap()
+            .resolve_execution_files(
+                &case.execution.as_runtime(),
+                &case.platform,
+                &case.runtime_version,
+            )
+            .unwrap_or_else(|error| panic!("{} was refused: {error}", case.name));
+        assert_eq!(resolved.candidates, case.candidates, "{}", case.name);
+    }
+
+    let python = runtime_adapter("python").unwrap();
+    let module = ExecutionFields {
+        kind: "python-module".to_string(),
+        script: None,
+        module: Some("pkg".to_string()),
+        default_args: vec![],
+    };
+    for invalid in &contract.invalid_runtime_versions {
+        assert!(
+            python
+                .resolve_execution_files(&module.as_runtime(), "linux", invalid)
+                .is_err(),
+            "{invalid:?} was accepted"
+        );
+    }
+
+    for case in &contract.argv {
+        let invocation = runtime_adapter(&case.runtime)
+            .unwrap()
+            .build_argv(&case.execution.as_runtime(), &case.platform)
+            .unwrap();
+        assert!(case.command.matches(&invocation.command), "{}", case.name);
+        assert_eq!(invocation.args.len(), case.args.len(), "{}", case.name);
+        for (expected, produced) in case.args.iter().zip(invocation.args.iter()) {
+            assert!(expected.matches(produced), "{}", case.name);
+        }
+    }
+
+    for case in &contract.self_test {
+        let argv = runtime_adapter(&case.runtime)
+            .unwrap()
+            .self_test_argv(
+                &SelfTestProbe {
+                    imports: &case.probe.imports,
+                    code: case.probe.code.as_deref(),
+                },
+                &case.platform,
+            )
+            .unwrap();
+        assert_eq!(argv, case.args, "{}", case.name);
     }
 }
 
@@ -155,6 +412,7 @@ fn bundled_assets_match_the_canonical_sources() {
 
     let assets = [
         ("fixtures/target-id-contract.json", "fixtures/target-id-contract.json"),
+        ("fixtures/runtime-contract.json", "fixtures/runtime-contract.json"),
         ("fixtures/payload-digest-contract.json", "fixtures/payload-digest-contract.json"),
         ("fixtures/consumer-conformance.json", "fixtures/consumer-conformance.json"),
         ("schema/signed-document.schema.json", "src/contract/schema/signed-document.schema.json"),

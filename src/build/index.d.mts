@@ -1,4 +1,4 @@
-export { repairPosixLaunchers } from "./launchers.mjs";
+export { repairPosixLaunchers } from "../runtimes/python/launchers.mjs";
 export { CONDA_PACK_VERSION } from "./toolchain.mjs";
 export { createDeterministicZip, extractZipArchive, listZipEntries } from "./archive.mjs";
 export { collectFiles, fileExists, payloadDigest, sha256File } from "./filesystem.mjs";

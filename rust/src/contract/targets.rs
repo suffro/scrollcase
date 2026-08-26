@@ -7,11 +7,15 @@
 //! what "agree" means, and `tests/contract.rs` proves this mirror against them.
 //!
 //! The adapter describes what a target implies for the extracted tree. Only the parts a consumer
-//! relies on are carried here: the interpreter layout it must find, the inherited variables that can
-//! change which code that interpreter loads, and the platform assertion a self-test opens with. The
-//! builder's own adapter additionally names the archive backend, the conda subdir and the native
-//! library inspector — all of them decisions taken while a box is produced, none of them observable
-//! by something that only unpacks and runs one.
+//! relies on are carried here: the native host it may run on, and the operating system's own
+//! dynamic-linker controls. The builder's own adapter additionally names the archive backend, the
+//! conda subdir and the native library inspector — all of them decisions taken while a box is
+//! produced, none of them observable by something that only unpacks and runs one.
+//!
+//! What a target deliberately no longer describes is the *runtime* inside the box. The interpreter
+//! layout, the execution kinds and the runtime's own environment variables live in
+//! [`super::runtimes`], because they are facts about what a box runs rather than about the machine
+//! it runs on.
 //!
 //! The native host is expressed in Rust's own `OS`/`ARCH` vocabulary rather than Node's
 //! `darwin`/`arm64`. Those strings never appear in a signed document; they only answer "may this
@@ -36,21 +40,6 @@ pub struct BoxTarget {
     pub cuda_version: Option<String>,
 }
 
-/// Layout of the interpreter inside an extracted box.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PythonLayout {
-    /// Directory the packed prefix was relocated into.
-    pub payload_root: &'static str,
-    /// Interpreter path, relative to the box root.
-    pub entry_point: &'static str,
-    /// Directory holding console scripts.
-    pub scripts_directory: &'static str,
-    /// Suffix an executable carries on this platform.
-    pub executable_suffix: &'static str,
-    /// Frozen wire string naming how launchers were repaired.
-    pub launcher_kind: &'static str,
-}
-
 /// What a target implies for the extracted tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoxTargetAdapter {
@@ -64,44 +53,18 @@ pub struct BoxTargetAdapter {
     pub host_os: &'static str,
     /// `std::env::consts::ARCH` value a host must report to run this box.
     pub host_arch: &'static str,
-    /// Interpreter layout inside the box.
-    pub python: PythonLayout,
-    /// Inherited variables whose presence can change which code the interpreter loads.
+    /// The operating system's own dynamic-linker controls; the runtime adds the variables its
+    /// loader reads, and [`super::runtimes::execution_affecting_variables`] joins the two halves.
     pub execution_affecting_environment_variables: &'static [&'static str],
-    /// The platform assertion prepended to every self-test.
-    pub self_test_python: &'static str,
 }
 
-const PYTHON_EXECUTION_ENVIRONMENT: &[&str] = &[
-    "PYTHONPATH",
-    "PYTHONHOME",
-    "PYTHONSTARTUP",
-    "PYTHONBREAKPOINT",
-];
+const MACOS_EXECUTION_ENVIRONMENT: &[&str] = &["DYLD_INSERT_LIBRARIES"];
 
-const MACOS_EXECUTION_ENVIRONMENT: &[&str] = &[
-    "PYTHONPATH",
-    "PYTHONHOME",
-    "PYTHONSTARTUP",
-    "PYTHONBREAKPOINT",
-    "DYLD_INSERT_LIBRARIES",
-];
+const LINUX_EXECUTION_ENVIRONMENT: &[&str] = &["LD_PRELOAD"];
 
-const LINUX_EXECUTION_ENVIRONMENT: &[&str] = &[
-    "PYTHONPATH",
-    "PYTHONHOME",
-    "PYTHONSTARTUP",
-    "PYTHONBREAKPOINT",
-    "LD_PRELOAD",
-];
-
-const POSIX_PYTHON: PythonLayout = PythonLayout {
-    payload_root: "venv",
-    entry_point: "venv/bin/python",
-    scripts_directory: "venv/bin",
-    executable_suffix: "",
-    launcher_kind: "posix-polyglot",
-};
+// Windows has no inherited loader control of its own worth reporting: `PATH` decides DLL
+// resolution and is far too broad to name here, so the whole list is the runtime's.
+const WINDOWS_EXECUTION_ENVIRONMENT: &[&str] = &[];
 
 const TARGET_ADAPTERS: &[BoxTargetAdapter] = &[
     BoxTargetAdapter {
@@ -110,9 +73,7 @@ const TARGET_ADAPTERS: &[BoxTargetAdapter] = &[
         arch: "aarch64",
         host_os: "macos",
         host_arch: "aarch64",
-        python: POSIX_PYTHON,
         execution_affecting_environment_variables: MACOS_EXECUTION_ENVIRONMENT,
-        self_test_python: "import sys; assert sys.platform == 'darwin'",
     },
     BoxTargetAdapter {
         id: "linux-x86_64",
@@ -120,9 +81,7 @@ const TARGET_ADAPTERS: &[BoxTargetAdapter] = &[
         arch: "x86_64",
         host_os: "linux",
         host_arch: "x86_64",
-        python: POSIX_PYTHON,
         execution_affecting_environment_variables: LINUX_EXECUTION_ENVIRONMENT,
-        self_test_python: "import sys; assert sys.platform.startswith('linux')",
     },
     BoxTargetAdapter {
         id: "windows-x86_64",
@@ -130,17 +89,7 @@ const TARGET_ADAPTERS: &[BoxTargetAdapter] = &[
         arch: "x86_64",
         host_os: "windows",
         host_arch: "x86_64",
-        python: PythonLayout {
-            payload_root: "venv",
-            entry_point: "venv/python.exe",
-            scripts_directory: "venv/Scripts",
-            executable_suffix: ".exe",
-            // Reads like a stale reference to a tool this project does not use. It is a frozen wire
-            // string under the published format; it is not a typo and must not be "cleaned".
-            launcher_kind: "uv-windows-pe",
-        },
-        execution_affecting_environment_variables: PYTHON_EXECUTION_ENVIRONMENT,
-        self_test_python: "import sys; assert sys.platform == 'win32'",
+        execution_affecting_environment_variables: WINDOWS_EXECUTION_ENVIRONMENT,
     },
 ];
 
@@ -255,20 +204,20 @@ pub fn assert_host(adapter: &BoxTargetAdapter, os: &str, arch: &str) -> Result<(
     Ok(())
 }
 
-/// Ensures a release's entry point agrees with the adapter's standalone Python layout.
+/// Ensures a release's entry point agrees with the standalone Python layout for this target.
+///
+/// Kept under its published name while the wire format still spells the field `pythonEntryPoint`.
+/// The rule itself lives in [`super::runtimes`], where it can be asked about any runtime.
 ///
 /// # Errors
 ///
-/// When the entry point is not the one the adapter defines.
+/// When the entry point is not the one the runtime defines for this target.
 pub fn assert_python_entry_point(adapter: &BoxTargetAdapter, entry_point: &str) -> Result<()> {
-    if entry_point != adapter.python.entry_point {
-        fail!(
-            "{} boxes must use Python entry point {}",
-            adapter.id,
-            adapter.python.entry_point
-        );
-    }
-    Ok(())
+    super::runtimes::assert_runtime_entry_point(
+        super::runtimes::IMPLICIT_RUNTIME_ID,
+        adapter,
+        entry_point,
+    )
 }
 
 #[cfg(test)]

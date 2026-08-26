@@ -14,13 +14,19 @@ from pathlib import Path
 from typing import Any, cast
 
 from scrollcase_consumer._contract import (
+    IMPLICIT_RUNTIME_ID,
     PAYLOAD_DIGEST_FILE,
     PAYLOAD_DIGEST_FORMAT,
     SCHEMA_FILES,
     PayloadDigestEntry,
     absolute_path,
+    execution_affecting_variables,
+    execution_from_json,
     parse_payload_digest_stream,
     payload_digest_stream,
+    runtime_adapter,
+    runtime_adapters,
+    target_adapter,
     target_from_json,
     target_id,
 )
@@ -67,6 +73,170 @@ class ContractMirrorTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class RuntimeContractTests(unittest.TestCase):
+    """The Python half of the shared runtime vectors.
+
+    These drive ``src/contract/fixtures/runtime-contract.json``, the same file
+    ``tests/unit/contract-runtimes.test.mjs`` and ``rust/tests/contract.rs`` drive. Where a runtime
+    lives inside a box, which paths it needs the executable bit on, what a declared execution could
+    resolve to and the command line that runs it are all statements three implementations have to
+    agree on, and this is where this one is held to them.
+    """
+
+    @staticmethod
+    def _load() -> dict[str, Any]:
+        repo_root = Path(__file__).resolve().parents[2]
+        return cast(
+            dict[str, Any],
+            json.loads(
+                (
+                    repo_root
+                    / "src"
+                    / "contract"
+                    / "fixtures"
+                    / "runtime-contract.json"
+                ).read_text(encoding="utf-8")
+            ),
+        )
+
+    def test_exposes_exactly_the_runtimes_the_fixture_describes(self) -> None:
+        fixture = self._load()
+        self.assertEqual(
+            [runtime.id for runtime in runtime_adapters()],
+            [case["id"] for case in fixture["runtimes"]],
+        )
+
+    def test_refuses_a_runtime_the_format_does_not_define(self) -> None:
+        for runtime_id in ("node", "native", ""):
+            with self.subTest(runtime_id=runtime_id):
+                with self.assertRaises(ScrollcaseConsumerError):
+                    runtime_adapter(runtime_id)
+
+    def test_reproduces_every_golden_layout_and_executable_rule(self) -> None:
+        for case in self._load()["runtimes"]:
+            runtime = runtime_adapter(case["id"])
+            self.assertEqual(
+                list(runtime.execution_kinds), case["executionKinds"]
+            )
+            self.assertEqual(
+                list(runtime.execution_environment_variables),
+                case["executionEnvironmentVariables"],
+            )
+            for platform in case["layouts"]:
+                with self.subTest(runtime=case["id"], platform=platform["platform"]):
+                    layout = runtime.layout(platform["platform"])
+                    self.assertEqual(
+                        {
+                            "root": layout.root,
+                            "entryPoint": layout.entry_point,
+                            "scriptsDirectory": layout.scripts_directory,
+                            "standardLibrary": layout.standard_library,
+                            "executableSuffix": layout.executable_suffix,
+                            "launcherKind": layout.launcher_kind,
+                        },
+                        platform["layout"],
+                    )
+                    rule = runtime.executable_payload_paths(platform["platform"])
+                    self.assertEqual(
+                        {
+                            "files": list(rule.files),
+                            "directories": list(rule.directories),
+                        },
+                        platform["executablePayloadPaths"],
+                    )
+
+    def test_answers_the_executable_question_the_same_way(self) -> None:
+        for case in self._load()["executableMatches"]:
+            with self.subTest(case=case["name"]):
+                rule = runtime_adapter(case["runtime"]).executable_payload_paths(
+                    case["platform"]
+                )
+                self.assertEqual(rule.matches(case["path"]), case["executable"])
+
+    def test_derives_exactly_the_golden_candidate_list(self) -> None:
+        for case in self._load()["executionDiscovery"]:
+            with self.subTest(case=case["name"]):
+                execution = execution_from_json(case["execution"])
+                assert execution is not None
+                resolved = runtime_adapter(case["runtime"]).resolve_execution_files(
+                    execution, case["platform"], case["runtimeVersion"]
+                )
+                self.assertEqual(list(resolved.candidates), case["candidates"])
+
+    def test_refuses_a_runtime_version_that_cannot_name_a_standard_library(self) -> None:
+        execution = execution_from_json(
+            {"kind": "python-module", "module": "pkg", "defaultArgs": []}
+        )
+        assert execution is not None
+        for invalid in self._load()["invalidRuntimeVersions"]:
+            with self.subTest(runtime_version=invalid):
+                with self.assertRaisesRegex(
+                    ScrollcaseConsumerError, "Invalid Python version"
+                ):
+                    runtime_adapter().resolve_execution_files(
+                        execution, "linux", invalid
+                    )
+
+    def test_builds_exactly_the_golden_shell_free_command_line(self) -> None:
+        for case in self._load()["argv"]:
+            with self.subTest(case=case["name"]):
+                execution = execution_from_json(case["execution"])
+                assert execution is not None
+                invocation = runtime_adapter(case["runtime"]).build_argv(
+                    execution, case["platform"]
+                )
+                self.assertEqual(
+                    {
+                        "kind": invocation.command.kind,
+                        "value": invocation.command.value,
+                    },
+                    case["command"],
+                )
+                self.assertEqual(
+                    [
+                        {"kind": argument.kind, "value": argument.value}
+                        for argument in invocation.args
+                    ],
+                    case["args"],
+                )
+
+    def test_turns_every_golden_probe_into_the_same_arguments(self) -> None:
+        for case in self._load()["selfTest"]:
+            with self.subTest(case=case["name"]):
+                argv = runtime_adapter(case["runtime"]).self_test_argv(
+                    case["probe"]["imports"],
+                    case["platform"],
+                    case["probe"].get("code"),
+                )
+                self.assertEqual(list(argv), case["args"])
+
+    def test_joins_the_runtime_half_to_the_target_half_runtime_first(self) -> None:
+        # The order is what a diagnostic report is printed in, so it is part of the answer rather
+        # than an accident of how the two lists happened to be concatenated.
+        for platform, arch, operating_system in (
+            ("macos", "aarch64", "DYLD_INSERT_LIBRARIES"),
+            ("linux", "x86_64", "LD_PRELOAD"),
+        ):
+            with self.subTest(platform=platform):
+                adapter = target_adapter(
+                    target_from_json(
+                        {"platform": platform, "arch": arch, "accelerator": "cpu"}
+                    )
+                )
+                merged = execution_affecting_variables(adapter)
+                self.assertEqual(
+                    list(merged),
+                    [
+                        *runtime_adapter(
+                            IMPLICIT_RUNTIME_ID
+                        ).execution_environment_variables,
+                        *adapter.execution_affecting_environment_variables,
+                    ],
+                )
+                self.assertIn("PYTHONPATH", merged)
+                self.assertIn(operating_system, merged)
 
 
 class PayloadDigestContractTests(unittest.TestCase):

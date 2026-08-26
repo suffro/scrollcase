@@ -22,6 +22,7 @@ import { assertBoxManifestAgreement, verifyBox } from '../../src/build/verify.mj
 import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 import { boxTargetAdapters, boxTargetId, decodeDocumentPayload, documentKinds } from '../../src/contract/index.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
 
 // The pipeline is the same on every platform, but the native-host gate (rightly) refuses to build
 // a box for any other one — so the test scroll targets whatever host the suite is running on.
@@ -29,6 +30,7 @@ import { boxTargetAdapters, boxTargetId, decodeDocumentPayload, documentKinds } 
 const HOST_ADAPTER = boxTargetAdapters().find((adapter) =>
   adapter.host.platform === process.platform && adapter.host.arch === process.arch)
   ?? (() => { throw new Error(`No box target adapter for this host: ${process.platform}/${process.arch}`); })();
+const HOST_LAYOUT = runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(HOST_ADAPTER);
 
 const SCROLL = {
   schemaVersion: 2,
@@ -43,7 +45,7 @@ const SCROLL = {
   compatibility: { minHostAppVersion: '1.0.0' },
   pythonVersion: '3.11.15',
   pixiVersion: '0.73.0',
-  pythonEntryPoint: HOST_ADAPTER.python.entryPoint,
+  pythonEntryPoint: HOST_LAYOUT.entryPoint,
   modelCacheSubdir: 'model-cache/example-model',
   assetBaseUrl: 'https://assets.example.org/boxes',
   assets: [],
@@ -52,7 +54,7 @@ const SCROLL = {
 const SCROLL_REF = `${SCROLL.boxId}/${boxTargetId(SCROLL.target)}`;
 
 // The interpreter's path inside the payload, split for platform-correct joins.
-const ENTRY_SEGMENTS = HOST_ADAPTER.python.entryPoint.split('/');
+const ENTRY_SEGMENTS = HOST_LAYOUT.entryPoint.split('/');
 
 function writeDeep(path, contents) {
   mkdirSync(dirname(path), { recursive: true });
@@ -76,6 +78,20 @@ async function zipCompressionMethods(archivePath) {
     await zip.close();
   }
   return methods;
+}
+
+/** The Unix mode each entry carries, out of the high half of the external attributes. */
+async function zipModes(archivePath) {
+  const zip = await yauzl.openPromise(archivePath, { autoClose: false, lazyEntries: true });
+  const modes = new Map();
+  try {
+    for await (const entry of zip.eachEntry()) {
+      modes.set(entry.fileName, entry.externalFileAttributes >>> 16);
+    }
+  } finally {
+    await zip.close();
+  }
+  return modes;
 }
 
 /**
@@ -136,12 +152,24 @@ function plantPrefixSymlinks(prefix) {
  * asset staging, pruning, the self-test gate, box.json, the deterministic archive, signing — is the
  * real implementation, which is what this test is here to exercise.
  */
-function fakeToolchain(payloadDir, { module = null, onSelfTest = null } = {}) {
+function fakeToolchain(payloadDir, { module = null, onSelfTest = null, consoleScript = null } = {}) {
   const run = function run(command, args = [], options = {}) {
     if (command === 'pixi' && args[0] === 'install') {
       const manifest = args[args.indexOf('--manifest-path') + 1];
       const prefix = join(dirname(manifest), '.pixi', 'envs', 'default');
       writeDeep(join(prefix, ...ENTRY_SEGMENTS.slice(1)), '#!/bin/sh\nexit 0\n');
+      if (consoleScript) {
+        // What conda actually generates: the *build machine's* interpreter, reached through the
+        // shell trampoline it falls back to when an absolute shebang would be too long.
+        const scriptsRoot = HOST_LAYOUT.scriptsDirectory.split('/').slice(1);
+        writeDeep(join(prefix, ...scriptsRoot, consoleScript), [
+          '#!/bin/sh',
+          `'''exec' "${join(prefix, ...ENTRY_SEGMENTS.slice(1))}" "$0" "$@"`,
+          "' '''",
+          'print("console script")',
+          '',
+        ].join('\n'));
+      }
       writeDeep(join(prefix, 'conda-meta', 'history'), '==> 2026-07-27 05:29:00 <==\n');
       writeDeep(join(prefix, 'conda-meta', 'bzip2-1.0.8-hd037594_9.json'),
         `${JSON.stringify(CONDA_RECORD, null, 2)}\n`);
@@ -759,6 +787,41 @@ describe('the build pipeline', () => {
     expect(receipt.status).toBe('passed');
   });
 
+  it('synthesises the executable bit from the runtime layout, and repairs the launcher', async () => {
+    // Mode is not read off the build machine — a payload assembled under any umask has to archive
+    // identically, and `payload-digest.v1` deliberately excludes mode, so the archive is the only
+    // place the bit is stated. Which paths get it is the runtime's rule: the interpreter by name
+    // and its generated scripts by directory, and nothing else.
+    const { keys, payloadDir } = await makeProject();
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir, { consoleScript: 'tqdm' }),
+      log: () => {},
+    });
+    const modes = await zipModes(built.archivePath);
+    const scriptInPayload = `${HOST_LAYOUT.scriptsDirectory}/tqdm`;
+    expect(modes.has(scriptInPayload)).toBe(true);
+
+    // A Windows host has no Unix mode to synthesise, and every entry is archived 0644 there.
+    const executable = process.platform === 'win32' ? 0o100644 : 0o100755;
+    expect(modes.get(HOST_LAYOUT.entryPoint)).toBe(executable);
+    expect(modes.get(scriptInPayload)).toBe(executable);
+    expect(modes.get('box.json')).toBe(0o100644);
+    expect(modes.get(PAYLOAD_DIGEST_FILE)).toBe(0o100644);
+
+    // The launcher the packed prefix carried named the build machine; the shipped one resolves the
+    // interpreter next to itself instead. Nothing in a box may point at the machine that built it.
+    const extracted = await mkdtemp(join(tmpdir(), 'scrollcase-launcher-'));
+    created.push(extracted);
+    await extractZipArchive(built.archivePath, extracted);
+    const launcher = await readFile(join(extracted, ...scriptInPayload.split('/')), 'utf8');
+    expect(launcher).not.toContain(payloadDir);
+    if (process.platform !== 'win32') {
+      expect(launcher).toContain('dirname -- "$0"');
+      expect(launcher).toContain('print("console script")');
+    }
+  });
+
   it('stores declared weights instead of deflating them, and still rebuilds identically', async () => {
     // Incompressible on purpose: deflate makes this *larger*, which is the whole reason the rule
     // exists. Text elsewhere in the payload still compresses, so one archive proves both halves.
@@ -799,7 +862,7 @@ describe('the build pipeline', () => {
     expect(methods.get('corpus/data.bin')).toBe(ZIP_STORED);
     // The interpreter and the box's own manifest are ordinary files and must still be compressed;
     // otherwise this rule would have quietly turned compression off for the whole box.
-    expect(methods.get(HOST_ADAPTER.python.entryPoint)).toBe(ZIP_DEFLATED);
+    expect(methods.get(HOST_LAYOUT.entryPoint)).toBe(ZIP_DEFLATED);
     expect(methods.get('box.json')).toBe(ZIP_DEFLATED);
 
     // Stored is only worth anything if the bytes come back exactly, so read them back out.
@@ -839,7 +902,7 @@ describe('the build pipeline', () => {
     const paths = listed.map((entry) => entry.path);
     expect(paths).not.toContain(PAYLOAD_DIGEST_FILE);
     expect(paths).toContain('box.json');
-    expect(paths).toContain(HOST_ADAPTER.python.entryPoint);
+    expect(paths).toContain(HOST_LAYOUT.entryPoint);
   });
 
   it('notices a payload byte that changed after the box was built', async () => {
@@ -1059,7 +1122,7 @@ describe('the build pipeline', () => {
       log: () => {},
     });
     expect(receipt.selfTest).toBe('passed');
-    expect(invocations[0].command).toContain(HOST_ADAPTER.python.entryPoint.split('/').at(-1));
+    expect(invocations[0].command).toContain(HOST_LAYOUT.entryPoint.split('/').at(-1));
 
     // Re-sign the same archive under a digest it does not have. Every archive check still passes,
     // so this isolates the one comparison: the tree the archive extracts to is not the tree the

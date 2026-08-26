@@ -16,6 +16,7 @@ import {
 } from '../../src/contract/payload-digest.mjs';
 import { documentKinds } from '../../src/contract/documents.mjs';
 import { boxTargetAdapter } from '../../src/contract/targets.mjs';
+import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 
 export function nativeTarget() {
@@ -75,7 +76,8 @@ export async function createConsumerBoxFixture({
   const payload = join(root, 'payload');
   await mkdir(payload);
   const adapter = boxTargetAdapter(target);
-  const pythonPath = join(payload, ...adapter.python.entryPoint.split('/'));
+  const layout = runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(adapter);
+  const pythonPath = join(payload, ...layout.entryPoint.split('/'));
   await mkdir(dirname(pythonPath), { recursive: true });
   await writeFile(pythonPath, interpreterContents);
 
@@ -96,7 +98,7 @@ export async function createConsumerBoxFixture({
     runtimeId: 'example-consumer-runtime',
     version: '2.0.0',
     target,
-    pythonEntryPoint: adapter.python.entryPoint,
+    pythonEntryPoint: layout.entryPoint,
     modelCacheSubdir: 'model-cache/consumer-fixture',
     selfTest: {
       pythonImports: ['json'],
