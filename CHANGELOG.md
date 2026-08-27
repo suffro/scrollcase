@@ -6,6 +6,69 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — the version 3 box format
+
+This is a **breaking wire change**, and the only one planned. Published v1 and v2 boxes stay
+historical artefacts, usable with the Scrollcase versions that produced them; a v3 verifier refuses
+either **by name**, saying which version it holds, rather than reinterpreting it. There is no
+dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll.
+
+- **A box declares its runtime.** `runtime: { id, version, entryPoint }` replaces `pythonVersion`
+  and `pythonEntryPoint` in the scroll, `box.json` and the signed release, and
+  `provenance.pythonVersion` becomes `provenance.runtimeVersion`. A version 2 box recorded a Python
+  interpreter path and Python execution kinds and nothing that said "Python", so a reader had to
+  infer the runtime from the shape of a path. `id` is one of `python`, `node` or `native`; only
+  `python` can be built or run today, and a box naming another is refused by name rather than
+  misread as the runtime it happens to be shaped like. Fixing the vocabulary now is what makes
+  implementing the other two code rather than a second wire break.
+
+- **`modelId` and `runtimeId` are gone**, replaced by an optional `labels` map that Scrollcase never
+  reads. Both were required and neither was ever read by any code path: they were a consumer's
+  vocabulary written into the format, so a box packaging a library still had to name a model, and
+  most scrolls set `modelId` to the `boxId` and moved on. A label says the same thing when there is
+  something to say and nothing when there is not. `modelCacheSubdir` becomes `cacheSubdir` for the
+  same reason.
+
+- **`weights` is gone; `assets[].embed` replaces it, per entry.** A box-wide switch could not ship a
+  small entry point inside the archive and defer a 30 GB dataset beside it, which is the case it
+  existed for. The `--weights` flag went with it rather than being kept: a build-time override of a
+  per-asset declaration repacks a box under an identity that no longer describes it, which is the
+  silent-repack bug the flag's own documentation already warned about. `assetArchives` gains no
+  `embed` field — an archive is expanded at build time, so deferring one names nothing that could
+  happen — which turns version 2's cross-field refusal into a schema-level impossibility.
+
+- **The self-test generalises.** `selfTest.pythonImports` put Python syntax in the wire format and
+  gave a runtime with no module system no way to state a check at all. The signed subset becomes
+  `selfTest.probe`, carrying `imports`, `commands`, or both; a command invokes the box's own
+  declared execution and names the exit status it must produce. In the scroll, `pythonFile` and
+  `pythonCode` become `script` and `code`. The runtime adapter is the only thing that turns a probe
+  into command lines.
+
+- **The executable bit is declared, not inferred.** `assets[].executable` and
+  `localFiles[].executable` replace the `venv/bin` heuristic that used to be the only way a payload
+  file could carry the bit. A downloaded file arrives with no permissions — HTTP carries content,
+  not modes — and a local file is copied rather than moved, so neither had one to inherit, and a box
+  could not ship an asset that runs. The mode is still *synthesised* rather than read off the build
+  machine, so two builds of one commit stay byte-identical whatever umask each ran under, and
+  `payload-digest.v1` is untouched.
+
+- **Extraction sets the mode explicitly.** All three consumers used to hand the archive's mode to
+  `open(2)`, which masks it by the process umask, except the Python one, which chmod'd. Under a
+  restrictive umask that made two of them silently drop the executable bit — a box that fails to run
+  for reasons nothing in it explains — and made the three disagree observably. Each now chmods after
+  writing, on non-Windows, and a conformance case extracts a declared-executable box under
+  `umask 077` and asserts the bit survives.
+
+- The execution union gains `node-script` and `native-binary` beside `python-script` and
+  `python-module`, and every schema `$id` and `$ref` moves from `/schema/v2/` to `/schema/v3/`.
+
+- Public API: `assertPythonEntryPoint` is replaced by `assertRuntimeEntryPoint(runtimeId, adapter,
+  entryPoint)`, and `scrollcase/contract` now exports the runtime model — `RUNTIME_IDS`,
+  `runtimeAdapter`, `runtimeAdapters`, `isImplementedRuntime`, `unimplementedRuntimeMessage`,
+  `executionAffectingVariables` and `isExecutablePayloadPath`. The Rust crate and the Python package
+  gained the equivalents. A `PreparedBox` receipt now carries `runtime` and `labels` in place of
+  `pythonEntryPoint`, `modelId` and `runtimeId`.
+
 ### Changed
 
 - The box format now models the **runtime** separately from the **target**. A target says which
