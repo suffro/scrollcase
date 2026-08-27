@@ -15,9 +15,7 @@
 import { createInterface } from 'node:readline/promises';
 import {
   DEFAULT_PYTHON_VERSION,
-  DEFAULT_WEIGHTS_MODE,
   EXAMPLE_PIXI_VERSION,
-  WEIGHTS_MODES,
   resolvePythonVersion,
 } from './build/authoring.mjs';
 import { probePixi } from './build/pixi.mjs';
@@ -100,6 +98,26 @@ export async function promptText(question, {
   }
 }
 
+/**
+ * `--labels` as the JSON object it is, matching `--default-args` rather than inventing a second
+ * spelling for structured input. Scrollcase never reads a label, so nothing here interprets one
+ * beyond checking that it is a string keyed by a string.
+ */
+function parseLabels(value) {
+  if (value === null) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    fail('--labels must be a JSON object of string values.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || Object.values(parsed).some((item) => typeof item !== 'string')) {
+    fail('--labels must be a JSON object of string values.');
+  }
+  return parsed;
+}
+
 function parseDefaultArgs(value) {
   if (value === null) return [];
   let parsed;
@@ -163,8 +181,6 @@ export async function collectNewScrollOptions(flags, {
   // The upstream revision is the one identity nothing here can supply: it names the version of the
   // thing being packaged, and inventing it would put a false claim into the box's provenance.
   const sourceRevision = await required('source-revision', 'Upstream revision', HINTS.sourceRevision);
-  const modelId = derived('model-id', boxId);
-  const runtimeId = derived('runtime-id', `${boxId}-runtime`);
   const version = derived('version', '1.0.0');
   const scrollVersion = derived('scroll-version', undefined);
   const pythonVersion = resolvePythonVersion(derived('python-version', DEFAULT_PYTHON_VERSION));
@@ -188,13 +204,9 @@ export async function collectNewScrollOptions(flags, {
   // Not derivable and not optional: the signed release names the URL the archive itself is published
   // under, so a build has nowhere to point without it.
   const assetBaseUrl = await required('asset-base-url', 'Asset base URL', HINTS.assetBaseUrl);
-  // Not a question. A box declares assets or it does not, and one that does not — which is most of
-  // them, since a scroll packages Python, not necessarily a model — has nothing to leave out of its
-  // archive. `--weights on-demand` states the choice for a box whose assets are published beside it.
-  const weights = derived('weights', DEFAULT_WEIGHTS_MODE);
-  if (!WEIGHTS_MODES.includes(weights)) {
-    fail(`Unsupported weights mode: ${weights}. Use ${WEIGHTS_MODES.join(' or ')}.`);
-  }
+  // Free-form annotations, flags only and empty by default. Scrollcase reads none of them, so
+  // prompting for one would be asking the author to fill in a field on the tool's behalf.
+  const labels = parseLabels(flagText(flags, 'labels'));
   const executionKind = await finite(
     'execution',
     'execution kind',
@@ -206,8 +218,7 @@ export async function collectNewScrollOptions(flags, {
   const result = {
     boxId,
     target,
-    modelId,
-    runtimeId,
+    labels,
     version,
     scrollVersion,
     sourceRevision,
@@ -215,7 +226,6 @@ export async function collectNewScrollOptions(flags, {
     pixiVersion,
     compatibility,
     assetBaseUrl,
-    weights,
     executionKind,
     defaultArgs,
   };

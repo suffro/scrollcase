@@ -7,7 +7,7 @@
  */
 
 /** Format version carried by every document this contract describes. */
-export const BOX_SCHEMA_VERSION = 2;
+export const BOX_SCHEMA_VERSION = 3;
 
 /** The only payload encoding the format defines. */
 export const PAYLOAD_ENCODING = 'base64-json-utf8';
@@ -68,19 +68,24 @@ export function parseDocumentKind(kind) {
  * The message any reader gives a document written to a format version it cannot read.
  *
  * Four Node call sites answer this question — the payload decoder, the key loader, and the release
- * verifier twice — and until now each carried its own copy of the sentence. That is not a style
- * problem: the next version bump has to change what a v1 document is told, and a message duplicated
- * per call site is a message that gets changed in three of four places. There is one wording per
- * language now, and each language keeps its own because the string is user-facing text, not wire
- * data that has to match across implementations.
+ * verifier twice — and each used to carry its own copy of the sentence. That is not a style problem:
+ * the v3 bump had to change what an older document is told, and a message duplicated per call site
+ * is a message that gets changed in three of four places. There is one wording per language now, and
+ * each language keeps its own because the string is user-facing text, not wire data that has to
+ * match across implementations.
+ *
+ * Both superseded versions are named rather than lumped together as "too old": a v1 and a v2 box
+ * are different artefacts with different rebuilds ahead of them, and the reader holding one is
+ * entitled to know which.
  *
  * @param {unknown} version the `schemaVersion` the document declared
  * @returns {string}
  */
 export function unsupportedSchemaVersionMessage(version) {
-  return version === 1
-    ? 'Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.'
-    : `Unsupported schemaVersion ${String(version)}; expected ${BOX_SCHEMA_VERSION}.`;
+  if (version === 1 || version === 2) {
+    return `Unsupported schemaVersion ${version}; rebuild this box with Scrollcase v3.`;
+  }
+  return `Unsupported schemaVersion ${String(version)}; expected ${BOX_SCHEMA_VERSION}.`;
 }
 
 /** Channels a box may be published to, ordered from least to most stable. */

@@ -187,8 +187,7 @@ async function init(flags) {
     'accelerator',
     'cuda-version',
     'box-id',
-    'model-id',
-    'runtime-id',
+    'labels',
   ].filter((name) => flags.has(name));
   if (authoringFlags.length > 0) {
     fail(`init accepts only the fixed example; pass ${authoringFlags.map((name) => `--${name}`).join(', ')} to scrollcase new scroll.`);
@@ -374,12 +373,21 @@ async function add(kind, positional, flags) {
   const [name, value] = positional;
   if (kind === 'dep') return addDep(name, value, flags);
   if (kind === 'env' || kind === 'import') return addDeclaration(kind, name, value, flags);
-  if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--target <targetId>|all]`);
+  if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--on-demand] [--executable] [--target <targetId>|all]`);
   const { boxId, target } = await editScope(name, flags);
   const to = text(flags, 'to');
+  const executable = Boolean(flags.get('executable'));
   const result = kind === 'asset'
-    ? await addAsset({ boxId, target, url: value, to, log: (message) => step(message) })
-    : await addFile({ boxId, target, sourcePath: value, to });
+    ? await addAsset({
+      boxId,
+      target,
+      url: value,
+      to,
+      embed: !flags.get('on-demand'),
+      executable,
+      log: (message) => step(message),
+    })
+    : await addFile({ boxId, target, sourcePath: value, to, executable });
   success(`Added ${result.entry.relativePath} to ${boxId}${target === ALL_TARGETS ? '' : `/${target}`}`);
   if (kind === 'asset') info(`${result.entry.sizeBytes} bytes, sha256 ${result.entry.sha256}`);
   reportWritten(result.written);
@@ -559,16 +567,15 @@ async function build(name, flags) {
     ['beta', ...CHANNELS.filter((value) => value !== 'beta')],
     { flag: text(flags, 'channel') },
   );
-  // The weights mode is not asked. The scroll declares it, and a menu preselected on `embed` in
-  // front of every build was an override waiting to happen: pressing Enter silently repacked a box
-  // whose scroll said `on-demand`. `--weights` still overrides deliberately.
-  const weights = text(flags, 'weights');
-  step(`Building ${reference} (${channel}${weights ? `, ${weights}` : ''})`);
+  // Whether an asset ships inside the archive is a per-entry scroll declaration with no build-time
+  // override. There was one, and a menu preselected on `embed` in front of every build turned out to
+  // be an override waiting to happen: pressing Enter silently repacked a box whose scroll had said
+  // otherwise, under an identity that no longer described it.
+  step(`Building ${reference} (${channel})`);
   const built = await buildBox(reference, {
     ...signing,
     allowDirty: Boolean(flags.get('allow-dirty')),
     channel,
-    weights,
     assetBaseUrl: text(flags, 'asset-base-url'),
     namespace: text(flags, 'namespace') || undefined,
     pixiPath: text(flags, 'pixi'),
@@ -685,15 +692,13 @@ New scroll options:
   --box-id <id>              Box identity
   --source-revision <rev>    Upstream source revision recorded in provenance
   --asset-base-url <url>     Base URL used in built release documents
-  --model-id <id>            Identity of what the box packages (default: the box id)
-  --runtime-id <id>          Runtime identity (default: <box-id>-runtime)
+  --labels <json>            JSON object of free-form annotations carried into the signed
+                             release. Scrollcase reads none of them.
   --version <version>        Box version (default 1.0.0)
   --scroll-version <version> Scroll authoring version (default 1.0.0)
   --python-version <version> Python dependency version, or latest
   --pixi-version <version>   pixi resolver version (default: the installed pixi)
   --min-host-app-version <v> Minimum compatible host application version
-  --weights <mode>           embed (default) or on-demand; only matters once the box declares
-                             assets, so it is a flag rather than a question
   --execution <kind>         python-script, python-module, or library-only
   --script <path>            Existing project script for python-script
   --generate-script          Generate a minimal project script instead
@@ -713,7 +718,12 @@ Add, remove and edit options:
                              is no base. Without it, a box with one target uses that one and a
                              box with several asks; without a terminal it stops instead.
   --to <payload path>        Where the file lands inside the box. Defaults to the URL's last
-                             segment under the model cache, or the file's own name at the root.
+                             segment under the box's cache directory, or the file's own name at
+                             the root.
+  --on-demand                For add asset: leave this file out of the archive and carry its
+                             descriptor in the signed release for the caller to materialize.
+  --executable               Mark the added file as one that needs the executable bit. A
+                             download and a copy both arrive without one.
   --version <spec>           Version constraint for add dep (default *, letting the lock pin it)
   --from-requirements <file> Read dependencies from a pip requirements.txt instead
   --field <name>             Field for edit scroll; without it, a menu built from the schema
@@ -743,9 +753,6 @@ Build options:
   --target <targetId>        Select a target when <scroll> names a box
   --channel <name>           Channel the signed pointer names (nightly, beta, or stable;
                              default beta)
-  --weights <mode>           embed (assets packed in, works air-gapped) or on-demand
-                             (caller-materialized; verified before execution). Overrides the
-                             scroll for this build; without it the scroll's own mode is used.
   --asset-base-url <url>     Override the scroll's published base URL
   --namespace <ns>           Document kind namespace (default scrollcase.box)
   --allow-dirty              Permit a build from an uncommitted source tree

@@ -15,7 +15,7 @@
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { boxTargetAdapter, boxTargetId, condaSubdir } from '../contract/targets.mjs';
-import { IMPLICIT_RUNTIME_ID } from '../contract/runtimes.mjs';
+import { BOX_SCHEMA_VERSION } from '../contract/documents.mjs';
 import { runtimeBuilder } from '../runtimes/index.mjs';
 import { fileExists, safeRelativePath } from './filesystem.mjs';
 import { fail } from './process.mjs';
@@ -25,9 +25,12 @@ const scrollSchemaUrl = new URL('../contract/schema/scroll.schema.json', import.
 const targetSchemaUrl = new URL('../contract/schema/target.schema.json', import.meta.url);
 const executionSchemaUrl = new URL('../contract/schema/execution.schema.json', import.meta.url);
 const EXECUTION_KINDS = Object.freeze(['python-script', 'python-module', 'library-only']);
-export const WEIGHTS_MODES = Object.freeze(['embed', 'on-demand']);
-/** The schema's own default, so a scroll that takes it says nothing about weights at all. */
-export const DEFAULT_WEIGHTS_MODE = 'embed';
+/**
+ * The runtime `scrollcase new` writes. Authoring is deliberately narrower than the format: the
+ * wire vocabulary names every runtime the format defines, and this names the one a generated
+ * scroll can actually be built from today.
+ */
+export const AUTHORED_RUNTIME_ID = 'python';
 export const EXAMPLE_PIXI_VERSION = '0.73.0';
 export const DEFAULT_SCROLL_VERSION = '1.0.0';
 
@@ -234,7 +237,7 @@ function projectRelativePath(projectRoot, path) {
   return relativePath.split(sep).join('/');
 }
 
-function pixiManifest(environmentName, target, runtimeVersion, runtimeId = IMPLICIT_RUNTIME_ID) {
+function pixiManifest(environmentName, target, runtimeVersion, runtimeId = AUTHORED_RUNTIME_ID) {
   // The workspace table is substrate — one channel, one platform, whatever the box runs. Only the
   // dependency line knows which runtime is being packed, and the runtime is what writes it.
   const runtime = runtimeBuilder(runtimeId).pixiDependency(runtimeVersion);
@@ -271,8 +274,7 @@ export async function createScroll({
   workspace,
   boxId,
   target,
-  modelId,
-  runtimeId,
+  labels = {},
   version,
   scrollVersion = DEFAULT_SCROLL_VERSION,
   sourceRevision,
@@ -280,7 +282,6 @@ export async function createScroll({
   pixiVersion,
   compatibility = {},
   assetBaseUrl,
-  weights = DEFAULT_WEIGHTS_MODE,
   executionKind,
   scriptSourcePath = null,
   generateScript = false,
@@ -296,22 +297,20 @@ export async function createScroll({
 
   const identity = {
     boxId: requiredText(boxId, 'boxId'),
-    modelId: requiredText(modelId, 'modelId'),
-    runtimeId: requiredText(runtimeId, 'runtimeId'),
     version: requiredText(version, 'version'),
     scrollVersion: requiredText(scrollVersion, 'scrollVersion'),
     sourceRevision: requiredText(sourceRevision, 'sourceRevision'),
     pythonVersion: requiredText(pythonVersion, 'pythonVersion'),
     pixiVersion: requiredText(pixiVersion, 'pixiVersion'),
-    // Required whatever the weights mode: the release manifest names the archive's own published
-    // URL, not just the assets'.
+    // Required whether or not any asset is deferred: the release manifest names the archive's own
+    // published URL, not just the assets'.
     assetBaseUrl: requiredText(assetBaseUrl, 'assetBaseUrl'),
   };
   if (!compatibility || typeof compatibility !== 'object' || Array.isArray(compatibility)) {
     fail('compatibility must be an object.');
   }
-  if (!WEIGHTS_MODES.includes(weights)) {
-    fail(`Unsupported weights mode: ${weights}. Use ${WEIGHTS_MODES.join(' or ')}.`);
+  if (!labels || typeof labels !== 'object' || Array.isArray(labels)) {
+    fail('labels must be an object.');
   }
   if (!EXECUTION_KINDS.includes(executionKind)) {
     fail(`Unsupported execution kind: ${executionKind}. Use ${EXECUTION_KINDS.join(', ')}.`);
@@ -347,7 +346,7 @@ export async function createScroll({
       if (await fileExists(generatedScriptPath)) {
         fail(`Generated script already exists: ${sourcePath}.`);
       }
-      generatedSource = runtimeBuilder(IMPLICIT_RUNTIME_ID).templates.script;
+      generatedSource = runtimeBuilder(AUTHORED_RUNTIME_ID).templates.script;
     } else {
       sourcePath = safeRelativePath(scriptSourcePath);
       const source = join(workspace.root, ...sourcePath.split('/'));
@@ -381,11 +380,10 @@ export async function createScroll({
   // person had to choose.
   const selfTestPath = projectRelativePath(workspace.root, join(scrollDir, 'self_test.py'));
   const scroll = {
-    $schema: 'https://scrollcase.dev/schema/v2/scroll.schema.json',
-    schemaVersion: 2,
+    $schema: 'https://scrollcase.dev/schema/v3/scroll.schema.json',
+    schemaVersion: BOX_SCHEMA_VERSION,
     boxId: identity.boxId,
-    modelId: identity.modelId,
-    runtimeId: identity.runtimeId,
+    ...(Object.keys(labels).length > 0 ? { labels: { ...labels } } : {}),
     version: identity.version,
     sourceRevision: identity.sourceRevision,
     target,
@@ -393,17 +391,14 @@ export async function createScroll({
       ? {}
       : { scrollVersion: identity.scrollVersion }),
     ...(Object.keys(compatibility).length > 0 ? { compatibility: { ...compatibility } } : {}),
-    pythonVersion: identity.pythonVersion,
+    runtime: { id: AUTHORED_RUNTIME_ID, version: identity.pythonVersion },
     pixiVersion: identity.pixiVersion,
     assetBaseUrl: identity.assetBaseUrl,
     selfTest: {
       imports: ['json'],
       ...(localFile ? { files: [localFile.relativePath] } : {}),
-      ...(selfTestPath ? { pythonFile: selfTestPath } : {}),
+      ...(selfTestPath ? { script: selfTestPath } : {}),
     },
-    // Left out when it is the schema's default: a scroll should read like the decisions its author
-    // made, and most boxes have no asset to leave out of the archive in the first place.
-    ...(weights === DEFAULT_WEIGHTS_MODE ? {} : { weights }),
     ...(localFile ? { localFiles: [localFile] } : {}),
     ...(execution ? { execution } : {}),
   };
@@ -422,7 +417,7 @@ export async function createScroll({
     if (selfTestPath) {
       await writeFile(
         join(staging, 'self_test.py'),
-        runtimeBuilder(IMPLICIT_RUNTIME_ID).templates.selfTest,
+        runtimeBuilder(AUTHORED_RUNTIME_ID).templates.selfTest,
       );
     }
     if (generatedScriptPath) {
@@ -479,8 +474,6 @@ export async function ensureExampleScroll({
       workspace,
       boxId: 'example-box',
       target,
-      modelId: 'example-org-example-box',
-      runtimeId: 'example-box-runtime',
       version: '1.0.0',
       sourceRevision: 'example-source-1.0.0',
       pixiVersion,

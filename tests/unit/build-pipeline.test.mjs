@@ -22,7 +22,7 @@ import { assertBoxManifestAgreement, verifyBox } from '../../src/build/verify.mj
 import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 import { boxTargetAdapters, boxTargetId, decodeDocumentPayload, documentKinds } from '../../src/contract/index.mjs';
-import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
+import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 
 // The pipeline is the same on every platform, but the native-host gate (rightly) refuses to build
 // a box for any other one — so the test scroll targets whatever host the suite is running on.
@@ -30,23 +30,23 @@ import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes
 const HOST_ADAPTER = boxTargetAdapters().find((adapter) =>
   adapter.host.platform === process.platform && adapter.host.arch === process.arch)
   ?? (() => { throw new Error(`No box target adapter for this host: ${process.platform}/${process.arch}`); })();
-const HOST_LAYOUT = runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(HOST_ADAPTER);
+const RUNTIME_ID = 'python';
+const HOST_LAYOUT = runtimeAdapter(RUNTIME_ID).layout(HOST_ADAPTER);
 
+const PYTHON_VERSION = '3.11.15';
 const SCROLL = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   scrollId: 'example-model-native-cpu',
   scrollVersion: '1.0.0',
   boxId: 'example-model',
-  modelId: 'example-org-example-model',
-  runtimeId: 'example-model-runtime',
+  labels: { model: 'example-org/example-model' },
   version: '1.0.0',
   sourceRevision: 'a'.repeat(40),
   target: { platform: HOST_ADAPTER.platform, arch: HOST_ADAPTER.arch, accelerator: 'cpu' },
   compatibility: { minHostAppVersion: '1.0.0' },
-  pythonVersion: '3.11.15',
+  runtime: { id: RUNTIME_ID, version: PYTHON_VERSION, entryPoint: HOST_LAYOUT.entryPoint },
   pixiVersion: '0.73.0',
-  pythonEntryPoint: HOST_LAYOUT.entryPoint,
-  modelCacheSubdir: 'model-cache/example-model',
+  cacheSubdir: 'cache/example-model',
   assetBaseUrl: 'https://assets.example.org/boxes',
   assets: [],
   selfTest: { imports: ['json'], files: [] },
@@ -177,7 +177,7 @@ function fakeToolchain(payloadDir, { module = null, onSelfTest = null, consoleSc
         const modulePath = module.split('.');
         const sitePackages = HOST_ADAPTER.platform === 'windows'
           ? ['Lib', 'site-packages']
-          : ['lib', `python${SCROLL.pythonVersion.split('.').slice(0, 2).join('.')}`, 'site-packages'];
+          : ['lib', `python${PYTHON_VERSION.split('.').slice(0, 2).join('.')}`, 'site-packages'];
         writeDeep(join(prefix, ...sitePackages, ...modulePath.slice(0, -1), `${modulePath.at(-1)}.py`),
           'print("module ready")\n');
       }
@@ -324,8 +324,35 @@ describe('the build pipeline', () => {
     resetWorkspace();
     // An entry point belonging to any *other* target must be refused on this one.
     const foreignEntryPoint = HOST_ADAPTER.platform === 'windows' ? 'venv/bin/python' : 'venv/python.exe';
-    await makeProject({ ...SCROLL, pythonEntryPoint: foreignEntryPoint }, { commit: false });
+    await makeProject(
+      { ...SCROLL, runtime: { ...SCROLL.runtime, entryPoint: foreignEntryPoint } },
+      { commit: false },
+    );
     await expect(readScroll(SCROLL_REF)).rejects.toThrow(/entry point/);
+  });
+
+  it('refuses a runtime the format defines but this build cannot produce', async () => {
+    // The wire vocabulary is deliberately wider than the implemented set, so this is an expected
+    // refusal with a message that says which of the two the scroll fell foul of.
+    await makeProject({ ...SCROLL, runtime: { id: 'native' } }, { commit: false });
+    await expect(readScroll(SCROLL_REF)).rejects.toThrow(/native is not implemented/);
+  });
+
+  it('refuses an execution kind belonging to another runtime', async () => {
+    await makeProject({
+      ...SCROLL,
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+    }, { commit: false });
+    await expect(readScroll(SCROLL_REF))
+      .rejects.toThrow(/native-binary does not belong to the python runtime/);
+  });
+
+  it('refuses a command probe with no execution to invoke', async () => {
+    await makeProject({
+      ...SCROLL,
+      selfTest: { commands: [{ args: ['--version'] }], files: [] },
+    }, { commit: false });
+    await expect(readScroll(SCROLL_REF)).rejects.toThrow(/does not declare/);
   });
 
   it.each([
@@ -558,14 +585,17 @@ describe('the build pipeline', () => {
     expect(calls).toEqual([]);
   });
 
-  it('rejects an on-demand archive before probing tools, fetching, or mutating the build tree', async () => {
+  it('gives an asset archive no way to be deferred, before touching anything', async () => {
+    // An archive is expanded at build time, so "leave it out and let the caller fetch it" names
+    // nothing that could happen. Version 2 refused the combination with a cross-field check in two
+    // places; version 3 gives the entry no `embed` field at all, and the schema settles it.
     const scroll = {
       ...SCROLL,
-      weights: 'on-demand',
       assetArchives: [{
-        relativePath: 'model-cache/weights.zip',
+        relativePath: 'cache/data.zip',
         format: 'zip',
-        destination: 'model-cache',
+        destination: 'cache',
+        embed: false,
       }],
     };
     const { keys, payloadDir } = await makeProject(scroll);
@@ -582,7 +612,7 @@ describe('the build pipeline', () => {
         throw new Error('unexpected fetch');
       },
       log: () => {},
-    })).rejects.toThrow(/on-demand weights cannot be combined with assetArchives/);
+    })).rejects.toThrow(/Invalid scroll/);
     expect(calls).toEqual([]);
     expect(await fileExists(payloadDir)).toBe(false);
   });
@@ -654,17 +684,19 @@ describe('the build pipeline', () => {
     expect(result.environmentReport.releaseVariableCount).toBe(2);
   });
 
-  it('rejects a signed v1 release payload even inside a valid v2 envelope', async () => {
+  it.each([1, 2])('rejects a signed v%i release payload, by version', async (schemaVersion) => {
+    // Both superseded versions are named rather than lumped together: they are different artefacts
+    // with different rebuilds ahead of them, and the reader holding one is entitled to know which.
     const { root, keys } = await makeProject();
-    const releasePath = join(root, 'v1.release.json');
+    const releasePath = join(root, `v${schemaVersion}.release.json`);
     const signed = await signDocument({
-      schemaVersion: 1,
+      schemaVersion,
       kind: documentKinds().release,
     }, keys);
     await writeFile(releasePath, `${JSON.stringify(signed, null, 2)}\n`);
 
     await expect(verifyBox(releasePath, { publicPath: keys.publicPath, log: () => {} }))
-      .rejects.toThrow('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+      .rejects.toThrow(`Unsupported schemaVersion ${schemaVersion}; rebuild this box with Scrollcase v3.`);
   });
 
   it('does not fall back to the pre-v2 stem-based archive name', async () => {
@@ -785,6 +817,67 @@ describe('the build pipeline', () => {
     // And a release verifies where it lands, without being told where its archive is.
     const receipt = await verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} });
     expect(receipt.status).toBe('passed');
+  });
+
+  it('synthesises the executable bit for a declared file, and keeps it under a strict umask', async () => {
+    // HTTP carries content and not permissions, and a local file is copied rather than moved, so
+    // neither arrives with a mode to inherit. The scroll is the only place either can say it needs
+    // one, and the bit is put into the archive from that declaration — never read off the machine,
+    // which would make two builds of one commit differ by the umask each ran under.
+    const tool = {
+      url: 'https://assets.example.org/tool',
+      relativePath: 'bin/tool',
+      sizeBytes: 17,
+      sha256: createHash('sha256').update('#!/bin/sh\nexit 0\n').digest('hex'),
+      executable: true,
+    };
+    const scroll = {
+      ...SCROLL,
+      assets: [tool],
+      localFiles: [
+        { sourcePath: 'scripts/launch.sh', relativePath: 'bin/launch.sh', executable: true },
+        { sourcePath: 'legal/NOTICE.txt', relativePath: 'NOTICE.txt' },
+      ],
+      selfTest: { imports: ['json'], files: ['bin/tool', 'bin/launch.sh'] },
+    };
+    const { keys, payloadDir } = await makeProject(scroll, {
+      projectFiles: {
+        'scripts/launch.sh': '#!/bin/sh\nexec ./bin/tool "$@"\n',
+        'legal/NOTICE.txt': 'notices\n',
+      },
+    });
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      fetchImpl: async () => new Response(
+        Readable.toWeb(Readable.from([Buffer.from('#!/bin/sh\nexit 0\n')])),
+        { status: 200 },
+      ),
+      log: () => {},
+    });
+
+    const executable = process.platform === 'win32' ? 0o100644 : 0o100755;
+    const modes = await zipModes(built.archivePath);
+    expect(modes.get('bin/tool')).toBe(executable);
+    expect(modes.get('bin/launch.sh')).toBe(executable);
+    // Undeclared neighbours stay 0644: the rule is a declaration, not a directory.
+    expect(modes.get('NOTICE.txt')).toBe(0o100644);
+
+    // And extraction must not hand the bit back to the umask. `open(2)` masks the mode it is given,
+    // so a box unpacked under 077 would silently lose it and fail to run for reasons nothing in the
+    // box explains.
+    if (process.platform !== 'win32') {
+      const previous = process.umask(0o077);
+      try {
+        const extracted = await mkdtemp(join(tmpdir(), 'scrollcase-umask-'));
+        created.push(extracted);
+        await extractZipArchive(built.archivePath, extracted);
+        expect((await lstat(join(extracted, 'bin', 'tool'))).mode & 0o777).toBe(0o755);
+        expect((await lstat(join(extracted, 'NOTICE.txt'))).mode & 0o777).toBe(0o644);
+      } finally {
+        process.umask(previous);
+      }
+    }
   });
 
   it('synthesises the executable bit from the runtime layout, and repairs the launcher', async () => {
@@ -1010,11 +1103,11 @@ describe('the build pipeline', () => {
       .rejects.toThrow(/git checkout/);
   });
 
-  it('runs the self-test Python a scroll keeps in a file', async () => {
+  it('runs the extra self-test source a scroll keeps in a file', async () => {
     const source = 'assert 2 + 2 == 4, "arithmetic is broken"\n';
     const scroll = {
       ...SCROLL,
-      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+      selfTest: { imports: ['json'], files: [], script: 'checks/self_test.py' },
     };
     const { keys, payloadDir } = await makeProject(scroll, {
       projectFiles: { 'checks/self_test.py': source },
@@ -1032,17 +1125,17 @@ describe('the build pipeline', () => {
   });
 
   it('runs the self-test against a payload that already contains box.json', async () => {
-    // An application finds its own files by reading the modelCacheSubdir its box declares, rather
+    // An application finds its own files by reading the cacheSubdir its box declares, rather
     // than hard-coding a path the scroll would then have to be bent to match. That only works if
     // box.json is there when the self-test runs: writing it afterwards meant the check ran against
     // a payload missing a file the shipped box has, so exactly the applications doing the right
     // thing were the ones that could not be tested.
     const source = 'import json, pathlib\n'
-      + 'declared = json.loads(pathlib.Path("box.json").read_text())["modelCacheSubdir"]\n'
-      + 'assert declared == "model-cache/example-model", declared\n';
+      + 'declared = json.loads(pathlib.Path("box.json").read_text())["cacheSubdir"]\n'
+      + 'assert declared == "cache/example-model", declared\n';
     const scroll = {
       ...SCROLL,
-      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+      selfTest: { imports: ['json'], files: [], script: 'checks/self_test.py' },
     };
     const { keys, payloadDir } = await makeProject(scroll, {
       projectFiles: { 'checks/self_test.py': source },
@@ -1062,43 +1155,62 @@ describe('the build pipeline', () => {
   it('fails the build when the self-test file a scroll names is gone', async () => {
     const scroll = {
       ...SCROLL,
-      selfTest: { imports: ['json'], files: [], pythonFile: 'checks/self_test.py' },
+      selfTest: { imports: ['json'], files: [], script: 'checks/self_test.py' },
     };
     const { keys, payloadDir } = await makeProject(scroll);
     await expect(buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} }))
-      .rejects.toThrow(/Self-test Python file is missing/);
+      .rejects.toThrow(/Self-test script is missing/);
   });
 
   it('fails the build when pruning removed a file the self-test needs', async () => {
-    const scroll = { ...SCROLL, selfTest: { imports: ['json'], files: ['model-cache/weights.bin'] } };
+    const scroll = { ...SCROLL, selfTest: { imports: ['json'], files: ['cache/data.bin'] } };
     const { keys, payloadDir } = await makeProject(scroll);
     await expect(buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} }))
       .rejects.toThrow(/Missing self-test file/);
   });
 
-  it('leaves assets out of the archive on demand, and carries their descriptors instead', async () => {
-    const asset = {
-      url: 'https://assets.example.org/weights.bin',
-      relativePath: 'model-cache/example-model/weights.bin',
+  it('defers only the assets declared deferred, and carries their descriptors instead', async () => {
+    // Per entry, which is the whole point of the change: this box ships a small file inside the
+    // archive and leaves a large one out, in one build, which version 2 could not express at all.
+    const embedded = {
+      url: 'https://assets.example.org/config.json',
+      relativePath: 'cache/example-model/config.json',
+      sizeBytes: 3,
+      sha256: createHash('sha256').update('{}\n').digest('hex'),
+    };
+    const deferred = {
+      url: 'https://assets.example.org/data.bin',
+      relativePath: 'cache/example-model/data.bin',
       sizeBytes: 4,
       sha256: 'b'.repeat(64),
+      embed: false,
     };
     const scroll = {
       ...SCROLL,
-      assets: [asset],
-      selfTest: { imports: ['json'], files: [asset.relativePath] },
+      assets: [embedded, deferred],
+      selfTest: { imports: ['json'], files: [embedded.relativePath, deferred.relativePath] },
     };
     const { keys, payloadDir } = await makeProject(scroll);
-    // Nothing is downloaded: the fake toolchain would throw on an unexpected command, and the
-    // self-test file that lives at the asset's path is legitimately absent from the payload.
+    const fetched = [];
     const built = await buildBox(SCROLL_REF, {
-      ...keys, weights: 'on-demand', ...fakeToolchain(payloadDir), log: () => {},
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      fetchImpl: async (url) => {
+        fetched.push(url);
+        return new Response(Readable.toWeb(Readable.from([Buffer.from('{}\n')])), { status: 200 });
+      },
+      log: () => {},
     });
-    expect(built.weights).toBe('on-demand');
+    // Only the embedded one is fetched; the deferred one's self-test file is legitimately absent.
+    expect(fetched).toEqual([embedded.url]);
+    expect(built.deferredAssets).toBe(1);
     const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
-    expect(release.weights).toBe('on-demand');
-    // The hash travels with the descriptor, which is what makes fetching it later safe.
-    expect(release.assets).toEqual([asset]);
+    // The descriptor list is exactly the deferred half, without the `embed: false` that produced
+    // it: on this side of the wire the list itself is the statement.
+    const { embed: _embed, ...descriptor } = deferred;
+    expect(release.assets).toEqual([descriptor]);
+    expect(await listZipEntries(built.archivePath).then((entries) =>
+      entries.map((entry) => entry.path))).toContain(embedded.relativePath);
     await expect(verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} }))
       .resolves.toMatchObject({ status: 'passed' });
   });
@@ -1156,22 +1268,21 @@ describe('the build pipeline', () => {
 
 describe('box manifest agreement', () => {
   const shared = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     boxId: 'example-model',
-    modelId: 'example-org-example-model',
-    runtimeId: 'example-runtime',
+    labels: { model: 'example-org/example-model' },
     version: '1.0.0',
     target: { platform: 'linux', arch: 'x86_64', accelerator: 'cpu' },
-    pythonEntryPoint: 'venv/bin/python',
-    modelCacheSubdir: 'model-cache/example-model',
-    selfTest: { pythonImports: ['json'], timeoutSeconds: 180 },
+    runtime: { id: 'python', version: '3.11.15', entryPoint: 'venv/bin/python' },
+    cacheSubdir: 'cache/example-model',
+    selfTest: { probe: { imports: ['json'] }, timeoutSeconds: 180 },
     provenance: {
       scrollId: 'example-model-linux',
       scrollVersion: '1.0.0',
       builderRevision: 'a'.repeat(40),
       sourceTreeDirty: false,
       sourceRevision: 'b'.repeat(40),
-      pythonVersion: '3.11.15',
+      runtimeVersion: '3.11.15',
       pixiVersion: '0.73.0',
       dependencyLockSha256: 'c'.repeat(64),
       builtAt: '2026-01-01T00:00:00Z',
@@ -1179,15 +1290,14 @@ describe('box manifest agreement', () => {
   };
 
   it.each([
-    ['schemaVersion', 1],
+    ['schemaVersion', 2],
     ['boxId', 'other-box'],
-    ['modelId', 'other-model'],
-    ['runtimeId', 'other-runtime'],
+    ['labels', { model: 'other-org/other-model' }],
     ['version', '2.0.0'],
     ['target', { platform: 'linux', arch: 'x86_64', accelerator: 'cuda', cudaVersion: '12.8' }],
-    ['pythonEntryPoint', 'venv/python.exe'],
-    ['modelCacheSubdir', 'other-cache'],
-    ['selfTest', { pythonImports: ['math'], timeoutSeconds: 180 }],
+    ['runtime', { id: 'python', version: '3.11.15', entryPoint: 'venv/python.exe' }],
+    ['cacheSubdir', 'other-cache'],
+    ['selfTest', { probe: { imports: ['math'] }, timeoutSeconds: 180 }],
     ['provenance', { ...shared.provenance, sourceTreeDirty: true }],
     ['execution', { kind: 'python-module', module: 'other.main', defaultArgs: [] }],
   ])('rejects a %s mismatch', (field, value) => {
@@ -1195,20 +1305,29 @@ describe('box manifest agreement', () => {
       .toThrow(new RegExp(`box\\.json mismatch: ${field}`));
   });
 
-  it('compares the complete on-demand asset policy', () => {
+  it('compares the deferred asset list entry by entry', () => {
+    // There is no box-wide asset switch left to compare: the list *is* the decision, one entry at a
+    // time, so a box that changed its mind about a single asset disagrees with its release here.
     const asset = {
-      url: 'https://assets.example.org/weights.bin',
-      relativePath: 'model-cache/example-model/weights.bin',
+      url: 'https://assets.example.org/data.bin',
+      relativePath: 'cache/example-model/data.bin',
       sizeBytes: 4,
       sha256: 'd'.repeat(64),
     };
-    const release = { ...shared, weights: 'on-demand', assets: [asset] };
+    const release = { ...shared, assets: [asset] };
     expect(() => assertBoxManifestAgreement({ ...release }, release)).not.toThrow();
     expect(() => assertBoxManifestAgreement({
       ...release,
       assets: [{ ...asset, sha256: 'e'.repeat(64) }],
     }, release)).toThrow(/box\.json mismatch: assets/);
+    expect(() => assertBoxManifestAgreement({
+      ...release,
+      assets: [{ ...asset, executable: true }],
+    }, release)).toThrow(/box\.json mismatch: assets/);
+    // A box claiming to be self-contained against a release that defers an asset, and the reverse.
     expect(() => assertBoxManifestAgreement({ ...shared }, release))
-      .toThrow(/box\.json mismatch: weights/);
+      .toThrow(/box\.json mismatch: assets/);
+    expect(() => assertBoxManifestAgreement(release, { ...shared }))
+      .toThrow(/box\.json mismatch: assets/);
   });
 });

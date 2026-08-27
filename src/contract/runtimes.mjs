@@ -14,6 +14,11 @@
  * in `fixtures/runtime-contract.json` are what "agree" means, and are what the Python and Rust
  * mirrors validate themselves against.
  *
+ * Schema version 3 made the runtime a declaration: a box says `runtime: { id, version, entryPoint }`
+ * instead of leaving a reader to infer Python from a Python-shaped entry point. `RUNTIME_IDS` is the
+ * vocabulary that declaration may use and `RUNTIME_ADAPTERS` is what this build can actually run —
+ * two different lists on purpose, so implementing `node` later is code and not another wire break.
+ *
  * Only the pure half lives here. Nothing in this module reads a file, joins a host path, or starts
  * a process: every function is a statement about names, so the same inputs give the same answer in
  * every language and on every host. Builder-side behaviour — environment preparation, launcher
@@ -48,9 +53,9 @@
  *   target: BoxRuntimeTarget }) => ResolvedExecutionFiles} resolveExecutionFiles
  * @property {(options: { execution: object,
  *   target: BoxRuntimeTarget }) => BoxRuntimeInvocation} buildArgv
- * @property {(options: { probe: BoxRuntimeSelfTestProbe,
- *   target: BoxRuntimeTarget }) => readonly string[]} selfTestArgv the arguments that follow the
- *   runtime's own entry point when it runs a self-test probe
+ * @property {(options: { probe: BoxRuntimeSelfTestProbe, execution: object | null | undefined,
+ *   target: BoxRuntimeTarget }) => readonly BoxRuntimeSelfTestInvocation[]} selfTestInvocations
+ *   every command a self-test probe implies, in declaration order
  */
 
 /**
@@ -101,20 +106,36 @@
  */
 
 /**
- * What a self-test asks the runtime to prove, plus the builder-only extension a scroll may add.
+ * What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
  *
- * @typedef {{ imports: readonly string[], code?: string | null }} BoxRuntimeSelfTestProbe
+ * `imports` asks the runtime's loader a question and only means something to a runtime that has
+ * one. `commands` asks the box's declared execution a question, which every runtime can answer and
+ * a native one can answer *only* that way. A probe carries whichever apply; `code` never travels on
+ * the wire, because signing it would claim a consumer had repeated a check it cannot see.
+ *
+ * @typedef {object} BoxRuntimeSelfTestProbe
+ * @property {readonly string[]} [imports] modules the runtime must be able to load
+ * @property {readonly { args: readonly string[], expectExitCode?: number }[]} [commands]
+ * @property {string | null} [code] builder-only extra source in the runtime's own language
  */
 
 /**
- * The runtime every box built by this schema version implicitly declares.
+ * One command the self-test runs, and the status it must exit with.
  *
- * The wire format has no runtime field: a box records a Python entry point and Python execution
- * kinds and nothing that says "Python". So a reader that must name a runtime names this one, from
- * one place — the point being that adding the declaration later changes an argument rather than
- * starting a hunt for hard-coded strings.
+ * @typedef {object} BoxRuntimeSelfTestInvocation
+ * @property {BoxRuntimeArgument} command
+ * @property {readonly BoxRuntimeArgument[]} args
+ * @property {number} expectExitCode
  */
-export const IMPLICIT_RUNTIME_ID = 'python';
+
+/**
+ * Every runtime id the box format admits, in the order the schema lists them.
+ *
+ * The wire enum and the implemented set are deliberately two different things: schema version 3
+ * fixes the vocabulary once, so a later release can implement `node` without another wire break.
+ * A box naming a runtime this build has no adapter for is refused by name, not misread.
+ */
+export const RUNTIME_IDS = Object.freeze(['python', 'node', 'native']);
 
 const PYTHON_EXECUTION_ENVIRONMENT = Object.freeze([
   'PYTHONPATH',
@@ -201,6 +222,35 @@ function pythonModuleEntryPoints({ module, runtimeVersion, target }) {
     relativeCandidates.map((path) => (root ? `${root}/${path}` : path)));
 }
 
+/**
+ * A command probe, turned into an invocation of the box's own declared execution.
+ *
+ * Shared by every runtime, because it is not a runtime-specific rule: the box says how it is run,
+ * and the probe appends arguments to that. A probe of this shape in a box that declares no
+ * execution has nothing to invoke, which is a contradiction in the declaration rather than a
+ * property of the box, so it is refused where scrolls are read and reported here as a programming
+ * error if it ever gets this far.
+ */
+function commandInvocation(runtime, { command, execution, target }) {
+  if (!execution) {
+    throw new TypeError('A self-test command needs a declared execution to invoke');
+  }
+  const { command: entryPoint, args } = runtime.buildArgv({ execution, target });
+  return {
+    command: entryPoint,
+    args: [...args, ...command.args.map((value) => ({ kind: 'literal', value }))],
+    expectExitCode: command.expectExitCode ?? 0,
+  };
+}
+
+function freezeInvocations(invocations) {
+  return Object.freeze(invocations.map((invocation) => Object.freeze({
+    command: Object.freeze(invocation.command),
+    args: Object.freeze(invocation.args.map((argument) => Object.freeze(argument))),
+    expectExitCode: invocation.expectExitCode,
+  })));
+}
+
 const PYTHON_RUNTIME = Object.freeze({
   id: 'python',
   executionKinds: Object.freeze(['python-script', 'python-module']),
@@ -248,16 +298,27 @@ const PYTHON_RUNTIME = Object.freeze({
     });
   },
 
-  selfTestArgv({ probe, target }) {
-    const assertion = PYTHON_PLATFORM_ASSERTIONS[target?.platform];
-    if (!assertion) {
-      throw new TypeError(`No python self-test assertion exists for platform ${String(target?.platform)}`);
+  selfTestInvocations({ probe, execution, target }) {
+    const invocations = [];
+    if (probe.imports?.length) {
+      const assertion = PYTHON_PLATFORM_ASSERTIONS[target?.platform];
+      if (!assertion) {
+        throw new TypeError(`No python self-test assertion exists for platform ${String(target?.platform)}`);
+      }
+      const imports = `import ${probe.imports.join(', ')}`;
+      const code = probe.code
+        ? `${assertion}\n${imports}\n${probe.code}`
+        : `${assertion}\n${imports}`;
+      invocations.push({
+        command: { kind: 'payload-path', value: pythonLayout(target).entryPoint },
+        args: ['-c', code].map((value) => ({ kind: 'literal', value })),
+        expectExitCode: 0,
+      });
     }
-    const imports = `import ${probe.imports.join(', ')}`;
-    const code = probe.code
-      ? `${assertion}\n${imports}\n${probe.code}`
-      : `${assertion}\n${imports}`;
-    return Object.freeze(['-c', code]);
+    for (const command of probe.commands ?? []) {
+      invocations.push(commandInvocation(PYTHON_RUNTIME, { command, execution, target }));
+    }
+    return freezeInvocations(invocations);
   },
 });
 
@@ -299,11 +360,37 @@ export function assertRuntimeEntryPoint(runtimeId, adapter, entryPoint) {
   const runtime = runtimeAdapter(runtimeId);
   const expected = runtime.layout(adapter).entryPoint;
   if (entryPoint !== expected) {
-    // The wording still names Python because the wire format still does: a scroll declares
-    // `pythonEntryPoint`, and an error that called it something else would name a field the author
-    // cannot find. It generalises with the field, in the same version bump.
-    throw new TypeError(`${adapter.id} scrolls must use Python entry point ${expected}`);
+    throw new TypeError(`${adapter.id} boxes with the ${runtime.id} runtime must use entry point ${expected}`);
   }
+}
+
+/**
+ * The message for a box declaring a runtime this build has no adapter for.
+ *
+ * The wire vocabulary is fixed and the implemented set is not, so this case is expected rather than
+ * exceptional, and the wording says which of the two the box fell foul of. It lives here so the
+ * builder and all three consumers report an unimplemented runtime identically instead of each
+ * inventing a phrasing.
+ *
+ * @param {string} runtimeId
+ * @returns {string}
+ */
+export function unimplementedRuntimeMessage(runtimeId) {
+  const implemented = RUNTIME_ADAPTERS.map((adapter) => adapter.id).join(', ');
+  return RUNTIME_IDS.includes(runtimeId)
+    ? `Runtime ${runtimeId} is not implemented by this version of Scrollcase; it implements ${implemented}.`
+    : `Unknown runtime: ${String(runtimeId)}. The box format defines ${RUNTIME_IDS.join(', ')}.`;
+}
+
+/**
+ * Whether this build carries an adapter for a runtime id — the question every caller asks before
+ * `runtimeAdapter`, which throws rather than returning nothing.
+ *
+ * @param {string} runtimeId
+ * @returns {boolean}
+ */
+export function isImplementedRuntime(runtimeId) {
+  return RUNTIME_ADAPTERS.some((adapter) => adapter.id === runtimeId);
 }
 
 /**

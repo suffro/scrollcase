@@ -18,7 +18,7 @@ import { chmod, copyFile, cp, mkdir, readFile, readdir, readlink, realpath, rm, 
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import * as tar from 'tar';
 import { resolvePayloadLinkTarget, targetCarriesLinks } from '../contract/links.mjs';
-import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../contract/runtimes.mjs';
+import { runtimeAdapter } from '../contract/runtimes.mjs';
 import { compareStableStrings, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult as defaultRunResult } from './process.mjs';
 import { repairPosixLaunchers } from '../runtimes/python/launchers.mjs';
@@ -338,7 +338,7 @@ async function keepsAsLink(root, linkPath, canonicalRoot) {
  *   payloadDir: string,
  *   adapter: import('../contract/targets.mjs').BoxTargetAdapter,
  *   run: typeof import('./process.mjs').run,
- *   runtimeId?: string,
+ *   runtimeId: string,
  * }} options
  * @returns {Promise<{ interpreter: string, venvDir: string, sitePackagesRelative: string }>}
  */
@@ -351,7 +351,7 @@ export async function installAndPackPixiEnvironment({
   payloadDir,
   adapter,
   run,
-  runtimeId = IMPLICIT_RUNTIME_ID,
+  runtimeId,
 }) {
   const layout = runtimeAdapter(runtimeId).layout(adapter);
   const workspace = join(buildDir, 'pixi-workspace');

@@ -516,7 +516,7 @@ describe('Node consumer execution', () => {
 
     expect(result).toMatchObject({ exitCode: 17, signal: null });
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].command).toBe(join(prepared.root, ...prepared.pythonEntryPoint.split('/')));
+    expect(fake.calls[0].command).toBe(join(prepared.root, ...prepared.runtime.entryPoint.split('/')));
     expect(fake.calls[0].args).toEqual([
       join(prepared.root, 'app/main.py'),
       '--default',

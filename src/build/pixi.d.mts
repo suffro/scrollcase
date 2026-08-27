@@ -108,7 +108,7 @@ export function findCondaPack({ path, runResult }?: {
  *   payloadDir: string,
  *   adapter: import('../contract/targets.mjs').BoxTargetAdapter,
  *   run: typeof import('./process.mjs').run,
- *   runtimeId?: string,
+ *   runtimeId: string,
  * }} options
  * @returns {Promise<{ interpreter: string, venvDir: string, sitePackagesRelative: string }>}
  */
@@ -121,7 +121,7 @@ export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, l
     payloadDir: string;
     adapter: import("../contract/targets.mjs").BoxTargetAdapter;
     run: typeof import("./process.mjs").run;
-    runtimeId?: string;
+    runtimeId: string;
 }): Promise<{
     interpreter: string;
     venvDir: string;

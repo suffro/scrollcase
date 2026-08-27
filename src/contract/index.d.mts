@@ -13,5 +13,6 @@ export function schemaUrl(name: "target" | "scroll" | "box-manifest" | "release-
  * @returns {URL}
  */
 export function fixtureUrl(name: string): URL;
-export { assertNativeHost, assertPythonEntryPoint, condaSubdir, pixiAccelerator, boxTargetAdapter, boxTargetAdapters, boxTargetId } from "./targets.mjs";
+export { assertNativeHost, condaSubdir, pixiAccelerator, boxTargetAdapter, boxTargetAdapters, boxTargetId } from "./targets.mjs";
+export { RUNTIME_IDS, assertRuntimeEntryPoint, executionAffectingVariables, isExecutablePayloadPath, isImplementedRuntime, runtimeAdapter, runtimeAdapters, unimplementedRuntimeMessage } from "./runtimes.mjs";
 export { CHANNELS, DEFAULT_DOCUMENT_NAMESPACE, PAYLOAD_ENCODING, BOX_SCHEMA_VERSION, SIGNATURE_ALGORITHM, decodeDocumentPayload, documentKinds, isSignedBoxDocument, parseDocumentKind } from "./documents.mjs";

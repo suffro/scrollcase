@@ -1,9 +1,13 @@
 /**
  * Binds the self-description inside the archive to the signed release outside it.
  *
- * Only fields present in both schema-version-2 documents belong here. Release-only transport data
- * has no counterpart in box.json; every shared identity, target, layout, consumer self-test,
- * asset-policy, and provenance field must agree recursively.
+ * Only fields present in both schema-version-3 documents belong here. Release-only transport data
+ * has no counterpart in box.json; every shared identity, target, runtime, layout, consumer
+ * self-test, deferred-asset, and provenance field must agree recursively.
+ *
+ * `assets` carries the per-entry `embed` decision by construction: it lists exactly the deferred
+ * entries, and it is compared deeply, so a box that quietly changed its mind about one asset
+ * disagrees with its release.
  */
 export function assertBoxManifestAgreement(box: any, release: any): void;
 /**

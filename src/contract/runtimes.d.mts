@@ -24,6 +24,26 @@ export function runtimeAdapters(): BoxRuntimeAdapter[];
  */
 export function assertRuntimeEntryPoint(runtimeId: string, adapter: import("./targets.mjs").BoxTargetAdapter, entryPoint: string): void;
 /**
+ * The message for a box declaring a runtime this build has no adapter for.
+ *
+ * The wire vocabulary is fixed and the implemented set is not, so this case is expected rather than
+ * exceptional, and the wording says which of the two the box fell foul of. It lives here so the
+ * builder and all three consumers report an unimplemented runtime identically instead of each
+ * inventing a phrasing.
+ *
+ * @param {string} runtimeId
+ * @returns {string}
+ */
+export function unimplementedRuntimeMessage(runtimeId: string): string;
+/**
+ * Whether this build carries an adapter for a runtime id — the question every caller asks before
+ * `runtimeAdapter`, which throws rather than returning nothing.
+ *
+ * @param {string} runtimeId
+ * @returns {boolean}
+ */
+export function isImplementedRuntime(runtimeId: string): boolean;
+/**
  * Whether a payload path is one the runtime requires the executable bit on.
  *
  * A directory matches by prefix so one rule covers a whole generated scripts tree; an exact file
@@ -63,6 +83,11 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
  * in `fixtures/runtime-contract.json` are what "agree" means, and are what the Python and Rust
  * mirrors validate themselves against.
  *
+ * Schema version 3 made the runtime a declaration: a box says `runtime: { id, version, entryPoint }`
+ * instead of leaving a reader to infer Python from a Python-shaped entry point. `RUNTIME_IDS` is the
+ * vocabulary that declaration may use and `RUNTIME_ADAPTERS` is what this build can actually run —
+ * two different lists on purpose, so implementing `node` later is code and not another wire break.
+ *
  * Only the pure half lives here. Nothing in this module reads a file, joins a host path, or starts
  * a process: every function is a statement about names, so the same inputs give the same answer in
  * every language and on every host. Builder-side behaviour — environment preparation, launcher
@@ -96,9 +121,9 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
  *   target: BoxRuntimeTarget }) => ResolvedExecutionFiles} resolveExecutionFiles
  * @property {(options: { execution: object,
  *   target: BoxRuntimeTarget }) => BoxRuntimeInvocation} buildArgv
- * @property {(options: { probe: BoxRuntimeSelfTestProbe,
- *   target: BoxRuntimeTarget }) => readonly string[]} selfTestArgv the arguments that follow the
- *   runtime's own entry point when it runs a self-test probe
+ * @property {(options: { probe: BoxRuntimeSelfTestProbe, execution: object | null | undefined,
+ *   target: BoxRuntimeTarget }) => readonly BoxRuntimeSelfTestInvocation[]} selfTestInvocations
+ *   every command a self-test probe implies, in declaration order
  */
 /**
  * The part of a target a runtime rule reads. A `BoxTarget` and the `BoxTargetAdapter` resolved from
@@ -142,19 +167,34 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
  *   own arguments
  */
 /**
- * What a self-test asks the runtime to prove, plus the builder-only extension a scroll may add.
+ * What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
  *
- * @typedef {{ imports: readonly string[], code?: string | null }} BoxRuntimeSelfTestProbe
+ * `imports` asks the runtime's loader a question and only means something to a runtime that has
+ * one. `commands` asks the box's declared execution a question, which every runtime can answer and
+ * a native one can answer *only* that way. A probe carries whichever apply; `code` never travels on
+ * the wire, because signing it would claim a consumer had repeated a check it cannot see.
+ *
+ * @typedef {object} BoxRuntimeSelfTestProbe
+ * @property {readonly string[]} [imports] modules the runtime must be able to load
+ * @property {readonly { args: readonly string[], expectExitCode?: number }[]} [commands]
+ * @property {string | null} [code] builder-only extra source in the runtime's own language
  */
 /**
- * The runtime every box built by this schema version implicitly declares.
+ * One command the self-test runs, and the status it must exit with.
  *
- * The wire format has no runtime field: a box records a Python entry point and Python execution
- * kinds and nothing that says "Python". So a reader that must name a runtime names this one, from
- * one place — the point being that adding the declaration later changes an argument rather than
- * starting a hunt for hard-coded strings.
+ * @typedef {object} BoxRuntimeSelfTestInvocation
+ * @property {BoxRuntimeArgument} command
+ * @property {readonly BoxRuntimeArgument[]} args
+ * @property {number} expectExitCode
  */
-export const IMPLICIT_RUNTIME_ID: "python";
+/**
+ * Every runtime id the box format admits, in the order the schema lists them.
+ *
+ * The wire enum and the implemented set are deliberately two different things: schema version 3
+ * fixes the vocabulary once, so a later release can implement `node` without another wire break.
+ * A box naming a runtime this build has no adapter for is refused by name, not misread.
+ */
+export const RUNTIME_IDS: readonly string[];
 /**
  * What a runtime implies for a box, independent of the machine it runs on.
  */
@@ -193,13 +233,13 @@ export type BoxRuntimeAdapter = {
         target: BoxRuntimeTarget;
     }) => BoxRuntimeInvocation;
     /**
-     * the arguments that follow the
-     * runtime's own entry point when it runs a self-test probe
+     *   every command a self-test probe implies, in declaration order
      */
-    selfTestArgv: (options: {
+    selfTestInvocations: (options: {
         probe: BoxRuntimeSelfTestProbe;
+        execution: object | null | undefined;
         target: BoxRuntimeTarget;
-    }) => readonly string[];
+    }) => readonly BoxRuntimeSelfTestInvocation[];
 };
 /**
  * The part of a target a runtime rule reads. A `BoxTarget` and the `BoxTargetAdapter` resolved from
@@ -276,9 +316,32 @@ export type BoxRuntimeInvocation = {
     args: readonly BoxRuntimeArgument[];
 };
 /**
- * What a self-test asks the runtime to prove, plus the builder-only extension a scroll may add.
+ * What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
+ *
+ * `imports` asks the runtime's loader a question and only means something to a runtime that has
+ * one. `commands` asks the box's declared execution a question, which every runtime can answer and
+ * a native one can answer *only* that way. A probe carries whichever apply; `code` never travels on
+ * the wire, because signing it would claim a consumer had repeated a check it cannot see.
  */
 export type BoxRuntimeSelfTestProbe = {
-    imports: readonly string[];
+    /**
+     * modules the runtime must be able to load
+     */
+    imports?: readonly string[];
+    commands?: readonly {
+        args: readonly string[];
+        expectExitCode?: number;
+    }[];
+    /**
+     * builder-only extra source in the runtime's own language
+     */
     code?: string | null;
+};
+/**
+ * One command the self-test runs, and the status it must exit with.
+ */
+export type BoxRuntimeSelfTestInvocation = {
+    command: BoxRuntimeArgument;
+    args: readonly BoxRuntimeArgument[];
+    expectExitCode: number;
 };

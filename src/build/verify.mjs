@@ -15,10 +15,11 @@ import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
 import {
-  IMPLICIT_RUNTIME_ID,
   assertRuntimeEntryPoint,
   executionAffectingVariables,
+  isImplementedRuntime,
   runtimeAdapter,
+  unimplementedRuntimeMessage,
 } from '../contract/runtimes.mjs';
 import {
   BOX_SCHEMA_VERSION,
@@ -30,16 +31,14 @@ import { resolveTrustedKeys, verifySignedDocument } from '../sign/index.mjs';
 const AGREEMENT_FIELDS = [
   'schemaVersion',
   'boxId',
-  'modelId',
-  'runtimeId',
+  'labels',
   'version',
   'target',
-  'pythonEntryPoint',
-  'modelCacheSubdir',
+  'runtime',
+  'cacheSubdir',
   'environment',
   'selfTest',
   'execution',
-  'weights',
   'assets',
   'provenance',
 ];
@@ -47,9 +46,13 @@ const AGREEMENT_FIELDS = [
 /**
  * Binds the self-description inside the archive to the signed release outside it.
  *
- * Only fields present in both schema-version-2 documents belong here. Release-only transport data
- * has no counterpart in box.json; every shared identity, target, layout, consumer self-test,
- * asset-policy, and provenance field must agree recursively.
+ * Only fields present in both schema-version-3 documents belong here. Release-only transport data
+ * has no counterpart in box.json; every shared identity, target, runtime, layout, consumer
+ * self-test, deferred-asset, and provenance field must agree recursively.
+ *
+ * `assets` carries the per-entry `embed` decision by construction: it lists exactly the deferred
+ * entries, and it is compared deeply, so a box that quietly changed its mind about one asset
+ * disagrees with its release.
  */
 export function assertBoxManifestAgreement(box, release) {
   for (const field of AGREEMENT_FIELDS) {
@@ -111,7 +114,12 @@ export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, 
   if (releaseError) fail(`Invalid release manifest: ${releaseError}.`);
   if (parseDocumentKind(release.kind)?.type !== 'release') fail('Document is not a box release.');
   const adapter = boxTargetAdapter(release.target);
-  assertRuntimeEntryPoint(IMPLICIT_RUNTIME_ID, adapter, release.pythonEntryPoint);
+  // The format's runtime vocabulary is wider than what this build implements, so a release may name
+  // one there is no adapter for. That is refused by name rather than misread as another runtime.
+  if (!isImplementedRuntime(release.runtime.id)) fail(unimplementedRuntimeMessage(release.runtime.id));
+  if (release.runtime.entryPoint !== undefined) {
+    assertRuntimeEntryPoint(release.runtime.id, adapter, release.runtime.entryPoint);
+  }
   // Describes the extracted tree rather than the archive, so it belongs on this side of the split.
   // `payloadDigest` needs no companion check: its `format` is a schema `const`, so a release naming
   // a format this build cannot read is already refused above, by name, as an invalid manifest.
@@ -167,11 +175,15 @@ export async function inspectBoxArchive(releaseDocumentPath, options = {}) {
   );
   if (boxError) fail(`Invalid box.json: ${boxError}.`);
   assertBoxManifestAgreement(box, release);
-  if (!resolvablePaths.has(release.pythonEntryPoint)) fail(`Archive is missing ${release.pythonEntryPoint}.`);
+  if (release.runtime.entryPoint !== undefined
+    && !resolvablePaths.has(release.runtime.entryPoint)) {
+    fail(`Archive is missing ${release.runtime.entryPoint}.`);
+  }
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    runtimeVersion: release.provenance.pythonVersion,
+    runtimeId: release.runtime.id,
+    runtimeVersion: release.provenance.runtimeVersion,
     files: resolvablePaths,
   });
 
@@ -220,7 +232,7 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
   const resolvedEnvironment = resolveEnvironment({
     platform: adapter.platform,
     layers: environmentLayers,
-    executionAffectingVariables: executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter),
+    executionAffectingVariables: executionAffectingVariables(release.runtime.id, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   });
@@ -245,17 +257,24 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
         && (await payloadDigest(extracted)).sha256 !== release.payloadDigest.sha256) {
         fail('Extracted payload does not match the signed release.');
       }
-      const python = join(extracted, safeRelativePath(release.pythonEntryPoint));
-      // The signed subset only: a consumer repeating this check has the imports and nothing else,
-      // and the runtime is the only thing that knows how to turn them into a command line.
-      const argv = runtimeAdapter(IMPLICIT_RUNTIME_ID).selfTestArgv({
-        probe: { imports: release.selfTest.pythonImports },
+      // The signed probe only: a consumer repeating this check has the imports and commands and
+      // nothing else, and the runtime is the only thing that knows how to turn them into command
+      // lines. Running the builder-only extras here would report a pass the consumer cannot get.
+      const invocations = runtimeAdapter(release.runtime.id).selfTestInvocations({
+        probe: release.selfTest.probe,
+        execution: release.execution,
         target: adapter,
       });
-      run(python, argv, {
-        cwd: extracted,
-        env: resolvedEnvironment.environment,
-      });
+      const resolveArgument = (argument) => (argument.kind === 'payload-path'
+        ? join(extracted, ...safeRelativePath(argument.value).split('/'))
+        : argument.value);
+      for (const invocation of invocations) {
+        run(resolveArgument(invocation.command), invocation.args.map(resolveArgument), {
+          cwd: extracted,
+          env: resolvedEnvironment.environment,
+          expectExitCode: invocation.expectExitCode,
+        });
+      }
     } finally {
       await rm(extracted, { recursive: true, force: true });
     }

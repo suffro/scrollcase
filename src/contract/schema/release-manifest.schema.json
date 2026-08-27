@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scrollcase.dev/schema/v2/release-manifest.schema.json",
+  "$id": "https://scrollcase.dev/schema/v3/release-manifest.schema.json",
   "title": "Box release manifest",
   "description": "The immutable description of one built box: what it is, which target it runs on, where its archive lives, and how it was produced. Published as the payload of a signed document and never edited after signing; a correction ships as a new version.",
   "type": "object",
@@ -9,20 +9,18 @@
     "schemaVersion",
     "kind",
     "boxId",
-    "modelId",
-    "runtimeId",
     "version",
     "target",
     "compatibility",
     "archive",
-    "pythonEntryPoint",
-    "modelCacheSubdir",
+    "runtime",
+    "cacheSubdir",
     "selfTest",
     "provenance"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "kind": {
       "$ref": "#/$defs/kind",
@@ -31,18 +29,15 @@
     "boxId": {
       "$ref": "#/$defs/identifier"
     },
-    "modelId": {
-      "$ref": "#/$defs/identifier"
-    },
-    "runtimeId": {
-      "$ref": "#/$defs/identifier"
+    "labels": {
+      "$ref": "#/$defs/labels"
     },
     "version": {
       "type": "string",
       "minLength": 1
     },
     "target": {
-      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v3/target.schema.json"
     },
     "compatibility": {
       "type": "object",
@@ -132,15 +127,13 @@
         }
       }
     },
-    "pythonEntryPoint": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Interpreter path relative to the extracted box root, for example venv/bin/python. Fixed per target by the adapter."
+    "runtime": {
+      "$ref": "#/$defs/runtime"
     },
-    "modelCacheSubdir": {
+    "cacheSubdir": {
       "type": "string",
       "minLength": 1,
-      "description": "Directory relative to the extracted box root holding model assets."
+      "description": "Directory relative to the extracted box root holding the box's own large files."
     },
     "environment": {
       "type": "object",
@@ -155,21 +148,73 @@
       }
     },
     "selfTest": {
+      "$ref": "#/$defs/selfTest"
+    },
+    "execution": {
+      "$ref": "https://scrollcase.dev/schema/v3/execution.schema.json"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "assets": {
+      "$ref": "#/$defs/deferredAssets"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[-.][a-z0-9]+)*$"
+    },
+    "runtime": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "pythonImports",
+        "id"
+      ],
+      "description": "What runs inside the box: the runtime, its version, and where its own executable sits in the payload. A consumer needs all three to run the box, and none of them are derivable from the target.",
+      "properties": {
+        "id": {
+          "enum": [
+            "python",
+            "node",
+            "native"
+          ],
+          "description": "The runtime the box carries. A consumer that does not recognise the id must refuse the box: the id decides the payload layout and the argv rule, so guessing would mean executing something on an assumption."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The runtime's own version. Absent for a runtime that has no interpreter to version."
+        },
+        "entryPoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The runtime's own executable relative to the extracted box root, for example venv/bin/python. Fixed per (runtime, target) by the runtime's layout. Absent for a runtime that has no separate executable to name."
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form annotations the publishing project declared, signed and carried through untouched. Scrollcase attaches no meaning to any key; a consumer that reads one is reading its own project's convention, not the box format.",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "selfTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe",
         "timeoutSeconds"
       ],
-      "description": "The import check a consumer can repeat after extraction with the box's own interpreter. The builder also ran the scroll's Python-code and file assertions, which are builder-only checks.",
+      "description": "The check a consumer can repeat against an extracted box. The builder also ran the scroll's file assertions and any extra source it declared, which are builder-only: signing them would claim a consumer had reproduced a check it cannot see.",
       "properties": {
-        "pythonImports": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "probe": {
+          "$ref": "#/$defs/selfTestProbe"
         },
         "timeoutSeconds": {
           "type": "integer",
@@ -177,20 +222,53 @@
         }
       }
     },
-    "execution": {
-      "$ref": "https://scrollcase.dev/schema/v2/execution.schema.json"
+    "selfTestProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "What the box proves about itself, in whichever shapes its runtime supports. The runtime turns this into command lines; nothing here is a command line, and nothing here is source in any language.",
+      "properties": {
+        "imports": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Modules the runtime must be able to load.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Invocations of the box's declared execution and the exit status each must produce.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "args",
+              "expectExitCode"
+            ],
+            "properties": {
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "expectExitCode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          }
+        }
+      }
     },
-    "provenance": {
-      "$ref": "#/$defs/provenance"
-    },
-    "weights": {
-      "const": "on-demand",
-      "description": "Present only when the assets were deliberately left out of the archive. Absent means the box is self-contained: everything it needs is inside it."
-    },
-    "assets": {
+    "deferredAssets": {
       "type": "array",
       "minItems": 1,
-      "description": "Assets the consumer must fetch and place under the box root before first use. Present only with on-demand weights. The declared hash is what makes fetching them safe.",
+      "description": "Assets the consumer must fetch and place under the box root before first use — the entries the scroll declared with embed false, and only those. A box whose assets are all embedded carries no such list. The declared size and hash are what make fetching them safe; a Scrollcase consumer verifies them and never downloads them itself.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -215,15 +293,13 @@
           },
           "sha256": {
             "$ref": "#/$defs/sha256"
+          },
+          "executable": {
+            "type": "boolean",
+            "description": "Present and true when the scroll declared the file executable. Whoever materializes it owns setting the bit: the file never passes through the archive, so nothing Scrollcase writes can carry a mode for it."
           }
         }
       }
-    }
-  },
-  "$defs": {
-    "identifier": {
-      "type": "string",
-      "pattern": "^[a-z0-9]+(?:[-.][a-z0-9]+)*$"
     },
     "kind": {
       "type": "string",
@@ -243,7 +319,6 @@
         "builderRevision",
         "sourceTreeDirty",
         "sourceRevision",
-        "pythonVersion",
         "dependencyLockSha256",
         "builtAt",
         "pixiVersion"
@@ -269,11 +344,12 @@
         "sourceRevision": {
           "type": "string",
           "minLength": 1,
-          "description": "Upstream revision of the packaged model source, as declared by the scroll."
+          "description": "Upstream revision of the packaged source, as declared by the scroll."
         },
-        "pythonVersion": {
+        "runtimeVersion": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "The runtime version the environment was solved with, repeated from runtime.version. Absent exactly when the runtime has none: provenance records what was observed and never invents a value to fill a field."
         },
         "pixiVersion": {
           "type": "string",
@@ -289,13 +365,5 @@
         }
       }
     }
-  },
-  "dependentRequired": {
-    "assets": [
-      "weights"
-    ],
-    "weights": [
-      "assets"
-    ]
   }
 }

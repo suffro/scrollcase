@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scrollcase.dev/schema/v2/box-manifest.schema.json",
+  "$id": "https://scrollcase.dev/schema/v3/box-manifest.schema.json",
   "title": "Box manifest (box.json)",
   "description": "The manifest packed inside the archive at box.json. It restates the box's identity, layout and provenance so an extracted box is self-describing: a consumer that has the directory but not the release document can still tell what it is holding and how it was built.",
   "type": "object",
@@ -8,43 +8,35 @@
   "required": [
     "schemaVersion",
     "boxId",
-    "modelId",
-    "runtimeId",
     "version",
     "target",
-    "pythonEntryPoint",
-    "modelCacheSubdir",
+    "runtime",
+    "cacheSubdir",
     "selfTest",
     "provenance"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "boxId": {
       "type": "string",
       "minLength": 1
     },
-    "modelId": {
-      "type": "string",
-      "minLength": 1
-    },
-    "runtimeId": {
-      "type": "string",
-      "minLength": 1
+    "labels": {
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/labels"
     },
     "version": {
       "type": "string",
       "minLength": 1
     },
     "target": {
-      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v3/target.schema.json"
     },
-    "pythonEntryPoint": {
-      "type": "string",
-      "minLength": 1
+    "runtime": {
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/runtime"
     },
-    "modelCacheSubdir": {
+    "cacheSubdir": {
       "type": "string",
       "minLength": 1
     },
@@ -61,76 +53,16 @@
       }
     },
     "selfTest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "pythonImports",
-        "timeoutSeconds"
-      ],
-      "properties": {
-        "pythonImports": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "timeoutSeconds": {
-          "type": "integer",
-          "exclusiveMinimum": 0
-        }
-      }
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/selfTest"
     },
     "execution": {
-      "$ref": "https://scrollcase.dev/schema/v2/execution.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v3/execution.schema.json"
     },
     "provenance": {
-      "$ref": "https://scrollcase.dev/schema/v2/release-manifest.schema.json#/$defs/provenance"
-    },
-    "weights": {
-      "const": "on-demand",
-      "description": "Present only when the assets were deliberately left out of the archive. Absent means the box is self-contained: everything it needs is inside it."
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/provenance"
     },
     "assets": {
-      "type": "array",
-      "minItems": 1,
-      "description": "Assets the consumer must fetch and place under the box root before first use. Present only with on-demand weights. The declared hash is what makes fetching them safe.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "url",
-          "relativePath",
-          "sizeBytes",
-          "sha256"
-        ],
-        "properties": {
-          "url": {
-            "type": "string",
-            "minLength": 1
-          },
-          "relativePath": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sizeBytes": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "sha256": {
-            "$ref": "https://scrollcase.dev/schema/v2/release-manifest.schema.json#/$defs/sha256"
-          }
-        }
-      }
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/deferredAssets"
     }
-  },
-  "dependentRequired": {
-    "assets": [
-      "weights"
-    ],
-    "weights": [
-      "assets"
-    ]
   }
 }

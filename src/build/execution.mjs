@@ -12,7 +12,7 @@
  * path every validation failure in the tool takes.
  */
 
-import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../contract/runtimes.mjs';
+import { runtimeAdapter } from '../contract/runtimes.mjs';
 import { safeRelativePath } from './filesystem.mjs';
 import { fail } from './process.mjs';
 
@@ -25,17 +25,17 @@ import { fail } from './process.mjs';
  * @param {object} options
  * @param {object | null | undefined} options.execution
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} options.adapter
- * @param {string} options.runtimeVersion the interpreter version a module search needs
+ * @param {string} options.runtimeId the runtime the box declares
+ * @param {string | undefined} options.runtimeVersion its version, where a module search needs one
  * @param {Set<string>} options.files
- * @param {string} [options.runtimeId]
  * @returns {void}
  */
 export function assertExecutionFiles({
   execution,
   adapter,
+  runtimeId,
   runtimeVersion,
   files,
-  runtimeId = IMPLICIT_RUNTIME_ID,
 }) {
   if (!execution) return;
   const runtime = runtimeAdapter(runtimeId);

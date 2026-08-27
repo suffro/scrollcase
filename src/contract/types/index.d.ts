@@ -29,8 +29,10 @@ export type BoxTarget = {
 
 /**
  * The optional, shell-free application entry point shared by a scroll, the signed release, and box.json. Its absence means the box is intentionally library-only.
+ *
+ * Each kind is named <runtime>-<shape>, and the runtime half must be the one the box declares: a python-script in a box whose runtime is native describes something that cannot be run, and is refused rather than guessed at.
  */
-export type BoxExecution = PythonScript | PythonModule;
+export type BoxExecution = PythonScript | PythonModule | NodeScript | NativeBinary;
 /**
  * Arguments placed before caller-supplied arguments. Every item is passed directly without a shell.
  */
@@ -64,6 +66,34 @@ export interface PythonModule {
   module: string;
   defaultArgs: DefaultArgs;
 }
+/**
+ * Run one regular payload file with the box's own Node runtime.
+ */
+export interface NodeScript {
+  /**
+   * Selects direct script execution.
+   */
+  kind: 'node-script';
+  /**
+   * Safe path to a regular JavaScript file inside the box.
+   */
+  script: string;
+  defaultArgs: DefaultArgs;
+}
+/**
+ * Run a compiled executable that the box carries directly, with no interpreter in front of it. The only shape a runtime with no module system has.
+ */
+export interface NativeBinary {
+  /**
+   * Selects direct execution of a payload file.
+   */
+  kind: 'native-binary';
+  /**
+   * Safe path to the executable inside the box. It carries the executable bit because the scroll declared it, not because the build machine happened to have it set.
+   */
+  binary: string;
+  defaultArgs: DefaultArgs;
+}
 
 export type Identifier = string;
 /**
@@ -73,20 +103,22 @@ export type PayloadPath = string;
 export type Sha256 = string;
 /**
  * The optional, shell-free application entry point shared by a scroll, the signed release, and box.json. Its absence means the box is intentionally library-only.
+ *
+ * Each kind is named <runtime>-<shape>, and the runtime half must be the one the box declares: a python-script in a box whose runtime is native describes something that cannot be run, and is refused rather than guessed at.
  */
 export interface BoxScroll {
   /**
-   * Associates this file with the published Scrollcase v2 schema for editor validation, completion, and hover help.
+   * Associates this file with the published Scrollcase v3 schema for editor validation, completion, and hover help.
    */
-  $schema?: 'https://scrollcase.dev/schema/v2/scroll.schema.json';
+  $schema?: 'https://scrollcase.dev/schema/v3/scroll.schema.json';
   /**
    * Marks this file as one target's fragment of a box whose shared declarations live in scrolls/<boxId>/scroll.json. The value is fixed: a base is always the box directory's own scroll.json, so there is no path to get wrong and no chain to follow. The base and the fragment are joined into one effective scroll before anything else happens, and that effective scroll is what the build reads and what provenance records.
    */
   extends?: '../scroll.json';
   /**
-   * Scrollcase wire version. Version 2 is the only active format.
+   * Scrollcase wire version. Version 3 is the only active format.
    */
-  schemaVersion: 2;
+  schemaVersion: 3;
   /**
    * Optional provenance identity. When omitted, Scrollcase derives it deterministically from boxId and the canonical target.
    */
@@ -96,8 +128,7 @@ export interface BoxScroll {
    */
   scrollVersion?: string;
   boxId: Identifier;
-  modelId: Identifier;
-  runtimeId: Identifier;
+  labels?: Labels;
   /**
    * Version of the box this scroll produces, as it will appear in the release manifest.
    */
@@ -121,10 +152,7 @@ export interface BoxScroll {
     minNvidiaDriverVersion?: string;
     [k: string]: unknown;
   };
-  /**
-   * Python version solved into the box.
-   */
-  pythonVersion: string;
+  runtime: Runtime;
   /**
    * Pins the pixi release used to solve and install the conda-forge environment from the committed pixi.lock.
    */
@@ -134,13 +162,9 @@ export interface BoxScroll {
    */
   condaDependencyLicenseAudit?: string;
   /**
-   * Interpreter path relative to the box root. The target adapter's layout admits exactly one value, so this is derived from the target when omitted and still checked against it when declared.
+   * Payload directory the box's own large files live under — the destination a scroll's assets conventionally share. Defaults to cache/<boxId>.
    */
-  pythonEntryPoint?: string;
-  /**
-   * Payload directory the box's model files live under. Defaults to model-cache/<boxId>.
-   */
-  modelCacheSubdir?: string;
+  cacheSubdir?: string;
   /**
    * Environment variables the box requires when its interpreter runs. The declaration is copied into box.json and the signed release; its values override both the inherited host environment and caller-supplied values.
    */
@@ -159,6 +183,14 @@ export interface BoxScroll {
     relativePath: PayloadPath;
     sizeBytes: number;
     sha256: Sha256;
+    /**
+     * Whether this file is packed into the archive. True, the default, makes the box self-contained: it installs with no network and works air-gapped. False leaves it out and carries its descriptor in the signed release instead, for the caller's distribution layer to materialize. The choice is per entry, so a box may ship a small entry point and defer a large dataset; consumers verify what was materialized before execution and never download it themselves.
+     */
+    embed?: boolean;
+    /**
+     * Whether the file needs the executable bit. HTTP carries content and not permissions, so a downloaded file arrives with none; declaring it here is the only way a box can ship one that runs. The bit is synthesised into the archive from this declaration, never read off the build machine.
+     */
+    executable?: boolean;
   }[];
   /**
    * Downloaded archives to expand into the payload. Extraction preserves files already present in the destination and refuses to overwrite them.
@@ -180,40 +212,25 @@ export interface BoxScroll {
      * Optional pin. When present the build refuses a file whose contents no longer match.
      */
     sha256?: string;
+    /**
+     * Whether the file needs the executable bit. A copy does not carry the source file's mode, because a mode read off the build machine would vary with its umask and break the byte-identical rebuild; the bit is synthesised into the archive from this declaration instead.
+     */
+    executable?: boolean;
   }[];
   /**
    * Payload paths deleted before packing, to keep the box to what it actually needs at run time. Pruning a distribution the lock requires is rejected.
    */
   prunePaths?: PayloadPath[];
   /**
-   * Payload paths stored in the archive instead of deflated, because their bytes are already compressed and re-compressing them costs build time while making the archive marginally larger. A path matches itself and everything beneath it, so one entry can name a weights file or the directory an expanded asset archive landed in. Declared assets are stored automatically; this is for anything else the project knows to be already compressed.
+   * Payload paths stored in the archive instead of deflated, because their bytes are already compressed and re-compressing them costs build time while making the archive marginally larger. A path matches itself and everything beneath it, so one entry can name a single large file or the directory an expanded asset archive landed in. Declared assets are stored automatically; this is for anything else the project knows to be already compressed.
    */
   uncompressedPaths?: PayloadPath[];
   /**
-   * Builder checks run with the payload's own interpreter before archiving. Schema version 2 signs only the import subset for a consumer to repeat; file and optional Python-code assertions remain builder-only.
+   * Builder checks run against the payload before archiving. The signed release carries the probe — the imports and commands a consumer can repeat after extraction — while file assertions and the optional extra source stay builder-only. At least one of imports and commands is required: a box that proves nothing about itself is not a box worth signing.
    */
   selfTest: {
-    /**
-     * @minItems 1
-     */
-    imports: [string, ...string[]];
-    /**
-     * Files that must still exist after pruning, which is what stops an over-aggressive prune from shipping a broken box. Defaults to empty.
-     */
-    files?: PayloadPath[];
-    /**
-     * Extra Python executed after the imports succeed, for checks a bare import cannot make. Anything longer than an assertion belongs in pythonFile, where an editor can see it is Python.
-     */
-    pythonCode?: string;
-    /**
-     * Project path to a Python file executed after the imports succeed, in place of pythonCode. The file is read at build time and run from the payload root, so a real self-test keeps its syntax highlighting, its linter, and its diffs instead of living inside a JSON string.
-     */
-    pythonFile?: string;
+    [k: string]: unknown;
   };
-  /**
-   * Whether assets are packed into the archive (embed, the default: the box installs with no network and works air-gapped) or left out for the caller to materialize from descriptors in the signed release (on-demand). Consumers verify materialized assets before execution and do not download them. A build may override this.
-   */
-  weights?: 'embed' | 'on-demand';
   execution?: BoxExecution;
   /**
    * An optional numerical gate: run a check inside the box on more than one accelerator and require the results to agree. This catches a mis-solved environment — CPU-only wheels shipped as CUDA, a broken BLAS — on the build machine rather than on a user's. The tool runs the check and enforces the thresholds; what the check computes, and what closeness is acceptable, belong to the project.
@@ -240,53 +257,106 @@ export interface BoxScroll {
   };
 }
 /**
+ * Free-form annotations carried through into the signed release untouched. Scrollcase never reads a label; it exists so a project can record what it needs to record — the upstream model a box packages, the team that owns it, the ticket it came from — without the format having to grow a field, and without the format claiming to know what any project's boxes are about.
+ */
+export interface Labels {
+  [k: string]: string;
+}
+/**
+ * What runs inside the box. A target says which machine the box is for; this says what executes on it — which is a different question, and until version 3 the format never asked it: a box declared a Python interpreter path and Python execution kinds and nothing that said "Python".
+ */
+export interface Runtime {
+  /**
+   * The runtime the box carries. The list is closed rather than free-form: each id implies a payload layout, a set of execution kinds and an argv rule that a consumer has to already know, so an unrecognised one is a box that cannot be run, not a box with an unusual label.
+   */
+  id: 'python' | 'node' | 'native';
+  /**
+   * The runtime's own version, solved into the box and recorded in provenance. Required by any runtime whose layout depends on it — Python names its standard library after major.minor — and legitimately absent for one that has no interpreter to version, which is why the format does not demand it.
+   */
+  version?: string;
+  /**
+   * The runtime's own executable, relative to the box root. The runtime's layout for a given target admits exactly one value, so this is derived when omitted and still checked against the layout when declared. Absent for a runtime that has no separate executable to name.
+   */
+  entryPoint?: string;
+}
+/**
  * Run one regular payload file with the box's own Python interpreter.
  */
+export type DeferredAssets = [
+  {
+    url: string;
+    relativePath: string;
+    sizeBytes: number;
+    sha256: string;
+    /**
+     * Present and true when the scroll declared the file executable. Whoever materializes it owns setting the bit: the file never passes through the archive, so nothing Scrollcase writes can carry a mode for it.
+     */
+    executable?: boolean;
+  },
+  ...{
+    url: string;
+    relativePath: string;
+    sizeBytes: number;
+    sha256: string;
+    /**
+     * Present and true when the scroll declared the file executable. Whoever materializes it owns setting the bit: the file never passes through the archive, so nothing Scrollcase writes can carry a mode for it.
+     */
+    executable?: boolean;
+  }[]
+];
+
+/**
+ * The manifest packed inside the archive at box.json. It restates the box's identity, layout and provenance so an extracted box is self-describing: a consumer that has the directory but not the release document can still tell what it is holding and how it was built.
+ */
 export interface BoxManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   boxId: string;
-  modelId: string;
-  runtimeId: string;
+  labels?: Labels;
   version: string;
   target: BoxTarget;
-  pythonEntryPoint: string;
-  modelCacheSubdir: string;
+  runtime: Runtime;
+  cacheSubdir: string;
   /**
    * Environment variables repeated from the signed release. Scrollcase consumers compare this declaration before execution and apply it over inherited and caller-supplied values.
    */
   environment?: {
     [k: string]: string;
   };
-  selfTest: {
-    /**
-     * @minItems 1
-     */
-    pythonImports: [string, ...string[]];
-    timeoutSeconds: number;
-  };
+  selfTest: SelfTest;
   execution?: BoxExecution;
   provenance: Provenance;
+  assets?: DeferredAssets;
+}
+/**
+ * Free-form annotations the publishing project declared, signed and carried through untouched. Scrollcase attaches no meaning to any key; a consumer that reads one is reading its own project's convention, not the box format.
+ */
+export interface SelfTest {
+  probe: SelfTestProbe;
+  timeoutSeconds: number;
+}
+/**
+ * What the box proves about itself, in whichever shapes its runtime supports. The runtime turns this into command lines; nothing here is a command line, and nothing here is source in any language.
+ */
+export interface SelfTestProbe {
   /**
-   * Present only when the assets were deliberately left out of the archive. Absent means the box is self-contained: everything it needs is inside it.
-   */
-  weights?: 'on-demand';
-  /**
-   * Assets the consumer must fetch and place under the box root before first use. Present only with on-demand weights. The declared hash is what makes fetching them safe.
+   * Modules the runtime must be able to load.
    *
    * @minItems 1
    */
-  assets?: [
+  imports?: [string, ...string[]];
+  /**
+   * Invocations of the box's declared execution and the exit status each must produce.
+   *
+   * @minItems 1
+   */
+  commands?: [
     {
-      url: string;
-      relativePath: string;
-      sizeBytes: number;
-      sha256: string;
+      args: string[];
+      expectExitCode: number;
     },
     ...{
-      url: string;
-      relativePath: string;
-      sizeBytes: number;
-      sha256: string;
+      args: string[];
+      expectExitCode: number;
     }[]
   ];
 }
@@ -305,10 +375,13 @@ export interface Provenance {
    */
   sourceTreeDirty: boolean;
   /**
-   * Upstream revision of the packaged model source, as declared by the scroll.
+   * Upstream revision of the packaged source, as declared by the scroll.
    */
   sourceRevision: string;
-  pythonVersion: string;
+  /**
+   * The runtime version the environment was solved with, repeated from runtime.version. Absent exactly when the runtime has none: provenance records what was observed and never invents a value to fill a field.
+   */
+  runtimeVersion?: string;
   pixiVersion: string;
   /**
    * Hash of the pixi.lock the environment was solved from.
@@ -318,14 +391,13 @@ export interface Provenance {
 }
 
 export interface BoxReleaseManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   /**
    * Wire discriminator, "<namespace>.release". The namespace belongs to the publishing project — a project with boxes already in the field must keep emitting the one its clients recognise — and defaults to scrollcase.box for a new one.
    */
   kind: string;
   boxId: Identifier;
-  modelId: Identifier;
-  runtimeId: Identifier;
+  labels?: Labels;
   version: string;
   target: BoxTarget;
   /**
@@ -368,61 +440,27 @@ export interface BoxReleaseManifest {
     format: 'sha256-path-list-v1';
     sha256: Sha256;
   };
+  runtime: Runtime;
   /**
-   * Interpreter path relative to the extracted box root, for example venv/bin/python. Fixed per target by the adapter.
+   * Directory relative to the extracted box root holding the box's own large files.
    */
-  pythonEntryPoint: string;
-  /**
-   * Directory relative to the extracted box root holding model assets.
-   */
-  modelCacheSubdir: string;
+  cacheSubdir: string;
   /**
    * Signed environment variables applied whenever Scrollcase runs the box interpreter. These values override both the inherited host environment and caller-supplied values.
    */
   environment?: {
     [k: string]: string;
   };
-  /**
-   * The import check a consumer can repeat after extraction with the box's own interpreter. The builder also ran the scroll's Python-code and file assertions, which are builder-only checks.
-   */
-  selfTest: {
-    /**
-     * @minItems 1
-     */
-    pythonImports: [string, ...string[]];
-    timeoutSeconds: number;
-  };
+  selfTest: SelfTest;
   execution?: BoxExecution;
   provenance: Provenance;
-  /**
-   * Present only when the assets were deliberately left out of the archive. Absent means the box is self-contained: everything it needs is inside it.
-   */
-  weights?: 'on-demand';
-  /**
-   * Assets the consumer must fetch and place under the box root before first use. Present only with on-demand weights. The declared hash is what makes fetching them safe.
-   *
-   * @minItems 1
-   */
-  assets?: [
-    {
-      url: string;
-      relativePath: string;
-      sizeBytes: number;
-      sha256: Sha256;
-    },
-    ...{
-      url: string;
-      relativePath: string;
-      sizeBytes: number;
-      sha256: Sha256;
-    }[]
-  ];
+  assets?: DeferredAssets;
 }
 /**
- * Run one regular payload file with the box's own Python interpreter.
+ * Free-form annotations the publishing project declared, signed and carried through untouched. Scrollcase attaches no meaning to any key; a consumer that reads one is reading its own project's convention, not the box format.
  */
 export interface BoxChannelManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   /**
    * Wire discriminator, "<namespace>.channel", carrying the same namespace as the releases it refers to.
    */
@@ -458,7 +496,7 @@ export interface BoxChannelManifest {
  * Omitted when every target of that version is revoked.
  */
 export interface BoxRevocationsManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   /**
    * Wire discriminator, "<namespace>.revocations", carrying the same namespace as the releases it refers to.
    */
@@ -480,7 +518,7 @@ export interface BoxRevocationsManifest {
  * The envelope wrapping every signed document. The payload travels as exact base64-encoded JSON so that verifying a signature means hashing the bytes as transmitted, with no canonical-JSON implementation to keep in sync across languages. Passing this schema means the envelope is well-formed, never that its signature is valid.
  */
 export interface SignedBoxDocument {
-  schemaVersion: 2;
+  schemaVersion: 3;
   payloadEncoding: 'base64-json-utf8';
   /**
    * The document payload: UTF-8 JSON, base64-encoded, signed and hashed exactly as it appears here.

@@ -3,12 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { fixtureUrl } from '../../src/contract/index.mjs';
 import { boxTargetAdapters } from '../../src/contract/targets.mjs';
 import {
-  IMPLICIT_RUNTIME_ID,
+  RUNTIME_IDS,
   executionAffectingVariables,
   isExecutablePayloadPath,
+  isImplementedRuntime,
   runtimeAdapter,
   runtimeAdapters,
+  unimplementedRuntimeMessage,
 } from '../../src/contract/runtimes.mjs';
+
+const PYTHON = 'python';
 
 /**
  * The Node half of the shared runtime vectors.
@@ -33,9 +37,25 @@ describe('runtime adapters', () => {
       .toEqual(contract.runtimes.map((fixture) => fixture.id));
   });
 
-  it('refuses a runtime the format does not define', () => {
-    for (const id of ['node', 'native', '', undefined, null, 42]) {
-      expect(() => runtimeAdapter(id)).toThrow(TypeError);
+  it('names every runtime the format defines, whether or not it implements one', () => {
+    // Two different lists on purpose: the wire vocabulary was fixed once, in the version 3 break, so
+    // that implementing a second runtime is code rather than another format change.
+    expect([...RUNTIME_IDS]).toEqual(contract.runtimeIds);
+    for (const id of RUNTIME_IDS) {
+      expect(isImplementedRuntime(id), id).toBe(runtimeAdapters().some((r) => r.id === id));
+    }
+  });
+
+  it('refuses a runtime it has no adapter for, and says which kind of refusal it is', () => {
+    for (const id of ['node', 'native']) {
+      expect(() => runtimeAdapter(id), id).toThrow(TypeError);
+      expect(isImplementedRuntime(id), id).toBe(false);
+      expect(unimplementedRuntimeMessage(id)).toContain('not implemented by this version');
+    }
+    for (const id of ['', undefined, null, 42, 'ruby']) {
+      expect(() => runtimeAdapter(id), String(id)).toThrow(TypeError);
+      expect(isImplementedRuntime(id), String(id)).toBe(false);
+      expect(unimplementedRuntimeMessage(id)).toContain('Unknown runtime');
     }
   });
 
@@ -100,21 +120,38 @@ describe('runtime adapters', () => {
     }
   });
 
-  it('turns every golden self-test probe into the same arguments', () => {
+  it('turns every golden self-test probe into the same invocations', () => {
     for (const testCase of contract.selfTest) {
       const runtime = runtimeAdapter(testCase.runtime);
-      expect([...runtime.selfTestArgv({
+      const invocations = runtime.selfTestInvocations({
         probe: testCase.probe,
+        execution: testCase.execution,
         target: targetFor(testCase.platform),
-      })], testCase.name).toEqual(testCase.args);
+      });
+      expect(invocations.map((invocation) => ({
+        command: { ...invocation.command },
+        args: invocation.args.map((argument) => ({ ...argument })),
+        expectExitCode: invocation.expectExitCode,
+      })), testCase.name).toEqual(testCase.invocations);
     }
   });
 
+  it('refuses a command probe with no execution to invoke', () => {
+    expect(() => runtimeAdapter(PYTHON).selfTestInvocations({
+      probe: { commands: [{ args: [], expectExitCode: 0 }] },
+      execution: null,
+      target: targetFor('linux'),
+    })).toThrow(/needs a declared execution/);
+  });
+
   it('rejects a target no runtime has a layout for', () => {
-    const runtime = runtimeAdapter(IMPLICIT_RUNTIME_ID);
+    const runtime = runtimeAdapter(PYTHON);
     expect(() => runtime.layout({ platform: 'plan9' })).toThrow(/No python runtime layout/);
-    expect(() => runtime.selfTestArgv({ probe: { imports: [] }, target: { platform: 'plan9' } }))
-      .toThrow(/No python self-test assertion/);
+    expect(() => runtime.selfTestInvocations({
+      probe: { imports: ['json'] },
+      execution: null,
+      target: { platform: 'plan9' },
+    })).toThrow(/No python self-test assertion/);
   });
 });
 
@@ -123,9 +160,9 @@ describe('execution-affecting variables', () => {
     // The order is what a diagnostic report is printed in, so it is part of the answer rather than
     // an accident of how the two lists happened to be concatenated.
     for (const adapter of boxTargetAdapters()) {
-      const merged = executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter);
+      const merged = executionAffectingVariables(PYTHON, adapter);
       expect([...merged], adapter.id).toEqual([
-        ...runtimeAdapter(IMPLICIT_RUNTIME_ID).executionEnvironmentVariables,
+        ...runtimeAdapter(PYTHON).executionEnvironmentVariables,
         ...adapter.executionAffectingEnvironmentVariables,
       ]);
       // Neither half may be dropped: this is the list that decides which inherited values a report
@@ -136,7 +173,7 @@ describe('execution-affecting variables', () => {
 
   it('names the operating system control each platform actually has', () => {
     const named = new Map(boxTargetAdapters()
-      .map((adapter) => [adapter.platform, executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter)]));
+      .map((adapter) => [adapter.platform, executionAffectingVariables(PYTHON, adapter)]));
     expect(named.get('macos')).toContain('DYLD_INSERT_LIBRARIES');
     expect(named.get('linux')).toContain('LD_PRELOAD');
     expect(named.get('windows')).not.toContain('LD_PRELOAD');

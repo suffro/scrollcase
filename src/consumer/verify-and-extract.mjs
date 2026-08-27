@@ -29,7 +29,7 @@ import {
   parsePayloadDigestStream,
 } from '../contract/payload-digest.mjs';
 import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
-import { IMPLICIT_RUNTIME_ID, executionAffectingVariables } from '../contract/runtimes.mjs';
+import { executionAffectingVariables } from '../contract/runtimes.mjs';
 import { resolveEnvironment } from '../environment.mjs';
 
 /**
@@ -54,12 +54,12 @@ import { resolveEnvironment } from '../environment.mjs';
  * @property {'prepared' | 'attached'} status
  * @property {string} root absolute extracted box root
  * @property {string} boxId
- * @property {string} modelId
- * @property {string} runtimeId
+ * @property {Readonly<Record<string, string>>} labels free-form annotations the publisher signed;
+ *   empty when the box declared none
  * @property {string} version
  * @property {import('../contract/types/index.d.ts').BoxTarget} target
  * @property {string} targetId
- * @property {string} pythonEntryPoint
+ * @property {Readonly<{ id: string, version?: string, entryPoint?: string }>} runtime
  * @property {import('../contract/types/index.d.ts').BoxExecution | null} execution
  * @property {readonly RequiredAsset[]} requiredAssets assets the caller must materialize, never
  *   downloaded by Scrollcase
@@ -137,9 +137,14 @@ export async function verifyRequiredAssets(root, assets) {
   }
 }
 
-/** The on-demand descriptors a release requires a caller to have materialised, screened for safety. */
+/**
+ * The deferred descriptors a release requires a caller to have materialised, screened for safety.
+ *
+ * The list is exactly the assets the scroll declared `embed: false`; a release whose assets are all
+ * embedded carries none, and the box needs nothing fetched before it runs.
+ */
 function requiredAssetsOf(release) {
-  const assets = release.weights === 'on-demand' ? release.assets : [];
+  const assets = release.assets ?? [];
   for (const asset of assets) safeRelativePath(asset.relativePath);
   return assets;
 }
@@ -153,7 +158,7 @@ function releaseEnvironmentReport(release, options = {}) {
       { source: 'host', values: process.env },
       { source: 'release', values: release.environment },
     ],
-    executionAffectingVariables: executionAffectingVariables(IMPLICIT_RUNTIME_ID, adapter),
+    executionAffectingVariables: executionAffectingVariables(release.runtime.id, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   }).report;
@@ -173,12 +178,11 @@ function mintReceipt(status, {
     status,
     root,
     boxId: release.boxId,
-    modelId: release.modelId,
-    runtimeId: release.runtimeId,
+    labels: release.labels ?? {},
     version: release.version,
     target: release.target,
     targetId: boxTargetId(release.target),
-    pythonEntryPoint: release.pythonEntryPoint,
+    runtime: release.runtime,
     execution: release.execution ?? null,
     requiredAssets: requiredAssetsOf(release),
     signingKeyIds: signed.signatures.map((signature) => signature.keyId),
@@ -317,13 +321,14 @@ export async function attachExtractedBox(releaseDocumentPath, {
   }
 
   const files = new Set(await collectFiles(boxRoot));
-  if (!files.has(release.pythonEntryPoint)) {
-    fail(`Attached box is missing ${release.pythonEntryPoint}.`);
+  if (release.runtime.entryPoint !== undefined && !files.has(release.runtime.entryPoint)) {
+    fail(`Attached box is missing ${release.runtime.entryPoint}.`);
   }
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    runtimeVersion: release.provenance.pythonVersion,
+    runtimeId: release.runtime.id,
+    runtimeVersion: release.provenance.runtimeVersion,
     files,
   });
   await verifyRequiredAssets(boxRoot, requiredAssetsOf(release));

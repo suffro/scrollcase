@@ -40,8 +40,6 @@
  *   `executionAffectingVariables()` in `runtimes.mjs` is what joins the two halves
  */
 
-import { IMPLICIT_RUNTIME_ID, assertRuntimeEntryPoint } from './runtimes.mjs';
-
 const TARGET_ACCELERATORS = {
   macos: { aarch64: ['metal', 'cpu'] },
   linux: { x86_64: ['cpu', 'cuda'] },
@@ -181,22 +179,6 @@ export function assertNativeHost(adapter, host = process) {
       + `current host is ${host.platform}/${host.arch}`,
     );
   }
-}
-
-/**
- * Ensures the scroll entry point agrees with the standalone Python layout for this target.
- *
- * Kept under its published name while the wire format still spells the field `pythonEntryPoint`.
- * The rule itself moved to `runtimes.mjs`, where it can be asked about any runtime; this is the one
- * public spelling of it, and it goes when the field does.
- *
- * @param {BoxTargetAdapter} adapter
- * @param {string} entryPoint
- * @returns {void}
- * @throws {TypeError} when the entry point does not match the runtime's layout for this target
- */
-export function assertPythonEntryPoint(adapter, entryPoint) {
-  assertRuntimeEntryPoint(IMPLICIT_RUNTIME_ID, adapter, entryPoint);
 }
 
 /**

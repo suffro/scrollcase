@@ -10,11 +10,17 @@
  * @param {string} payloadDir
  * @param {string} archivePath
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
- * @param {readonly string[]} [uncompressedPaths] payload paths stored rather than deflated
- * @param {string} [runtimeId] whose layout decides which entries carry the executable bit
+ * @param {object} options
+ * @param {string} options.runtimeId whose rule decides which entries carry the executable bit
+ * @param {readonly string[]} [options.uncompressedPaths] payload paths stored rather than deflated
+ * @param {readonly string[]} [options.executablePaths] payload paths the scroll declared executable
  * @returns {Promise<void>}
  */
-export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, uncompressedPaths?: readonly string[], runtimeId?: string): Promise<void>;
+export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, options: {
+    runtimeId: string;
+    uncompressedPaths?: readonly string[];
+    executablePaths?: readonly string[];
+}): Promise<void>;
 /**
  * Lists and validates all entries before any ZIP data is trusted or extracted.
  *

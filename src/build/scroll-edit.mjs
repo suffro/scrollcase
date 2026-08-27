@@ -175,11 +175,11 @@ function withoutSelfTestFile(selfTest, relativePath) {
 /**
  * The payload path an asset URL lands at when the caller does not name one.
  *
- * The last segment of the URL path, under the box's model cache. A URL that ends in a slash, or
+ * The last segment of the URL path, under the box's cache directory. A URL that ends in a slash, or
  * whose last segment is not a filename, gets no default: guessing a name for a file whose hash is
  * about to be pinned would be the wrong kind of helpful.
  */
-function defaultAssetPath(url, modelCacheSubdir) {
+function defaultAssetPath(url, cacheSubdir) {
   let name;
   try {
     name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? '');
@@ -189,7 +189,7 @@ function defaultAssetPath(url, modelCacheSubdir) {
   if (!name || name === '.' || name === '..') {
     fail(`Cannot tell what to call ${url} in the box; pass --to <path>.`);
   }
-  return `${modelCacheSubdir}/${name}`;
+  return `${cacheSubdir}/${name}`;
 }
 
 /**
@@ -222,22 +222,40 @@ async function measureAsset(url, { fetchImpl = fetch, log = () => {} } = {}) {
 /**
  * `add asset` — records a remote file in the scroll, with the size and hash it actually has.
  *
- * @param {{ boxId: string, target: string, url: string, to?: string | null,
- *   fetchImpl?: typeof fetch, log?: (message: string) => void }} options
+ * @param {{ boxId: string, target: string, url: string, to?: string | null, embed?: boolean,
+ *   executable?: boolean, fetchImpl?: typeof fetch, log?: (message: string) => void }} options
  */
-export async function addAsset({ boxId, target, url, to = null, fetchImpl = fetch, log = () => {} }) {
+export async function addAsset({
+  boxId,
+  target,
+  url,
+  to = null,
+  embed = true,
+  executable = false,
+  fetchImpl = fetch,
+  log = () => {},
+}) {
   let relativePath;
   if (to) {
     relativePath = safeRelativePath(to);
   } else {
-    const modelCacheSubdir = await agreedValue(boxId, 'modelCacheSubdir');
-    if (!modelCacheSubdir) {
-      fail(`${boxId}'s targets use different model cache directories; pass --to <path>.`);
+    const cacheSubdir = await agreedValue(boxId, 'cacheSubdir');
+    if (!cacheSubdir) {
+      fail(`${boxId}'s targets use different cache directories; pass --to <path>.`);
     }
-    relativePath = safeRelativePath(defaultAssetPath(url, modelCacheSubdir));
+    relativePath = safeRelativePath(defaultAssetPath(url, cacheSubdir));
   }
   const { sizeBytes, sha256 } = await measureAsset(url, { fetchImpl, log });
-  const entry = { url, relativePath, sizeBytes, sha256 };
+  // Both flags are written only when they differ from the schema's default, so an ordinary asset
+  // still reads as four lines rather than six.
+  const entry = {
+    url,
+    relativePath,
+    sizeBytes,
+    sha256,
+    ...(embed ? {} : { embed: false }),
+    ...(executable ? { executable: true } : {}),
+  };
   const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
     ...scroll,
     assets: [...(scroll.assets ?? []), entry],
@@ -253,9 +271,10 @@ export async function addAsset({ boxId, target, url, to = null, fetchImpl = fetc
  * added is usually one being worked on, and a pin there fails the next build over an edit the
  * author meant to make.
  *
- * @param {{ boxId: string, target: string, sourcePath: string, to?: string | null }} options
+ * @param {{ boxId: string, target: string, sourcePath: string, to?: string | null,
+ *   executable?: boolean }} options
  */
-export async function addFile({ boxId, target, sourcePath, to = null }) {
+export async function addFile({ boxId, target, sourcePath, to = null, executable = false }) {
   const source = safeRelativePath(sourcePath);
   const absolute = join(getWorkspace().root, ...source.split('/'));
   let details;
@@ -268,7 +287,9 @@ export async function addFile({ boxId, target, sourcePath, to = null }) {
     fail(`A box file must be a regular file: ${source}`);
   }
   const relativePath = safeRelativePath(to ?? basename(source));
-  const entry = { sourcePath: source, relativePath };
+  // The source file's own mode is deliberately not read: it varies with the umask of whoever
+  // checked the project out, and a build that copied it would not rebuild byte-identically.
+  const entry = { sourcePath: source, relativePath, ...(executable ? { executable: true } : {}) };
   const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
     ...scroll,
     localFiles: [...(scroll.localFiles ?? []), entry],
@@ -405,13 +426,14 @@ export async function removeSelfTestImport({ boxId, target, module }) {
  *
  * Three kinds. Structural values a project does not choose (`$schema`, `schemaVersion`, `extends`).
  * Values the layout or the target fixes, where a text prompt would only let someone contradict a
- * check they cannot win — `boxId` and `target` name the directories, and `pythonEntryPoint` has one
- * legal value per target. And the collections, which have their own commands or their own file:
- * editing a list through a single value prompt is how a list gets destroyed.
+ * check they cannot win — `boxId` and `target` name the directories, and `runtime` holds an id that
+ * decides the whole payload layout and an entry point with one legal value per target. And the
+ * collections, which have their own commands or their own file: editing a list through a single
+ * value prompt is how a list gets destroyed.
  */
 const UNEDITABLE_FIELDS = Object.freeze(new Set([
-  '$schema', 'schemaVersion', 'extends', 'boxId', 'target', 'pythonEntryPoint',
-  'compatibility', 'environment', 'assets', 'assetArchives', 'localFiles',
+  '$schema', 'schemaVersion', 'extends', 'boxId', 'target', 'runtime',
+  'labels', 'compatibility', 'environment', 'assets', 'assetArchives', 'localFiles',
   'prunePaths', 'uncompressedPaths', 'selfTest', 'execution', 'parity',
 ]));
 

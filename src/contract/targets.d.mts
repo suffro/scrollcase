@@ -28,19 +28,6 @@ export function assertNativeHost(adapter: BoxTargetAdapter, host?: {
     arch: string;
 }): void;
 /**
- * Ensures the scroll entry point agrees with the standalone Python layout for this target.
- *
- * Kept under its published name while the wire format still spells the field `pythonEntryPoint`.
- * The rule itself moved to `runtimes.mjs`, where it can be asked about any runtime; this is the one
- * public spelling of it, and it goes when the field does.
- *
- * @param {BoxTargetAdapter} adapter
- * @param {string} entryPoint
- * @returns {void}
- * @throws {TypeError} when the entry point does not match the runtime's layout for this target
- */
-export function assertPythonEntryPoint(adapter: BoxTargetAdapter, entryPoint: string): void;
-/**
  * Lists every adapter, for contract tests and for consumers enumerating supported targets.
  *
  * @returns {BoxTargetAdapter[]} every supported adapter, as a fresh array

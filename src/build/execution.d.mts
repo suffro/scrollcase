@@ -7,15 +7,15 @@
  * @param {object} options
  * @param {object | null | undefined} options.execution
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} options.adapter
- * @param {string} options.runtimeVersion the interpreter version a module search needs
+ * @param {string} options.runtimeId the runtime the box declares
+ * @param {string | undefined} options.runtimeVersion its version, where a module search needs one
  * @param {Set<string>} options.files
- * @param {string} [options.runtimeId]
  * @returns {void}
  */
-export function assertExecutionFiles({ execution, adapter, runtimeVersion, files, runtimeId, }: {
+export function assertExecutionFiles({ execution, adapter, runtimeId, runtimeVersion, files, }: {
     execution: object | null | undefined;
     adapter: import("../contract/targets.mjs").BoxTargetAdapter;
-    runtimeVersion: string;
+    runtimeId: string;
+    runtimeVersion: string | undefined;
     files: Set<string>;
-    runtimeId?: string;
 }): void;

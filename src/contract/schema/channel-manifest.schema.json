@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scrollcase.dev/schema/v2/channel-manifest.schema.json",
+  "$id": "https://scrollcase.dev/schema/v3/channel-manifest.schema.json",
   "title": "Box channel manifest",
   "description": "A small mutable pointer from a channel to the releases it currently serves. Signed independently from releases, so promoting a build never requires re-signing it.",
   "type": "object",
@@ -17,7 +17,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "kind": {
       "type": "string",
@@ -36,7 +36,7 @@
       "minLength": 1
     },
     "target": {
-      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v3/target.schema.json"
     },
     "updatedAt": {
       "type": "string",
