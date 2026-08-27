@@ -95,7 +95,7 @@ const sidebar = [
     link: '/guides',
     collapsed: false,
     items: [
-      { text: 'Managing Model Weights', link: '/guides/managing-weights' },
+      { text: 'Managing Assets', link: '/guides/managing-assets' },
       { text: 'Packaging CUDA Boxes', link: '/guides/packaging-cuda' },
       { text: 'Accelerator Parity', link: '/guides/accelerator-parity' },
       { text: 'Signing & Key Custody', link: '/guides/signing-and-custody' },

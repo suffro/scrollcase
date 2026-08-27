@@ -14,7 +14,7 @@ The normative artefacts ship inside the npm package:
 | Artefact | Where | What it is |
 | --- | --- | --- |
 | Reference implementation | `scrollcase/contract` | The rules as executable code |
-| JSON Schemas | `scrollcase/contract/schema/*.json` and `/schema/v2/*.json` | The machine-readable spec, package-local or public |
+| JSON Schemas | `scrollcase/contract/schema/*.json` and `/schema/v3/*.json` | The machine-readable spec, package-local or public |
 | Golden fixtures | `scrollcase/contract/fixtures/*.json` | What "agreeing" means, concretely |
 
 A client written in another language **does not import the code** — it mirrors the rules and
@@ -73,7 +73,7 @@ example-model-1.0.0-macos-aarch64-metal.zip
 │   ├── bin/python                           # (venv/python.exe on Windows)
 │   ├── lib/…
 │   └── conda-meta/…
-├── model-cache/…                            # assets, when weights are embedded
+├── cache/…                            # the box's own large files, when embedded
 └── THIRD_PARTY_NOTICES/
     └── conda-distributions.json             # the dependency licence inventory
 ```
@@ -108,7 +108,7 @@ files. An entry point sitting at the payload root reaches its model with:
 
 ```python
 root = Path(__file__).resolve().parent
-model = root / json.loads((root / "box.json").read_text())["modelCacheSubdir"]
+model = root / json.loads((root / "box.json").read_text())["cacheSubdir"]
 ```
 
 Rather than a hard-coded path, which the scroll then has to be bent to match and which drifts
@@ -117,24 +117,23 @@ written this way exercises the same layout the shipped box has.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "boxId": "example-model",
-  "modelId": "example-org-example-model",
-  "runtimeId": "example-model-runtime",
+  "labels": { "model": "example-org/example-model" },
   "version": "1.0.0",
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/example",
-  "environment": { "MODEL_ROOT": "model-cache/example" },
-  "selfTest": { "pythonImports": ["json", "sqlite3"], "timeoutSeconds": 180 },
+  "runtime": { "id": "python", "version": "3.11.15", "entryPoint": "venv/bin/python" },
+  "cacheSubdir": "cache/example",
+  "environment": { "MODEL_ROOT": "cache/example" },
+  "selfTest": { "probe": { "imports": ["json", "sqlite3"] }, "timeoutSeconds": 180 },
   "provenance": { "…": "see below" }
 }
 ```
 
-`verify` recursively checks every shared field against the signed release: schema and identity,
-complete target, entry point, cache subdirectory, declared environment, consumer self-test,
-weights/assets policy, and provenance. That agreement binds the archive's contents to its signed
-metadata.
+`verify` recursively checks every shared field against the signed release: schema, identity and
+labels, complete target, the runtime block, cache subdirectory, declared environment, consumer
+self-test, the deferred-asset list, and provenance. That agreement binds the archive's contents to
+its signed metadata.
 
 ## Provenance
 
@@ -146,8 +145,9 @@ cannot be dressed up after the fact:
 | `scrollId`, `scrollVersion` | Which scroll produced the box. New scroll inputs derive `scrollId` as `<boxId>-<targetId>` |
 | `builderRevision` | The 40-hex commit of the source tree that built it |
 | `sourceTreeDirty` | Whether that tree had uncommitted changes. `true` means the build is **not** reproducible from the recorded revision alone |
-| `sourceRevision` | Upstream revision of the packaged model source, as declared by the scroll |
-| `pythonVersion`, `pixiVersion` | The interpreter version, and the resolver that solved the environment |
+| `sourceRevision` | Upstream revision of the packaged source, as declared by the scroll |
+| `runtimeVersion` | The runtime version the environment was solved with. Absent exactly when the runtime has none — provenance records what was observed and never invents a value |
+| `pixiVersion` | The resolver that solved the environment |
 | `dependencyLockSha256` | Hash of the `pixi.lock` the environment was solved from |
 | `builtAt` | Taken from the HEAD commit, not the clock — the same commit rebuilds to the same timestamp |
 
@@ -157,7 +157,7 @@ Every document a build emits travels in one envelope:
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "payloadEncoding": "base64-json-utf8",
   "payloadBase64": "eyJzY2hlbWFWZXJzaW9uIjoyfQ==",
   "payloadSha256": "7d2c9a41e8b350f6c174a9de20358bf41c6e97d05a8b3f2619e4c7081da5b3f2",
@@ -198,11 +198,10 @@ lives and what it hashes to, the consumer import check to repeat, and provenance
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.release",
   "boxId": "example-model",
-  "modelId": "example-org-example-model",
-  "runtimeId": "example-model-runtime",
+  "labels": { "model": "example-org/example-model" },
   "version": "1.0.0",
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
   "compatibility": { "minHostAppVersion": "1.0.0", "minMacosVersion": "13.0", "minRamGb": 8 },
@@ -217,16 +216,21 @@ lives and what it hashes to, the consumer import check to repeat, and provenance
     "format": "sha256-path-list-v1",
     "sha256": "6b8f…4c"
   },
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/example",
-  "environment": { "MODEL_ROOT": "model-cache/example" },
-  "selfTest": { "pythonImports": ["json", "sqlite3"], "timeoutSeconds": 180 },
+  "runtime": { "id": "python", "version": "3.11.15", "entryPoint": "venv/bin/python" },
+  "cacheSubdir": "cache/example",
+  "environment": { "MODEL_ROOT": "cache/example" },
+  "selfTest": { "probe": { "imports": ["json", "sqlite3"] }, "timeoutSeconds": 180 },
   "provenance": { "…": "…" }
 }
 ```
 
-`environment` is optional for compatibility with earlier schema-v2 releases. When present it is a
-signed string map repeated value-for-value in `box.json`. A conforming verifier checks the
+`runtime.id` is `python`, `node` or `native`. A consumer that does not recognise it must **refuse
+the box**: the id decides the payload layout and the argv rule, so guessing would mean executing
+something on an assumption. Only `python` can be built today; the other two are named by the format
+so that implementing them is code rather than another format change.
+
+`environment` is optional. When present it is a signed string map repeated value-for-value in
+`box.json`. A conforming verifier checks the
 declaration; a Scrollcase consumer additionally resolves it against its current process and may
 emit an environment report. That report is not part of the format and is not a guarantee of the
 box.
@@ -237,15 +241,18 @@ need headroom for the archive, extracted files, temporary copies, allocation uni
 metadata. A prepared receipt reports the matching extracted measurement; an attached receipt
 reports the directory's current measurement without comparing it with this signed build-time value.
 
-`weights: "on-demand"` and an `assets` array appear together only when assets were deliberately
-left out; their absence means the box is self-contained.
+An `assets` array appears only when at least one asset was deliberately left out of the archive, and
+lists exactly those entries. Its absence means the box is self-contained. There is no box-wide mode
+field: the list itself is the statement, so there is nothing that can disagree with it. An entry may
+carry `executable: true`, which tells whoever materializes the file that it has to run — Scrollcase
+never writes that file, so nothing it produces can carry a mode for it.
 
 #### Extracted-payload commitment
 
 `payloadDigest` signs the SHA-256 of `payload-digest.v1`, which travels inside the payload and names
-every original file and symbolic link except itself. It is optional so schema version 2 releases
-built before this capability remain valid; an operation specifically asked to verify an extracted
-payload refuses a release without the commitment.
+every original file and symbolic link except itself. It is optional so that releases built before
+this capability remain valid; an operation specifically asked to verify an extracted payload refuses
+a release without the commitment.
 
 The canonical byte stream starts with `sha256-path-list-v1` and LF. Each following record is:
 
@@ -275,7 +282,7 @@ so promoting a build never requires re-signing it.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.channel",
   "channel": "beta",
   "boxId": "example-model",
@@ -307,7 +314,7 @@ honouring the list even when the archive is still reachable.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.revocations",
   "updatedAt": "2026-07-25T10:14:03Z",
   "revocations": [
@@ -348,7 +355,24 @@ URL. See [Distributing Boxes](/guides/distributing-boxes).
 
 ## Versioning {#versioning}
 
-Published v1 is immutable and remains paired with the old Scrollcase versions that emitted it.
-Active v2 code accepts and emits only `schemaVersion: 2`. A future breaking change gets a **new**
-`schemaVersion` — never a silent edit to a `kind` string, payload encoding, signature algorithm,
-or golden fixture.
+Published v1 and v2 are immutable and remain paired with the Scrollcase versions that emitted them.
+Active v3 code accepts and emits only `schemaVersion: 3`, and refuses either older version **by
+name** rather than reinterpreting it — a v1 and a v2 box are different artefacts with different
+rebuilds ahead of them, and whoever is holding one is entitled to know which. There is no dual-read
+path anywhere.
+
+A future breaking change gets a **new** `schemaVersion` — never a silent edit to a `kind` string,
+payload encoding, signature algorithm, or golden fixture.
+
+### What version 3 changed
+
+| Version 2 | Version 3 | Why |
+| --- | --- | --- |
+| `modelId`, `runtimeId` (both required) | `labels`, optional and free-form | Neither was ever read by any code path. They were a consumer's vocabulary in the format: a box packaging a library still had to name a model |
+| `pythonVersion`, `pythonEntryPoint` | `runtime: { id, version, entryPoint }` | A box said *where its Python was* and never *that it was Python*. A reader had to infer the runtime from the shape of a path |
+| `provenance.pythonVersion` | `provenance.runtimeVersion` | Same reason, and it may now be absent for a runtime that has no version to record |
+| `modelCacheSubdir` | `cacheSubdir` | The directory holds whatever the box's large files are |
+| `weights: embed \| on-demand` | `assets[].embed`, per entry | A box-wide switch could not ship a small entry point and defer a large dataset. `--weights` went with it: a build-time override of a per-asset declaration repacks a box under an identity that no longer describes it |
+| `selfTest.pythonImports` | `selfTest.probe` with `imports` and `commands` | Python syntax in the wire format. A runtime with no module system could not state a check at all |
+| Executable bit from a `venv/bin` heuristic | `assets[].executable`, `localFiles[].executable` | A downloaded file arrives with no permissions, so a box could not ship one that runs |
+| `python-script`, `python-module` | plus `node-script`, `native-binary` | Named now, so implementing them later is code rather than another wire break |

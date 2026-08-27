@@ -118,7 +118,7 @@ against a public key you obtain independently of the download.
 
 **The model travels inside the box.** The ONNX weights, the tokenizer and the config are declared
 as assets pinned to an immutable upstream commit, each with its size and SHA-256. The build fetches
-them once and fails if a byte moved. With `weights: embed` they are packed into the archive, so
+them once and fails if a byte moved. Embedded by default, they are packed into the archive, so
 the box installs and runs air-gapped.
 
 **Defence in depth against a stray download.** The scroll declares `HF_HUB_OFFLINE=1`,
@@ -135,7 +135,7 @@ multi-gigabyte build.
 
 **A self-test at two levels.** `selfTest.imports` is the part schema v2 signs, which is why
 `verify --self-test` can repeat it later with the box's own interpreter. `files` and the optional
-`pythonCode` block stay builder-only: add `pythonCode` and the build runs real predictions and
+`code` block stay builder-only: add `code` and the build runs real predictions and
 refuses to sign a box that answers wrong. Proof of real inference for a box you downloaded is what
 `run` gives you.
 
@@ -171,7 +171,7 @@ No hash is typed by hand anywhere. `scrollcase add asset` fetches each model fil
 the size and SHA-256 it found; the notices and the entrypoint are pinned, and
 [`scrollcase refresh`](/reference/cli#refresh) moves those digests after a reviewed change.
 
-The scroll declares `weights: embed`, a 2 GB RAM floor, and `execution` as a `python-script`.
+The scroll embeds its assets, declares a 2 GB RAM floor, and names `execution` as a `python-script`.
 
 ## Measured
 

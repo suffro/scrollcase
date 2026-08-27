@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scrollcase.dev/schema/v2/scroll.schema.json",
+  "$id": "https://scrollcase.dev/schema/v3/scroll.schema.json",
   "title": "Box scroll",
   "description": "The declarative input to a build: an identity, a target, a pinned dependency environment, the assets to fetch, and the self-test the result must pass. A scroll is checked into the consumer's repository next to its lock file; everything a build produces is derived from it.\n\nOnly what a build cannot work out for itself is required. Anything the target or the identity already determines is optional here and filled in when the scroll is read, so a hand-written scroll declares decisions rather than restating them.\n\nOne box's targets differ in a handful of lines and agree on the rest, so a scroll may also be split: scrolls/<boxId>/scroll.json holds what they share, and each scrolls/<boxId>/<targetId>/scroll.json declares `extends` plus its own differences. Both halves are files of this shape; the joined result is what a build reads.",
   "type": "object",
@@ -8,28 +8,26 @@
   "required": [
     "schemaVersion",
     "boxId",
-    "modelId",
-    "runtimeId",
     "version",
     "sourceRevision",
-    "pythonVersion",
+    "runtime",
     "selfTest",
     "pixiVersion"
   ],
   "properties": {
     "$schema": {
-      "const": "https://scrollcase.dev/schema/v2/scroll.schema.json",
-      "description": "Associates this file with the published Scrollcase v2 schema for editor validation, completion, and hover help."
+      "const": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+      "description": "Associates this file with the published Scrollcase v3 schema for editor validation, completion, and hover help."
     },
     "extends": {
       "const": "../scroll.json",
       "description": "Marks this file as one target's fragment of a box whose shared declarations live in scrolls/<boxId>/scroll.json. The value is fixed: a base is always the box directory's own scroll.json, so there is no path to get wrong and no chain to follow. The base and the fragment are joined into one effective scroll before anything else happens, and that effective scroll is what the build reads and what provenance records."
     },
     "schemaVersion": {
-      "const": 2,
-      "description": "Scrollcase wire version. Version 2 is the only active format.",
+      "const": 3,
+      "description": "Scrollcase wire version. Version 3 is the only active format.",
       "examples": [
-        2
+        3
       ]
     },
     "scrollId": {
@@ -49,11 +47,8 @@
     "boxId": {
       "$ref": "#/$defs/identifier"
     },
-    "modelId": {
-      "$ref": "#/$defs/identifier"
-    },
-    "runtimeId": {
-      "$ref": "#/$defs/identifier"
+    "labels": {
+      "$ref": "#/$defs/labels"
     },
     "version": {
       "type": "string",
@@ -66,7 +61,7 @@
       "description": "Upstream revision of the packaged source, recorded verbatim into provenance."
     },
     "target": {
-      "$ref": "https://scrollcase.dev/schema/v2/target.schema.json",
+      "$ref": "https://scrollcase.dev/schema/v3/target.schema.json",
       "description": "The (platform, arch, accelerator) triple this box is built for. Required in every scroll a build reads, and absent from a base: a base holds what its targets share, so declaring one there would name a target the box does not build. Enforced when the scroll is read rather than here, so a base file still validates in an editor."
     },
     "compatibility": {
@@ -97,13 +92,8 @@
       },
       "description": "Constraints the installing host must satisfy. Copied through into the release manifest verbatim and never interpreted by the builder, so a project may declare its own alongside these. Defaults to empty: declaring no constraint is a legitimate answer, and inventing one would be a claim the project never made."
     },
-    "pythonVersion": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Python version solved into the box.",
-      "examples": [
-        "3.11.15"
-      ]
+    "runtime": {
+      "$ref": "#/$defs/runtime"
     },
     "pixiVersion": {
       "type": "string",
@@ -115,15 +105,10 @@
       "minLength": 1,
       "description": "Path to the reviewed licence inventory derived from pixi.lock, which carries an SPDX licence per package. The build fails if the lock no longer matches what was reviewed."
     },
-    "pythonEntryPoint": {
+    "cacheSubdir": {
       "type": "string",
       "minLength": 1,
-      "description": "Interpreter path relative to the box root. The target adapter's layout admits exactly one value, so this is derived from the target when omitted and still checked against it when declared."
-    },
-    "modelCacheSubdir": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Payload directory the box's model files live under. Defaults to model-cache/<boxId>."
+      "description": "Payload directory the box's own large files live under — the destination a scroll's assets conventionally share. Defaults to cache/<boxId>."
     },
     "environment": {
       "type": "object",
@@ -168,6 +153,16 @@
           },
           "sha256": {
             "$ref": "#/$defs/sha256"
+          },
+          "embed": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether this file is packed into the archive. True, the default, makes the box self-contained: it installs with no network and works air-gapped. False leaves it out and carries its descriptor in the signed release instead, for the caller's distribution layer to materialize. The choice is per entry, so a box may ship a small entry point and defer a large dataset; consumers verify what was materialized before execution and never download it themselves."
+          },
+          "executable": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the file needs the executable bit. HTTP carries content and not permissions, so a downloaded file arrives with none; declaring it here is the only way a box can ship one that runs. The bit is synthesised into the archive from this declaration, never read off the build machine."
           }
         }
       }
@@ -227,6 +222,11 @@
           "sha256": {
             "$ref": "#/$defs/sha256",
             "description": "Optional pin. When present the build refuses a file whose contents no longer match."
+          },
+          "executable": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the file needs the executable bit. A copy does not carry the source file's mode, because a mode read off the build machine would vary with its umask and break the byte-identical rebuild; the bit is synthesised into the archive from this declaration instead."
           }
         }
       }
@@ -240,7 +240,7 @@
     },
     "uncompressedPaths": {
       "type": "array",
-      "description": "Payload paths stored in the archive instead of deflated, because their bytes are already compressed and re-compressing them costs build time while making the archive marginally larger. A path matches itself and everything beneath it, so one entry can name a weights file or the directory an expanded asset archive landed in. Declared assets are stored automatically; this is for anything else the project knows to be already compressed.",
+      "description": "Payload paths stored in the archive instead of deflated, because their bytes are already compressed and re-compressing them costs build time while making the archive marginally larger. A path matches itself and everything beneath it, so one entry can name a single large file or the directory an expanded asset archive landed in. Declared assets are stored automatically; this is for anything else the project knows to be already compressed.",
       "items": {
         "$ref": "#/$defs/payloadPath"
       }
@@ -248,23 +248,61 @@
     "selfTest": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "imports"
+      "anyOf": [
+        {
+          "required": [
+            "imports"
+          ]
+        },
+        {
+          "required": [
+            "commands"
+          ]
+        }
       ],
       "not": {
         "required": [
-          "pythonCode",
-          "pythonFile"
+          "code",
+          "script"
         ]
       },
-      "description": "Builder checks run with the payload's own interpreter before archiving. Schema version 2 signs only the import subset for a consumer to repeat; file and optional Python-code assertions remain builder-only.",
+      "description": "Builder checks run against the payload before archiving. The signed release carries the probe — the imports and commands a consumer can repeat after extraction — while file assertions and the optional extra source stay builder-only. At least one of imports and commands is required: a box that proves nothing about itself is not a box worth signing.",
       "properties": {
         "imports": {
           "type": "array",
           "minItems": 1,
+          "description": "Modules the runtime must be able to load. Meaningful to a runtime with a module system, which is why it is not the only shape a probe can take.",
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Invocations of the box's own declared execution, each with the exit code it must produce. This is the only probe shape available to a runtime with no module system, and it needs execution to be declared — there is nothing else to invoke.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "args"
+            ],
+            "properties": {
+              "args": {
+                "type": "array",
+                "description": "Arguments appended to the box's declared execution. Passed directly, without a shell. May be empty, which runs the entry point as the box would.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "expectExitCode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "default": 0,
+                "description": "Exit status the invocation must produce. Defaults to 0; a non-zero value suits a tool whose --version or --help deliberately exits otherwise."
+              }
+            }
           }
         },
         "files": {
@@ -274,28 +312,20 @@
             "$ref": "#/$defs/payloadPath"
           }
         },
-        "pythonCode": {
+        "code": {
           "type": "string",
           "minLength": 1,
-          "description": "Extra Python executed after the imports succeed, for checks a bare import cannot make. Anything longer than an assertion belongs in pythonFile, where an editor can see it is Python."
+          "description": "Extra source in the runtime's own language, executed after the imports succeed, for checks a bare import cannot make. Anything longer than an assertion belongs in script, where an editor can see what language it is."
         },
-        "pythonFile": {
+        "script": {
           "type": "string",
           "minLength": 1,
-          "description": "Project path to a Python file executed after the imports succeed, in place of pythonCode. The file is read at build time and run from the payload root, so a real self-test keeps its syntax highlighting, its linter, and its diffs instead of living inside a JSON string."
+          "description": "Project path to a source file executed after the imports succeed, in place of code. The file is read at build time and run from the payload root, so a real self-test keeps its syntax highlighting, its linter, and its diffs instead of living inside a JSON string."
         }
       }
     },
-    "weights": {
-      "enum": [
-        "embed",
-        "on-demand"
-      ],
-      "default": "embed",
-      "description": "Whether assets are packed into the archive (embed, the default: the box installs with no network and works air-gapped) or left out for the caller to materialize from descriptors in the signed release (on-demand). Consumers verify materialized assets before execution and do not download them. A build may override this."
-    },
     "execution": {
-      "$ref": "https://scrollcase.dev/schema/v2/execution.schema.json"
+      "$ref": "https://scrollcase.dev/schema/v3/execution.schema.json"
     },
     "parity": {
       "type": "object",
@@ -352,6 +382,57 @@
       "type": "string",
       "pattern": "^[a-z0-9]+(?:[-.][a-z0-9]+)*$"
     },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "What runs inside the box. A target says which machine the box is for; this says what executes on it — which is a different question, and until version 3 the format never asked it: a box declared a Python interpreter path and Python execution kinds and nothing that said \"Python\".",
+      "properties": {
+        "id": {
+          "enum": [
+            "python",
+            "node",
+            "native"
+          ],
+          "description": "The runtime the box carries. The list is closed rather than free-form: each id implies a payload layout, a set of execution kinds and an argv rule that a consumer has to already know, so an unrecognised one is a box that cannot be run, not a box with an unusual label."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The runtime's own version, solved into the box and recorded in provenance. Required by any runtime whose layout depends on it — Python names its standard library after major.minor — and legitimately absent for one that has no interpreter to version, which is why the format does not demand it.",
+          "examples": [
+            "3.11.15"
+          ]
+        },
+        "entryPoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The runtime's own executable, relative to the box root. The runtime's layout for a given target admits exactly one value, so this is derived when omitted and still checked against the layout when declared. Absent for a runtime that has no separate executable to name.",
+          "examples": [
+            "venv/bin/python"
+          ]
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form annotations carried through into the signed release untouched. Scrollcase never reads a label; it exists so a project can record what it needs to record — the upstream model a box packages, the team that owns it, the ticket it came from — without the format having to grow a field, and without the format claiming to know what any project's boxes are about.",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [
+        {
+          "model": "example-org/example-model",
+          "owner": "platform-team"
+        }
+      ]
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
@@ -362,7 +443,7 @@
       "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//).+$",
       "description": "A forward-slash path inside the box payload: relative, non-empty, and unable to escape the payload root.",
       "examples": [
-        "model-cache/example-model/weights.safetensors"
+        "cache/example-box/data.bin"
       ]
     }
   }

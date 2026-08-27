@@ -8,13 +8,13 @@ description: Public schema URLs, package imports, offline registration, generate
 The shipped JSON Schemas are available both from the package and at stable public URLs:
 
 ```text
-https://scrollcase.dev/schema/v2/target.schema.json
-https://scrollcase.dev/schema/v2/scroll.schema.json
-https://scrollcase.dev/schema/v2/box-manifest.schema.json
-https://scrollcase.dev/schema/v2/release-manifest.schema.json
-https://scrollcase.dev/schema/v2/channel-manifest.schema.json
-https://scrollcase.dev/schema/v2/revocations-manifest.schema.json
-https://scrollcase.dev/schema/v2/signed-document.schema.json
+https://scrollcase.dev/schema/v3/target.schema.json
+https://scrollcase.dev/schema/v3/scroll.schema.json
+https://scrollcase.dev/schema/v3/box-manifest.schema.json
+https://scrollcase.dev/schema/v3/release-manifest.schema.json
+https://scrollcase.dev/schema/v3/channel-manifest.schema.json
+https://scrollcase.dev/schema/v3/revocations-manifest.schema.json
+https://scrollcase.dev/schema/v3/signed-document.schema.json
 ```
 
 The documentation build fails unless these public files are byte-identical to

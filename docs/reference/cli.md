@@ -147,11 +147,9 @@ navigable menus for execution kind and script source. Everything else has a defe
 is a flag rather than a prompt. A required answer left blank repeats the question instead of ending
 the session.
 
-The weights mode is one of those defaults rather than a menu. It decides whether declared assets are
-packed into the archive, and a box that declares none — which is most of them, since a scroll
-packages a Python environment and not necessarily a model — has nothing for it to decide. New
-scrolls take `embed` and say nothing about it; `--weights on-demand` states the other choice, and
-`scrollcase edit scroll` changes it later.
+Labels are among those defaults rather than a menu. Scrollcase reads none of them, so prompting for
+one would be asking you to fill in a field on the tool's behalf; a generated scroll carries none,
+and `--labels '{"model":"…"}'` states them when there is something to record.
 
 Every question in the CLI has the same shape: a blank line, the field's name, one line saying what
 the field is, then the answer typed after ` ↳ `. The name is coloured and the explanation is not, so
@@ -174,7 +172,6 @@ scrollcase new scroll \
   --box-id example-model \
   --source-revision upstream-v1 \
   --asset-base-url https://assets.example.org/boxes \
-  --weights embed \
   --execution library-only
 ```
 
@@ -184,8 +181,7 @@ scrollcase new scroll \
 | `--box-id` | Box identity and parent directory |
 | `--source-revision` | Upstream revision recorded in provenance |
 | `--asset-base-url` | Base URL copied into built release metadata |
-| `--model-id` | Identity of what the box packages. Defaults to the box id |
-| `--runtime-id` | Runtime identity. Defaults to `<box-id>-runtime` |
+| `--labels` | JSON object of free-form annotations carried into the signed release. Scrollcase reads none of them |
 | `--version` | Box version. Defaults to `1.0.0` |
 | `--scroll-version` | Version of the authoring input. Defaults to `1.0.0` |
 | `--python-version` | Python dependency version written into `pixi.toml`, or `latest`. Defaults to one minor behind the newest Python conda-forge publishes |
@@ -195,7 +191,6 @@ scrollcase new scroll \
 | `--min-macos-version` | Optional macOS floor |
 | `--min-ram-gb` | Optional positive RAM requirement |
 | `--min-nvidia-driver-version` | Optional NVIDIA driver floor |
-| `--weights` | `embed` (default, and left out of the scroll) or `on-demand` |
 | `--execution` | `python-script`, `python-module`, or `library-only` |
 | `--script` | Existing project-relative Python script |
 | `--generate-script` | Generate a minimal starter instead of using an existing script |
@@ -211,7 +206,7 @@ refuses traversal and non-regular sources, and never overwrites an existing sour
 Generated defaults are grouped by both box and target; `library-only` omits execution metadata.
 
 Alongside `scroll.json` and `pixi.toml`, `new scroll` writes a `self_test.py` next to them and
-points `selfTest.pythonFile` at it, so the box's own check starts life as real Python rather than
+points `selfTest.script` at it, so the box's own check starts life as real Python rather than
 an escaped JSON string.
 
 `--python-version latest` resolves once, at authoring time, and writes the resulting number into the
@@ -230,8 +225,10 @@ Record something in a scroll that already exists, so the fields nobody can write
 written by hand.
 
 ```sh
-scrollcase add asset  <box> <url>        [--to <payload path>] [--target <targetId>|all]
-scrollcase add file   <box> <path>       [--to <payload path>] [--target <targetId>|all]
+scrollcase add asset  <box> <url>        [--to <payload path>] [--on-demand] [--executable]
+                                         [--target <targetId>|all]
+scrollcase add file   <box> <path>       [--to <payload path>] [--executable]
+                                         [--target <targetId>|all]
 scrollcase add dep    <box> <name>       [--version <spec>] [--target <targetId>|all]
 scrollcase add dep    <box> --from-requirements requirements.txt
 scrollcase add env    <box> NAME=VALUE   [--target <targetId>|all]
@@ -242,11 +239,17 @@ scrollcase add import <box> <module>     [--target <targetId>|all]
 which are the two values a scroll cannot be written without and no author can know without fetching
 the file. Recording them here changes nothing about the guarantee: they are pinned once and checked
 on every build, exactly as before. `--to` is optional and defaults to the URL's last path segment
-under the box's `modelCacheSubdir`.
+under the box's `cacheSubdir`. `--on-demand` writes `"embed": false`, leaving this one file out of
+the archive for your distribution layer to materialize.
 
 `add file` records a file from the project. `--to` defaults to the file's own name at the payload
 root. No `sha256` is written — see [`localFiles`](/reference/scroll#localfiles) — so the first edit
 to a file you just added does not fail your next build.
+
+`--executable` marks either kind as a file that needs the executable bit. A download arrives with no
+permissions at all and a copy does not carry the source file's mode, so this declaration is the only
+way a box can ship one that runs — see [Managing
+Assets](/guides/managing-assets#files-that-have-to-run).
 
 Both also add the payload path to `selfTest.files`, so an over-eager `prunePaths` cannot quietly
 drop what you just declared.
@@ -263,9 +266,9 @@ rest of the map alone. A map is the one shape a single-value prompt cannot edit,
 its own command rather than being left to a hand edit. The value may contain `=`; only the first one
 separates the name.
 
-`add import` adds a module to `selfTest.imports`. Those names are signed into the release and
-repeated by `verify --self-test`, so they are the part of the self-test a consumer can check for
-itself.
+`add import` adds a module to `selfTest.imports`. Those names are signed into the release as part of
+`selfTest.probe` and repeated by `verify --self-test`, so they are the part of the self-test a
+consumer can check for itself.
 
 `--from-requirements` reads a pip `requirements.txt` instead. Names are translated to conda-forge
 where Scrollcase is sure and lowercased otherwise, and **every translation and every skip is
@@ -327,9 +330,9 @@ that is not a field cannot be typed in the first place — and an enum field off
 Without a terminal, `--field` and `--value` are required.
 
 Three kinds of field are not offered: structural values a project does not choose (`schemaVersion`,
-`extends`), values the layout or the target fixes (`boxId` and `target` name the directories,
-`pythonEntryPoint` has one legal value per target), and the collections, which have `add`/`remove`
-or a file of their own.
+`extends`), values the layout or the target fixes (`boxId` and `target` name the directories, and
+`runtime` holds an id that decides the whole payload layout and an entry point with one legal value
+per target), and the collections, which have `add`/`remove` or a file of their own.
 
 ## `refresh`
 
@@ -453,7 +456,7 @@ plus a channel pointer. The full pipeline is narrated in
 
 ```sh
 scrollcase build [<scroll>] [--target <targetId>]
-                 [--channel <name>] [--weights embed|on-demand]
+                 [--channel <name>]
                  [--asset-base-url <url>] [--namespace <ns>] [--allow-dirty]
                  [--pixi <path>] [--conda-pack <path>]
                  [--private-key <path>] [--public-key <path>] [--signer-command <cmd>]
@@ -465,8 +468,7 @@ menu. CI and other non-interactive callers must always provide it explicitly.
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--target` | ask when a box has several scrolls | Canonical target scroll to build |
-| `--channel` | `beta` | Channel the signed pointer names. The v2 vocabulary is closed to `nightly`, `beta`, and `stable` |
-| `--weights` | scroll's `weights`, else `embed` | Overrides the scroll for this build: `embed` packs assets into the archive (works air-gapped), `on-demand` leaves them out for the caller to materialize; consumers verify them before execution. `build` does not ask — the scroll's declaration is what it uses |
+| `--channel` | `beta` | Channel the signed pointer names. The vocabulary is closed to `nightly`, `beta`, and `stable` |
 | `--asset-base-url` | scroll's `assetBaseUrl` | Base URL the signed documents point at; one of the two must be set |
 | `--namespace` | `scrollcase.box` | Document `kind` namespace — a project with boxes already in the field keeps emitting its own |
 | `--allow-dirty` | off | Permit a build from an uncommitted tree; recorded as `sourceTreeDirty: true` in the box |
@@ -526,11 +528,11 @@ scrollcase verify <release.json> --extracted <dir> [--env-report] [--env-report-
 
 Checks, in order: envelope payload hash and at least one trusted signature; release kind; coherent
 target and entry point; archive size and SHA-256; safe entry names; recursively equal shared
-`box.json` fields (identity/version, full target, entry point, cache subdirectory, declared
-environment, consumer self-test, weights/assets, and provenance); and the declared interpreter. `--self-test`
-additionally requires a matching native host, extracts to a temporary directory, checks logical
-payload size, and runs the signed import check. It does not repeat scroll-only `pythonCode` or file
-assertions, which are builder-only checks.
+`box.json` fields (identity, labels, version, full target, the runtime block, cache subdirectory,
+declared environment, consumer self-test, the deferred-asset list, and provenance); and the declared
+interpreter. `--self-test` additionally requires a matching native host, extracts to a temporary
+directory, checks logical payload size, and runs the signed probe. It does not repeat scroll-only
+`code` or file assertions, which are builder-only checks.
 
 After validating the command arguments, `verify` prints a blank line and `Verifying box` (or
 `Verifying extracted payload`) before it starts reading and hashing the supplied bytes, so a long

@@ -112,7 +112,7 @@ async function schemaLinks(outDir, hostname) {
     const names = (await readdir(join(outDir, 'schema', 'v2')))
       .filter((name) => name.endsWith('.schema.json'))
       .sort();
-    return names.map((name) => `- [${name}](${hostname}/schema/v2/${name})`);
+    return names.map((name) => `- [${name}](${hostname}/schema/v3/${name})`);
   } catch {
     return [];
   }

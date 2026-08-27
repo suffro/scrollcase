@@ -295,7 +295,7 @@ A scroll is a file a person writes and maintains by hand, and several of its fie
 restating something the file already said. `pythonEntryPoint` is the clearest case: a target admits
 exactly one interpreter path and the reader rejected every other value, so requiring the field
 obliged the author to type the one string that was already implied — and to type it again for every
-target of the same box. `scrollVersion`, `compatibility`, `modelCacheSubdir`, `assets` and
+target of the same box. `scrollVersion`, `compatibility`, `cacheSubdir`, `assets` and
 `selfTest.files` were the same kind of obligation in weaker form.
 
 Those fields are now optional and derived when the scroll is read. Derivation happens in one place,
@@ -326,9 +326,9 @@ writing. A pinned file that drifts still fails the build.
 
 ### A self-test belongs in a file
 
-`selfTest.pythonCode` puts Python inside a JSON string, with escaped newlines and no syntax
+`selfTest.code` puts Python inside a JSON string, with escaped newlines and no syntax
 highlighting, no linter and no readable diff. It suits a single assertion and nothing more.
-`selfTest.pythonFile` names a file in the project instead; it is read at build time and executed
+`selfTest.script` names a file in the project instead; it is read at build time and executed
 from the payload root, so it can read what the box ships and import what it packs. The two are
 mutually exclusive, and `new scroll` generates the file rather than leaving the field empty.
 
@@ -522,7 +522,7 @@ The public-contract audit resolved six implementation choices:
 - Public schema URLs are deterministic copies of `src/contract/schema/`, guarded byte for byte.
 - Verification compares all security-, identity-, target-, asset-policy-, self-test-, and
   provenance fields duplicated by schema version 2.
-- Consumer self-test is documented as the signed import subset; scroll `pythonCode` and file
+- Consumer self-test is documented as the signed import subset; scroll `code` and file
   assertions stay builder-only until a future wire version can carry them.
 - Scroll structure is validated at runtime from the shipped schemas by a dependency-free internal
   validator before tool discovery or build-directory mutation.

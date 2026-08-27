@@ -28,13 +28,13 @@ export const CATALOG_PATH = '/.well-known/api-catalog';
  * honest href — constructing one from the filename would let the two disagree.
  */
 async function schemaTargets(outDir, hostname) {
-  const directory = join(outDir, 'schema', 'v2');
+  const directory = join(outDir, 'schema', 'v3');
   const names = (await readdir(directory)).filter((name) => name.endsWith('.schema.json')).sort();
   const targets = [];
   for (const name of names) {
     const schema = JSON.parse(await readFile(join(directory, name), 'utf8'));
     targets.push({
-      href: schema.$id ?? `${hostname}/schema/v2/${name}`,
+      href: schema.$id ?? `${hostname}/schema/v3/${name}`,
       type: 'application/schema+json',
       title: schema.title ?? name,
     });
@@ -48,12 +48,12 @@ export async function writeApiCatalog({ outDir, hostname }) {
       {
         anchor: `${hostname}${CATALOG_PATH}`,
         item: [
-          { href: `${hostname}/schema/v2/` },
+          { href: `${hostname}/schema/v3/` },
           { href: `${hostname}/reference/cli` },
         ],
       },
       {
-        anchor: `${hostname}/schema/v2/`,
+        anchor: `${hostname}/schema/v3/`,
         'service-desc': await schemaTargets(outDir, hostname),
         'service-doc': [
           { href: `${hostname}/reference/schemas`, type: 'text/html', title: 'JSON Schemas' },

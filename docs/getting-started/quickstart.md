@@ -134,7 +134,7 @@ scrollcase new scroll
 The generated example is already ready for the remaining walkthrough steps, so you can skip this
 command for a first build. Use the wizard for real project metadata. It asks four questions — the
 complete target, the box id, the upstream revision of what you are packaging, and the base URL
-boxes will be published under — plus menus for weights mode and execution kind. Each one is printed
+boxes will be published under — plus a menu for the execution kind. Each one is printed
 as its own block: a blank line, the field's name, one line saying what the field is, then the answer
 typed after ` ↳ `. Everything else has a default and is available as a flag. A blank answer to a
 required question repeats it rather than ending the session.
@@ -244,14 +244,14 @@ scrollcase verify .scrollcase/dist/boxes/example-box/1.0.0/macos-aarch64-metal/*
 
 `verify` mirrors the format checks available to an installing client: trusted signature, archive
 size and SHA-256, safe entry names, recursive agreement between `box.json` and the signed release,
-and the declared interpreter. With `--self-test` it extracts to a temporary directory and imports
-the signed modules **with the box's own Python**. Scroll-only `pythonCode` and file assertions ran
-on the builder but are not carried by the signed release.
+and the declared interpreter. With `--self-test` it extracts to a temporary directory and runs the
+signed probe **with the box's own runtime**. Scroll-only `code` and file assertions ran on the
+builder but are not carried by the signed release.
 
 ## Where to go next
 
-- Package something real: declare model weights and data files —
-  [Managing Model Weights](/guides/managing-weights).
+- Package something real: declare model weights and data files, and choose what ships inside the archive —
+  [Managing Assets](/guides/managing-assets).
 - Understand every field you just used: [The Scroll](/reference/scroll) and
   [CLI Commands](/reference/cli).
 - Review dependency licences before building: run `scrollcase audit <scroll>` — see

@@ -75,7 +75,7 @@ git add .
 git commit -m "Initialize Scrollcase example"
 
 scrollcase keygen
-scrollcase build example-box/linux-x86_64-cpu --weights embed
+scrollcase build example-box/linux-x86_64-cpu
 scrollcase verify .scrollcase/dist/boxes/example-box/1.0.0/linux-x86_64-cpu/*.release.json --self-test
 ```
 

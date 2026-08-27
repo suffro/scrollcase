@@ -87,7 +87,7 @@ Each step earns its position:
 
 **Validate first.** The complete nested scroll is checked against the shipped schemas before a
 tool is probed, a fetch is made, or build state is mutated. Identity, target/entry-point,
-weights/archive policy, native host, lock presence, and Git state follow in that order.
+the declared runtime, native host, lock presence, and Git state follow in that order.
 
 **Install, never resolve.** `pixi install --frozen` materialises exactly the locked packages
 without touching or re-checking the lock, so what ships is byte-for-byte what was reviewed.
@@ -107,7 +107,7 @@ reviewed copy. A licence problem is a legal problem, and it is cheaper to hit it
 expensive checks.
 
 **Self-test with the box's own interpreter.** The builder runs post-prune file assertions, the
-target assertion, imports, and optional scroll `pythonCode`. Schema version 2 signs the target
+target assertion, imports, and optional scroll `code`. Schema version 2 signs the target
 assertion and import subset for a consumer to repeat; the richer scroll-only checks are not
 misrepresented as consumer checks.
 

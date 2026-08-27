@@ -60,7 +60,7 @@ describe('markdownPathFor', () => {
 
   it('leaves anything that is not a page alone', () => {
     expect(markdownPathFor('/llms.txt')).toBeNull();
-    expect(markdownPathFor('/schema/v2/target.schema.json')).toBeNull();
+    expect(markdownPathFor('/schema/v3/target.schema.json')).toBeNull();
     expect(markdownPathFor('/static/svg/logo-dark.svg')).toBeNull();
     // Asking for the Markdown of a Markdown file is a loop.
     expect(markdownPathFor('/reference/cli.md')).toBeNull();

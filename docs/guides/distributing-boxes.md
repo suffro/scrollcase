@@ -88,7 +88,7 @@ separation is the point: **promoting a build never requires re-signing it**.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.channel",
   "channel": "beta",
   "boxId": "my-model",
@@ -161,9 +161,9 @@ Whatever installs your boxes should do exactly what `scrollcase verify` does, in
 5. Download the archive; check size and SHA-256 against the release.
 6. Validate every entry name before final extraction.
 7. Compare all shared `box.json` fields recursively against the release.
-8. Run the self-test: `selfTest.pythonImports` with `pythonEntryPoint`, bounded by
+8. Run the self-test: `selfTest.probe` with `runtime.entryPoint`, bounded by
    `selfTest.timeoutSeconds`.
-9. With on-demand weights, fetch each asset and check its size and SHA-256 before first use.
+9. For each entry in `assets`, fetch it and check its size and SHA-256 before first use.
 
 Running `scrollcase verify --self-test` on the build machine covers the archive and temporary
 extraction checks, not final installation, compatibility policy, rollout, or activation.

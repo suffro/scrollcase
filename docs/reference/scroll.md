@@ -21,7 +21,7 @@ The parent directory is the scroll's declared `boxId`; the child is the canonica
 its declared `target`. Scrollcase checks both, so the path cannot mislabel the scroll, but neither
 value is written twice inside `scroll.json`. Flat source directories are not accepted in v2.
 
-The machine-readable definition is [`scroll.schema.json`](/schema/v2/scroll.schema.json), also shipped
+The machine-readable definition is [`scroll.schema.json`](/schema/v3/scroll.schema.json), also shipped
 through the package export. See [JSON Schemas](/reference/schemas).
 
 Create a new target-specific input with `scrollcase new scroll`. Interactively it asks four
@@ -36,15 +36,13 @@ scroll is read. Write the decisions, not the restatements:
 
 ```json
 {
-  "$schema": "https://scrollcase.dev/schema/v2/scroll.schema.json",
-  "schemaVersion": 2,
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
   "boxId": "hello-box",
-  "modelId": "example-org-hello",
-  "runtimeId": "hello-box-runtime",
   "version": "1.0.0",
   "sourceRevision": "example-hello-v1",
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
-  "pythonVersion": "3.14",
+  "runtime": { "id": "python", "version": "3.14" },
   "pixiVersion": "0.73.0",
   "assetBaseUrl": "https://assets.example.org/boxes",
   "selfTest": { "imports": ["json", "sqlite3"] }
@@ -54,25 +52,22 @@ scroll is read. Write the decisions, not the restatements:
 ## The same scroll, fully spelled out
 
 Identical in every respect — this is what the file above becomes when it is read. Declaring a
-derived field is never wrong; `pythonEntryPoint` is still checked against the target either way.
+derived field is never wrong; `runtime.entryPoint` is still checked against the target either way.
 
 ```json
 {
-  "$schema": "https://scrollcase.dev/schema/v2/scroll.schema.json",
-  "schemaVersion": 2,
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
   "scrollVersion": "1.0.0",
   "boxId": "hello-box",
-  "modelId": "example-org-hello",
-  "runtimeId": "hello-box-runtime",
   "version": "1.0.0",
   "sourceRevision": "example-hello-v1",
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
   "compatibility": { "minHostAppVersion": "1.0.0", "minMacosVersion": "13.0", "minRamGb": 1 },
-  "pythonVersion": "3.14",
+  "runtime": { "id": "python", "version": "3.14", "entryPoint": "venv/bin/python" },
   "pixiVersion": "0.73.0",
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/hello-box",
-  "environment": { "MODEL_ROOT": "model-cache/hello-box", "HF_HUB_OFFLINE": "1" },
+  "cacheSubdir": "cache/hello-box",
+  "environment": { "MODEL_ROOT": "cache/hello-box", "HF_HUB_OFFLINE": "1" },
   "assetBaseUrl": "https://assets.example.org/boxes",
   "assets": [],
   "selfTest": { "imports": ["json", "sqlite3"], "files": [] }
@@ -83,12 +78,11 @@ derived field is never wrong; `pythonEntryPoint` is still checked against the ta
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `schemaVersion` | yes | Always `2`. See [versioning](/reference/box-format#versioning) |
+| `schemaVersion` | yes | Always `3`. See [versioning](/reference/box-format#versioning) |
 | `scrollId` | no | Provenance identity. When omitted, Scrollcase derives `<boxId>-<targetId>` |
 | `scrollVersion` | no | Version of the scroll itself — bump it when you change how the box is built. Defaults to `1.0.0` |
 | `boxId` | yes | Identity of the box across versions. Appears in archive names, object keys, and the channel pointer |
-| `modelId` | yes | Identity of what the box packages — a model, a library, an application |
-| `runtimeId` | yes | Identity of the runtime environment the box provides |
+| `labels` | no | Free-form annotations, carried into the signed release and never read by Scrollcase |
 | `version` | yes | Version of the box this scroll produces, as it appears in the release manifest |
 | `sourceRevision` | yes | Upstream revision of the packaged source, recorded verbatim into provenance |
 | `extends` | no | `"../scroll.json"`, marking this file as one target's half of a [split scroll](#one-box-several-targets) |
@@ -96,22 +90,32 @@ derived field is never wrong; `pythonEntryPoint` is still checked against the ta
 "Required" here means required of the scroll a build reads. In a split scroll that is the two halves
 joined, so either half may carry any given field.
 
-`boxId`, `modelId` and `runtimeId` are lowercase identifiers (`^[a-z0-9]+(?:[-.][a-z0-9]+)*$`) in
-the published manifests — keep them to that shape.
+`boxId` is a lowercase identifier (`^[a-z0-9]+(?:[-.][a-z0-9]+)*$`) in the published manifests, and
+so is every `labels` key — keep them to that shape.
 
 An explicit `scrollId` lets a project choose its source identity. It may be omitted because `boxId`
 and `target` already contain the meaningful identity and the derived value is deterministic.
 
-::: tip Three identifiers, three questions
-`boxId` answers *which artefact is this a version of?*, `modelId` answers *what is inside?*, and
-`runtimeId` answers *what environment does it provide?* Several boxes may package the same payload
-with different runtimes, or the same runtime for different payloads; keeping the three separate is
-what lets a consumer reason about that.
+### Labels
 
-The name is historical: the first boxes carried models. What it identifies is whatever the box
-packages, and a box that packages a library or an application names that. A project with nothing
-to distinguish there sets it to the `boxId` — which is what `scrollcase new scroll` does when
-`--model-id` is not passed, so it is a field most scrolls never think about.
+```jsonc
+"labels": {
+  "model": "example-org/example-model",
+  "owner": "platform-team"
+}
+```
+
+Whatever the project needs recorded and the format has no business defining: the upstream model a
+box packages, the team that owns it, the ticket it came from. Labels are signed and carried through
+untouched, and **Scrollcase never reads one** — a consumer that reads a label is reading its own
+project's convention.
+
+::: tip Why this replaced two required fields
+Version 2 required `modelId` and `runtimeId`, and no code path ever read either. They were a
+consumer's vocabulary written into the format: a box that packaged a library rather than a model
+still had to name a model, so most scrolls set `modelId` to the `boxId` and moved on.
+
+A label says the same thing when there is something to say, and says nothing when there is not.
 :::
 
 ## Target
@@ -183,7 +187,7 @@ leave `execution` half from each half, producing a `python-script` that inherite
 | `assets`, `assetArchives`, `localFiles` | Joined, base entries first. Two entries claiming one `relativePath` is an **error** |
 | `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined, base first, repeats dropped |
 | `compatibility`, `environment` | Joined key by key; on a shared key the fragment wins |
-| `selfTest.pythonCode` / `selfTest.pythonFile` | One slot: a fragment naming either replaces both |
+| `selfTest.code` / `selfTest.script` | One slot: a fragment naming either replaces both |
 | `extends` | Dropped — the joined scroll extends nothing |
 
 The distinction between the two list rules is deliberate. A repeated prune path or import is the
@@ -205,10 +209,11 @@ build reads, and provenance records. Nothing downstream can tell which half a va
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `pythonVersion` | yes | Python version the box carries, recorded into provenance |
+| `runtime.id` | yes | `python`, `node` or `native`. Only `python` can be built today; the other two are named by the format so implementing them is not another format change |
+| `runtime.version` | for `python` | The runtime version the box carries, recorded into provenance |
 | `pixiVersion` | yes | The exact pixi release used to solve and install. `lock` and `build` refuse any other version |
-| `pythonEntryPoint` | no | Interpreter path relative to the box root. Fixed per target: `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows. Derived from the target when omitted, and a mismatch is still rejected when declared |
-| `modelCacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `model-cache/<boxId>` |
+| `runtime.entryPoint` | no | The runtime's own executable relative to the box root. Fixed per (runtime, target): `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows. Derived when omitted, and a mismatch is still rejected when declared |
+| `cacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `cache/<boxId>` |
 | `environment` | no | String environment variables required whenever Scrollcase runs the box interpreter |
 | `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory, written and declared by [`audit --write`](/reference/cli#audit). When declared, the build fails if the lock no longer matches what was reviewed |
 
@@ -237,7 +242,7 @@ so they cannot drift apart, and `--from-requirements` imports an existing pip fi
 
 ```jsonc
 "environment": {
-  "MODEL_ROOT": "model-cache/hello",
+  "MODEL_ROOT": "cache/hello",
   "HF_HUB_OFFLINE": "1"
 }
 ```
@@ -329,17 +334,35 @@ cannot be known without downloading the file.
 "assets": [
   {
     "url": "https://huggingface.co/example-org/model/resolve/main/model.safetensors",
-    "relativePath": "model-cache/hello/model.safetensors",
+    "relativePath": "cache/hello/model.safetensors",
     "sizeBytes": 438012416,
-    "sha256": "9f2b…c1"
+    "sha256": "9f2b…c1",
+    "embed": false,
+    "executable": false
   }
 ]
 ```
 
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `url`, `relativePath`, `sizeBytes`, `sha256` | yes | Where the file comes from, where it lands, and the exact bytes expected |
+| `embed` | no | Whether the file is packed into the archive. `true` by default |
+| `executable` | no | Whether the file needs the executable bit. `false` by default |
+
+`embed: false` leaves the file out of the archive and carries its descriptor in the signed release
+instead, for your distribution layer to materialize. It is **per entry**, so one box can ship a
+small entry point inside the archive and defer a 30 GB dataset beside it. Scrollcase consumers
+verify a materialized file before execution and never download one. See [Managing
+Assets](/guides/managing-assets).
+
+`executable: true` is the only way a downloaded file can end up runnable: HTTP carries content, not
+permissions, so an asset arrives with no mode at all. The bit is synthesised into the archive from
+this declaration, never read off the build machine — which is what keeps two builds of one commit
+byte-identical whatever umask each ran under.
+
 Retries inside one download operation resume from a partial file, and a partial transfer is
 renamed into place only after its size and hash match. The build scratch tree is recreated at
-process start, so there is no cross-process cache. See [Managing Model
-Weights](/guides/managing-weights).
+process start, so there is no cross-process cache.
 
 ### `assetArchives`
 
@@ -349,18 +372,18 @@ refuses to overwrite them.
 ```jsonc
 "assetArchives": [
   {
-    "relativePath": "model-cache/hello/weights.tar.gz",
+    "relativePath": "cache/hello/weights.tar.gz",
     "format": "tar.gz",
-    "destination": "model-cache/hello",
+    "destination": "cache/hello",
     "stripComponents": 1,
     "removeAfterExtract": true
   }
 ]
 ```
 
-`format` is `zip` or `tar.gz`. Archives are expanded at build time, so they **cannot be combined
-with `on-demand` weights** — the build fails rather than declaring a layout that never
-materialises.
+`format` is `zip` or `tar.gz`. An archive is expanded at build time, so **it has no `embed` field**:
+"leave it out and let the caller fetch it" names nothing that could happen. Version 2 refused that
+combination with a cross-field check; version 3 makes it unspeakable.
 
 ### `localFiles`
 
@@ -370,9 +393,14 @@ Files copied from your own repository into the payload. Added and removed with
 ```jsonc
 "localFiles": [
   { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py" },
+  { "sourcePath": "bin/launch.sh", "relativePath": "bin/launch.sh", "executable": true },
   { "sourcePath": "legal/MODEL_NOTICE.md", "relativePath": "THIRD_PARTY_NOTICES/MODEL_NOTICE.md", "sha256": "4c7e…9a" }
 ]
 ```
+
+`executable` works exactly as it does for an asset, and for the same reason: a local file is
+**copied** rather than moved, so it has no mode to inherit, and reading the source file's mode would
+make the archive depend on the umask of whoever checked the project out.
 
 `sha256` is an optional **pin**: when it is present, the build refuses a file whose contents no
 longer match. Leave it off the files you are still writing — a script you edit every day would
@@ -411,7 +439,7 @@ Payload paths stored in the archive rather than deflated, because their bytes ar
 compressed — re-compressing them costs build time and makes the archive marginally larger.
 
 ```jsonc
-"uncompressedPaths": ["model-cache/hello", "corpora/images"]
+"uncompressedPaths": ["cache/hello", "corpora/images"]
 ```
 
 An entry matches that path **and everything beneath it**, so one line can name a weights file or
@@ -436,47 +464,51 @@ channel documents point at. Required unless passed per build with `--asset-base-
 
 Builder checks run with the payload's **own interpreter** before the box is archived. Schema
 version 2 signs the import subset for a consumer to repeat; it does not carry the richer file or
-`pythonCode` assertions.
+`code` assertions.
 
 ```jsonc
 "selfTest": {
   "imports": ["torch", "transformers"],
-  "files": ["model-cache/hello/model.safetensors"],
-  "pythonFile": "scrolls/hello-box/macos-aarch64-metal/self_test.py"
+  "files": ["cache/hello/model.safetensors"],
+  "script": "scrolls/hello-box/macos-aarch64-metal/self_test.py"
 }
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `imports` | yes | One or more modules imported with the box's interpreter, added with [`add import`](/reference/cli#add). These names are signed and repeated by `verify --self-test` |
+| `imports` | one of these two | Modules loaded with the box's runtime, added with [`add import`](/reference/cli#add). Signed, and repeated by `verify --self-test` |
+| `commands` | one of these two | Invocations of the box's own `execution`, each with the exit status it must produce. Also signed and repeated |
 | `files` | no | Files that must still exist after pruning — this is what stops an over-aggressive prune from shipping a broken box. Defaults to empty |
-| `pythonFile` | no | Project path to a Python file run after the imports succeed |
-| `pythonCode` | no | The same thing inline, for a single assertion. Mutually exclusive with `pythonFile` |
+| `script` | no | Project path to a source file run after the imports succeed |
+| `code` | no | The same thing inline, for a single assertion. Mutually exclusive with `script` |
 
-Prefer `pythonFile` for anything longer than one line. A self-test is real code and deserves an
+At least one of `imports` and `commands` is required: a box that proves nothing about itself is not
+a box worth signing. `imports` asks the runtime's loader a question and means something only to a
+runtime that has one; `commands` asks the box's declared execution a question, which every runtime
+can answer:
+
+```jsonc
+"selfTest": {
+  "imports": ["json"],
+  "commands": [{ "args": ["--version"], "expectExitCode": 0 }]
+}
+```
+
+A `commands` entry needs `execution` to be declared — there is nothing else to invoke — and the
+scroll is refused when it is not. `expectExitCode` defaults to `0`; a non-zero value suits a tool
+whose `--help` deliberately exits otherwise.
+
+Prefer `script` for anything longer than one line. A self-test is real code and deserves an
 editor that knows it: in a file it keeps its syntax highlighting, its linter, and a readable diff,
 where inline it is a JSON string with escaped newlines. `scrollcase new scroll` generates one next
 to the scroll and points the field at it.
 
 The target's own platform assertion is prepended automatically, and the run happens under the
 accelerator's validation environment. The file is read at build time and executed from the payload
-root, so it can read what the box ships and import what it packs. A file listed in `files` that is
-a deliberately deferred on-demand asset is not required to be present. After pruning, the builder
-checks required files, then runs the target assertion, imports, the extra Python, and finally
-optional parity. A consumer runs the target assertion and signed imports only.
-
-## Weights mode
-
-```jsonc
-"weights": "embed"
-```
-
-`embed` (the default) packs assets into the archive: the box installs with no network and works
-air-gapped, at the cost of a large artefact. `on-demand` leaves them out and carries their URL,
-path, size and SHA-256 in the signed release. A caller must materialize those files; the local
-consumers verify them before execution and do not download them. A build may override this with
-`--weights`. See
-[Managing Model Weights](/guides/managing-weights).
+root, so it can read what the box ships and import what it packs. A file listed in `files` that is a
+deliberately deferred asset is not required to be present. After pruning, the builder checks
+required files, then runs the target assertion, the probe, the extra source, and finally optional
+parity. A consumer runs the target assertion and the signed probe only.
 
 ## Parity (optional)
 
@@ -510,10 +542,10 @@ mutation:
 1. Parse `scroll.json` and, when it declares `extends`, read and join its base first — neither half
    of a split scroll is a complete document, so validating one alone would report the other half's
    fields as missing. Validate the joined result against the shipped scroll and target schemas.
-2. For a nested scroll, require a target, and require the parent and child directories to match
-   `boxId` and the canonical target; reject invalid target/entry-point combinations and default
-   on-demand weights with `assetArchives`.
-3. Resolve a build-time `--weights` override and repeat the archive/policy check.
+2. Reject a runtime this build has no adapter for, an `execution` kind belonging to a different
+   runtime, and a `selfTest.commands` with no `execution` to invoke.
+3. For a nested scroll, require a target, and require the parent and child directories to match
+   `boxId` and the canonical target; reject an entry point the runtime's layout does not admit.
 4. Require a matching native host, discover the exact tools, and require `pixi.lock`.
 5. Record Git provenance and reject a dirty tree unless `--allow-dirty` was explicit.
 6. Only then recreate build state, install from the lock, download verified assets, and enforce

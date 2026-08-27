@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scrollcase.dev/schema/v2/execution.schema.json",
+  "$id": "https://scrollcase.dev/schema/v3/execution.schema.json",
   "title": "Box execution",
-  "description": "The optional, shell-free application entry point shared by a scroll, the signed release, and box.json. Its absence means the box is intentionally library-only.",
+  "description": "The optional, shell-free application entry point shared by a scroll, the signed release, and box.json. Its absence means the box is intentionally library-only.\n\nEach kind is named <runtime>-<shape>, and the runtime half must be the one the box declares: a python-script in a box whose runtime is native describes something that cannot be run, and is refused rather than guessed at.",
   "oneOf": [
     {
       "title": "Python script",
@@ -50,6 +50,54 @@
           "examples": [
             "example_model.main"
           ]
+        },
+        "defaultArgs": {
+          "$ref": "#/$defs/defaultArgs"
+        }
+      }
+    },
+    {
+      "title": "Node script",
+      "description": "Run one regular payload file with the box's own Node runtime.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "script",
+        "defaultArgs"
+      ],
+      "properties": {
+        "kind": {
+          "const": "node-script",
+          "description": "Selects direct script execution."
+        },
+        "script": {
+          "$ref": "#/$defs/payloadPath",
+          "description": "Safe path to a regular JavaScript file inside the box."
+        },
+        "defaultArgs": {
+          "$ref": "#/$defs/defaultArgs"
+        }
+      }
+    },
+    {
+      "title": "Native binary",
+      "description": "Run a compiled executable that the box carries directly, with no interpreter in front of it. The only shape a runtime with no module system has.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "binary",
+        "defaultArgs"
+      ],
+      "properties": {
+        "kind": {
+          "const": "native-binary",
+          "description": "Selects direct execution of a payload file."
+        },
+        "binary": {
+          "$ref": "#/$defs/payloadPath",
+          "description": "Safe path to the executable inside the box. It carries the executable bit because the scroll declared it, not because the build machine happened to have it set."
         },
         "defaultArgs": {
           "$ref": "#/$defs/defaultArgs"

@@ -170,8 +170,9 @@ describe('CLI target selection', () => {
       'utf8',
     ));
     expect(scroll).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       boxId: 'example-box',
+      runtime: { id: 'python' },
       target: {
         platform: adapter.platform,
         arch: adapter.arch,

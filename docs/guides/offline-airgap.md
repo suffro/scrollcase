@@ -15,12 +15,12 @@ This guide covers what makes that true, and what to check before relying on it.
 
 | Requirement | How to satisfy it |
 | --- | --- |
-| Assets are inside the archive | Build with `--weights embed` (the default) |
+| Assets are inside the archive | Leave every `assets[].embed` at its default of `true` |
 | No install-time relocation step | Guaranteed by the format — see [relocation](#why-no-install-step) |
 | The trust anchor is on the isolated machine | Copy `signing-public.json` across, out of band |
 | The verifier runs offline | `scrollcase verify` never touches the network |
 
-The one thing that breaks air-gapped installation is `--weights on-demand`, which deliberately
+The one thing that breaks air-gapped installation is `"embed": false` on an asset, which deliberately
 leaves the assets out for the caller's distribution layer to materialize. That is why `embed` is
 the default: air-gapped installation is a property worth keeping unless a project explicitly
 trades it away.
@@ -28,7 +28,7 @@ trades it away.
 ## Build on the connected side
 
 ```sh
-scrollcase build my-model/linux-x86_64-cpu --weights embed
+scrollcase build my-model/linux-x86_64-cpu
 scrollcase verify .scrollcase/dist/boxes/my-model/1.0.0/linux-x86_64-cpu/*.release.json --self-test
 ```
 

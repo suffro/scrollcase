@@ -1,13 +1,14 @@
 ---
-title: Managing Model Weights
-description: Declare, verify, embed or defer the assets a box carries.
+title: Managing Assets
+description: Declare, verify, embed or defer the files a box carries.
 ---
 
-# Managing Model Weights
+# Managing Assets
 
-Model weights are usually the largest thing a box carries, and the only part fetched from a
-server nobody controls. Scrollcase treats them the same way it treats everything else: declared
-up front, verified before use, and committed to by hash in the signed release.
+An asset is usually the largest thing a box carries, and the only part fetched from a server
+nobody controls — model weights, a dataset, a compiled tool. Scrollcase treats them the same way it
+treats everything else: declared up front, verified before use, and committed to by hash in the
+signed release.
 
 ## Declare an asset
 
@@ -17,7 +18,7 @@ Every asset carries a URL, a destination inside the payload, a size, and a SHA-2
 "assets": [
   {
     "url": "https://huggingface.co/example-org/model/resolve/main/model.safetensors",
-    "relativePath": "model-cache/hello/model.safetensors",
+    "relativePath": "cache/hello/model.safetensors",
     "sizeBytes": 438012416,
     "sha256": "9f2b7c1e04a83d5641b0e7c28a3d95f7c9d1a4e60b8f37c25e9a4d7081da5b3f"
   }
@@ -32,8 +33,9 @@ scrollcase add asset my-model https://…/model.safetensors
 ```
 
 It also adds the payload path to `selfTest.files`, so an over-eager `prunePaths` cannot quietly drop
-it. Use `--to <payload path>` to land it somewhere other than the box's model cache, and `--target`
-to give it to one target only. If you would rather write the entry yourself, the two values come
+it. Use `--to <payload path>` to land it somewhere other than the box's cache directory, `--target`
+to give it to one target only, `--on-demand` to leave it out of the archive, and `--executable` for
+a file that has to run. If you would rather write the entry yourself, the two values come
 from `shasum -a 256 model.safetensors` and `wc -c < model.safetensors`.
 
 Nothing enters the payload before **both** match. That is what makes a box reproducible even
@@ -56,16 +58,16 @@ When the upstream artefact is a tarball or zip, declare it as an asset and then 
 "assets": [
   {
     "url": "https://example.org/model/weights-v1.tar.gz",
-    "relativePath": "model-cache/hello/weights.tar.gz",
+    "relativePath": "cache/hello/weights.tar.gz",
     "sizeBytes": 1073741824,
     "sha256": "4c7e…9a"
   }
 ],
 "assetArchives": [
   {
-    "relativePath": "model-cache/hello/weights.tar.gz",
+    "relativePath": "cache/hello/weights.tar.gz",
     "format": "tar.gz",
-    "destination": "model-cache/hello",
+    "destination": "cache/hello",
     "stripComponents": 1,
     "removeAfterExtract": true
   }
@@ -83,7 +85,7 @@ When the upstream artefact is a tarball or zip, declare it as an asset and then 
 
 ## Compression
 
-Weights arrive already compressed, and deflating them again is pure loss. Measured on
+An asset usually arrives already compressed, and deflating it again is pure loss. Measured on
 incompressible bytes: level 6 runs at 47 MB/s and the archive comes out **0.03% larger** than the
 input, and dropping to level 1 recovers 4 MB/s because the search fails either way. Lowering the
 level is not the fix — not compressing is.
@@ -95,7 +97,7 @@ For anything else your box carries that is already compressed — the tree an `a
 expanded into, a bundled corpus of JPEGs — say so:
 
 ```jsonc
-"uncompressedPaths": ["model-cache/hello", "corpora/images"]
+"uncompressedPaths": ["cache/hello", "corpora/images"]
 ```
 
 An entry matches that path and everything beneath it. Nothing is decided by looking at the file or
@@ -115,6 +117,7 @@ scrollcase add file my-model runtime/entrypoint.py
 ```jsonc
 "localFiles": [
   { "sourcePath": "runtime/entrypoint.py", "relativePath": "entrypoint.py" },
+  { "sourcePath": "bin/launch.sh", "relativePath": "bin/launch.sh", "executable": true },
   { "sourcePath": "legal/MODEL_LICENSE.txt", "relativePath": "MODEL_LICENSE.txt", "sha256": "…" }
 ]
 ```
@@ -131,48 +134,54 @@ writing, which would otherwise fail your next build over an edit you meant to ma
 
 ## Embed or defer
 
-This is the one real decision, and it is per build:
+This is the one real decision, and it is made **per asset**, in the scroll:
 
-| | `embed` (default) | `on-demand` |
+| | `embed: true` (default) | `embed: false` |
 | --- | --- | --- |
-| Assets live | inside the archive | on your asset host |
+| The file lives | inside the archive | on your asset host |
 | Install needs network | no — **works air-gapped** | yes |
 | Archive size | large | small |
 | Integrity guaranteed by | the archive's own signed hash | the per-asset size + SHA-256 in the signed release |
 
-```sh
-scrollcase build my-model/linux-x86_64-cpu --weights embed        # the default
-scrollcase build my-model/linux-x86_64-cpu --weights on-demand
+```jsonc
+"assets": [
+  { "url": "https://…/entrypoint-config.json", "relativePath": "cache/hello/config.json",
+    "sizeBytes": 786, "sha256": "27 47…c2" },
+  { "url": "https://…/model.safetensors", "relativePath": "cache/hello/model.safetensors",
+    "sizeBytes": 438012416, "sha256": "9f2b…3f", "embed": false }
+]
 ```
 
-A scroll may set `"weights": "embed" | "on-demand"` as its own default; the flag overrides it for one
-build. `build` never asks: what the scroll declares is what it uses, and the mode in effect is
-printed as the build starts. A scroll that says nothing takes `embed`, which is what a box with no
-declared assets wants anyway.
+That box ships its small config inside the archive and defers the large weights — which version 2
+could not express at all, because the choice was a single box-wide `weights` switch. There is no
+build-time override, deliberately: overriding a per-asset declaration would repack the box under an
+identity that no longer describes it, and `build` prints what the scroll decided rather than
+offering a menu in front of it.
 
-### What `on-demand` puts in the release
+### What deferring puts in the release
 
-The assets are left out of the archive, and their descriptors travel in the signed release and in
+A deferred asset is left out of the archive, and its descriptor travels in the signed release and in
 `box.json`:
 
 ```jsonc
-"weights": "on-demand",
 "assets": [
-  { "url": "https://…/model.safetensors", "relativePath": "model-cache/hello/model.safetensors",
+  { "url": "https://…/model.safetensors", "relativePath": "cache/hello/model.safetensors",
     "sizeBytes": 438012416, "sha256": "9f2b…3f" }
 ]
 ```
 
-The declared hash is what makes deferring safe: the release **commits to exactly which bytes the
-box expects**, whatever host serves them. Retrieval belongs to the caller's distribution layer,
-which places each asset at `relativePath` under the box root. The official consumers do not fetch
-assets; they check every materialized file's size and hash before execution.
+The list is exactly the deferred entries and nothing else — on this side of the wire, the list
+*is* the statement, so there is no separate mode field to disagree with it. The declared hash is
+what makes deferring safe: the release **commits to exactly which bytes the box expects**, whatever
+host serves them. Retrieval belongs to the caller's distribution layer, which places each asset at
+`relativePath` under the box root. The official consumers do not fetch assets; they check every
+materialized file's size and hash before execution.
 
-::: warning Two constraints
-`on-demand` cannot be combined with `assetArchives` — archives are expanded at build time, so
-deferring them would declare a layout that never materialises; the build fails rather than lie.
-And a file listed in `selfTest.files` that is a deferred asset is legitimately absent from the
-payload, so it is skipped by the post-prune check.
+::: warning Two consequences
+An `assetArchives` entry has no `embed` field at all: an archive is expanded at build time, so
+deferring one would declare a layout that never materialises. And a file listed in `selfTest.files`
+that is a deferred asset is legitimately absent from the payload, so it is skipped by the post-prune
+check.
 :::
 
 ### Choosing
@@ -181,9 +190,30 @@ Embedding is the default because air-gapped installation is a property worth kee
 project explicitly trades it away, and because it is the behaviour that surprises nobody: what
 you verified is what you install.
 
-Defer when the archive would otherwise be unreasonable to move around, when the same weights are
-shared by several boxes, or when your asset host is already the thing your users download from.
-Then read [Offline / Air-Gapped Installs](/guides/offline-airgap) to understand what you gave up.
+Defer the entries that would make the archive unreasonable to move around, that are shared by
+several boxes, or that your asset host is already the thing your users download from. Then read
+[Offline / Air-Gapped Installs](/guides/offline-airgap) to understand what you gave up.
+
+## Files that have to run
+
+A downloaded file arrives with no permission bits — HTTP carries content, not permissions — and a
+local file is copied rather than moved, so neither has a mode to inherit. Declare it:
+
+```jsonc
+"assets": [
+  { "url": "https://…/tool", "relativePath": "bin/tool",
+    "sizeBytes": 4212992, "sha256": "1b82…db", "executable": true }
+]
+```
+
+The bit is **synthesised** into the archive from that declaration and never read off the build
+machine, which is what keeps two builds of one commit byte-identical whatever umask each ran under.
+Extraction sets it explicitly rather than letting `open(2)` mask it away, so a box unpacked under a
+restrictive umask still runs.
+
+The runtime's own files need no declaration: the interpreter and the console scripts a conda prefix
+generates are covered by a rule the runtime carries, because a prefix generates hundreds of them and
+no scroll could name them by hand.
 
 ## Keeping the box small
 
@@ -208,16 +238,16 @@ Guard against over-pruning by listing what must survive:
 ```jsonc
 "selfTest": {
   "imports": ["torch", "numpy"],
-  "files": ["model-cache/hello/model.safetensors", "entrypoint.py"]
+  "files": ["cache/hello/model.safetensors", "entrypoint.py"]
 }
 ```
 
 A box is a multi-gigabyte download for an end user, so pruning is a user-facing concern rather
 than tidiness — but a box that unpacks and cannot run is worse than a large one. The self-test
-runs after pruning, with the box's own interpreter, precisely to catch that.
+runs after pruning, with the box's own runtime, precisely to catch that.
 
 ## Where assets live inside the box
 
-`modelCacheSubdir` names the directory holding model assets, relative to the box root
-(`model-cache/hello` above). Keep asset `relativePath` values under it so an installed box has
-one obvious place where its weights are, and a consumer can find them without parsing anything.
+`cacheSubdir` names the directory holding the box's own large files, relative to the box root
+(`cache/hello` above). Keep asset `relativePath` values under it so an installed box has one obvious
+place where its data is, and a consumer can find it without parsing anything.

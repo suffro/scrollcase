@@ -397,7 +397,14 @@ The single source of truth for what a box is. See [The Box Format](/reference/bo
 | `condaSubdir` | `(target) => string` | The conda platform subdir (`osx-arm64`, `linux-64`, `win-64`) |
 | `pixiAccelerator` | `(scroll) => { accelerator, cudaVersion }` | The conda accelerator descriptor a scroll selects, rejecting target drift |
 | `assertNativeHost` | `(adapter, host = process) => void` | Throws unless the current host matches the adapter's OS and architecture |
-| `assertPythonEntryPoint` | `(adapter, entryPoint) => void` | Throws unless the entry point matches the runtime's layout for the target |
+| `assertRuntimeEntryPoint` | `(runtimeId, adapter, entryPoint) => void` | Throws unless the entry point matches that runtime's layout for the target |
+| `RUNTIME_IDS` | `readonly string[]` | Every runtime id the format defines: `python`, `node`, `native`. Wider than what this build implements, on purpose |
+| `runtimeAdapter` | `(runtimeId) => BoxRuntimeAdapter` | The runtime's layout, execution kinds, argv rule and self-test rule. Throws for a runtime with no adapter |
+| `runtimeAdapters` | `() => BoxRuntimeAdapter[]` | Every runtime this build implements |
+| `isImplementedRuntime` | `(runtimeId) => boolean` | Whether an adapter exists — the question to ask before `runtimeAdapter` |
+| `unimplementedRuntimeMessage` | `(runtimeId) => string` | One wording for a box naming a runtime this build cannot run, so the builder and all three consumers report it identically |
+| `executionAffectingVariables` | `(runtimeId, adapter) => readonly string[]` | Inherited variables that can change what a box executes: the runtime's loader controls, then the OS's |
+| `isExecutablePayloadPath` | `(rule, relativePath) => boolean` | Whether a payload path is one the runtime requires the executable bit on |
 
 ```js
 import { boxTargetId } from 'scrollcase/contract';

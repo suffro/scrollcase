@@ -3,8 +3,8 @@
  *
  * Deflating an already-compressed file is pure loss: measured on incompressible bytes, level 6
  * runs at 47 MB/s and the result is 0.03% *larger* than the input, and dropping to level 1 buys
- * 4 MB/s because the search fails either way. Weights are the only thing in a box large enough for
- * that to matter, so `uncompressedPaths` names them and they are stored instead. Everything else —
+ * 4 MB/s because the search fails either way. Declared assets are the only thing in a box large
+ * enough for that to matter, so they and `uncompressedPaths` are stored instead. Everything else —
  * the interpreter, the site-packages tree, the notices — compresses genuinely and still does.
  *
  * @param {string} payloadDir

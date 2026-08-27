@@ -95,8 +95,8 @@ Being honest about the trade-offs:
   the licence parser reads both, but the further you go from conda-forge the weaker the native
   dependency metadata gets.
 - **Archives are large.** A full conda prefix with a CUDA stack is measured in gigabytes. Pruning
-  and `--weights on-demand` exist for this — see
-  [Managing Model Weights](/guides/managing-weights).
+  and per-asset `"embed": false` exist for this — see
+  [Managing Assets](/guides/managing-assets).
 - **Builds are native.** No cross-building: a Windows box is built on Windows. The self-test runs
   the box's own interpreter, and that only proves anything on matching hardware.
 - **Two tools must be present.** `pixi` at the scroll's pinned version, and `conda-pack` 0.9.2.

@@ -164,7 +164,7 @@ configuration file.
 *and* the chat template, so the scroll declares exactly **one** asset where the sentiment demo needs
 three — and there is no tokenizer that can drift out of step with the weights it belongs to. It is
 pinned to an immutable upstream commit, with the size and SHA-256 that `add asset` recorded when it
-fetched the file. With `weights: embed` it is packed into the archive, so the box installs and runs
+fetched the file. Embedded by default, it is packed into the archive, so the box installs and runs
 air-gapped.
 
 **Offline because there is no downloader, not because a variable says so.** The sentiment demo
@@ -213,7 +213,7 @@ No hash is typed by hand anywhere. `scrollcase add asset` fetches the GGUF once 
 and SHA-256 it found; the notices and the entrypoint are pinned the same way, and
 [`scrollcase refresh`](/reference/cli#refresh) moves those digests after a reviewed change.
 
-The scroll declares `weights: embed`, a **4 GB RAM floor** and `execution` as a `python-script`. That
+The scroll embeds the asset, declares a **4 GB RAM floor**, and names `execution` as a `python-script`. That
 floor is arithmetic rather than a guess: the quantised weights occupy about 1.0 GB and the attention
 cache adds 384 MiB at the 2048-token context the entrypoint asks for, which lands around 1.5–1.8 GB
 resident. It is a fact a consumer can check *before* unpacking a gigabyte.
