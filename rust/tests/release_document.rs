@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use scrollcase_consumer::contract::runtimes::{runtime_adapter, IMPLICIT_RUNTIME_ID};
+use scrollcase_consumer::contract::runtimes::runtime_adapter;
 use scrollcase_consumer::trust::TrustAnchors;
 use scrollcase_consumer::verify::inspect_release_document;
 
@@ -46,12 +46,12 @@ fn a_genuine_signed_release_is_accepted_and_fully_interpreted() {
         inspect_release_document(&fixture("signed-release.json"), TrustAnchors::KeyFile(&fixture("trusted-key.json")))
             .expect("the fixture release must verify");
 
-    assert_eq!(inspected.release.schema_version, 2);
+    assert_eq!(inspected.release.schema_version, 3);
     assert!(inspected.release.kind.ends_with(".release"));
     // The adapter is resolved from the signed target, and the entry point agreed with it.
     assert_eq!(
-        inspected.release.python_entry_point,
-        runtime_adapter(IMPLICIT_RUNTIME_ID)
+        inspected.release.runtime.entry_point.as_deref().unwrap(),
+        runtime_adapter(&inspected.release.runtime.id)
             .unwrap()
             .layout(inspected.adapter.platform)
             .unwrap()

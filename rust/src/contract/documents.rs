@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{fail, Result};
 
 /// Format version carried by every document this contract describes.
-pub const BOX_SCHEMA_VERSION: u32 = 2;
+pub const BOX_SCHEMA_VERSION: u32 = 3;
 
 /// The only payload encoding the format defines.
 pub const PAYLOAD_ENCODING: &str = "base64-json-utf8";
@@ -173,11 +173,15 @@ impl SignedDocument {
     ///
     /// When the bytes are not a structurally valid envelope.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        // Read the version before the typed parse, so a v1 document is refused by name instead of
-        // producing a shape complaint that hides why it was rejected.
+        // Read the version before the typed parse, so a superseded document is refused by name
+        // instead of producing a shape complaint that hides why it was rejected. Both older
+        // versions are named: they are different artefacts with different rebuilds ahead of them.
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) {
-            if value.get("schemaVersion").and_then(serde_json::Value::as_u64) == Some(1) {
-                fail!("Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.");
+            if let Some(version @ (1 | 2)) = value
+                .get("schemaVersion")
+                .and_then(serde_json::Value::as_u64)
+            {
+                fail!("Unsupported schemaVersion {version}; rebuild this box with Scrollcase v3.");
             }
         }
         serde_json::from_slice(bytes)
@@ -190,8 +194,11 @@ impl SignedDocument {
     ///
     /// When the envelope is unsupported, or the payload bytes do not hash to the value it names.
     pub fn decode_payload(&self) -> Result<Vec<u8>> {
-        if self.schema_version == 1 {
-            fail!("Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.");
+        if self.schema_version == 1 || self.schema_version == 2 {
+            fail!(
+                "Unsupported schemaVersion {}; rebuild this box with Scrollcase v3.",
+                self.schema_version
+            );
         }
         if self.schema_version != BOX_SCHEMA_VERSION || self.payload_encoding != PAYLOAD_ENCODING {
             fail!("Unsupported signed document.");
@@ -232,7 +239,7 @@ mod tests {
 
     fn envelope(payload: &[u8], sha256: &str) -> SignedDocument {
         serde_json::from_value(serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "payloadEncoding": "base64-json-utf8",
             "payloadBase64": BASE64.encode(payload),
             "payloadSha256": sha256,

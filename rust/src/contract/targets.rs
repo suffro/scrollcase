@@ -204,28 +204,13 @@ pub fn assert_host(adapter: &BoxTargetAdapter, os: &str, arch: &str) -> Result<(
     Ok(())
 }
 
-/// Ensures a release's entry point agrees with the standalone Python layout for this target.
-///
-/// Kept under its published name while the wire format still spells the field `pythonEntryPoint`.
-/// The rule itself lives in [`super::runtimes`], where it can be asked about any runtime.
-///
-/// # Errors
-///
-/// When the entry point is not the one the runtime defines for this target.
-pub fn assert_python_entry_point(adapter: &BoxTargetAdapter, entry_point: &str) -> Result<()> {
-    super::runtimes::assert_runtime_entry_point(
-        super::runtimes::IMPLICIT_RUNTIME_ID,
-        adapter,
-        entry_point,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        assert_host, assert_python_entry_point, box_target_adapter, box_target_adapters,
-        box_target_id, is_cuda_version, BoxTarget,
+        assert_host, box_target_adapter, box_target_adapters, box_target_id, is_cuda_version,
+        BoxTarget,
     };
+    use crate::contract::runtimes::assert_runtime_entry_point;
 
     fn target(platform: &str, arch: &str, accelerator: &str, cuda: Option<&str>) -> BoxTarget {
         BoxTarget {
@@ -271,8 +256,8 @@ mod tests {
     #[test]
     fn an_entry_point_from_another_platform_is_refused() {
         let windows = box_target_adapter(&target("windows", "x86_64", "cpu", None)).unwrap();
-        assert!(assert_python_entry_point(windows, "venv/python.exe").is_ok());
-        assert!(assert_python_entry_point(windows, "venv/bin/python").is_err());
+        assert!(assert_runtime_entry_point("python", windows, "venv/python.exe").is_ok());
+        assert!(assert_runtime_entry_point("python", windows, "venv/bin/python").is_err());
     }
 
     #[test]

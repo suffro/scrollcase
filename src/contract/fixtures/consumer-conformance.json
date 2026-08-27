@@ -7,7 +7,6 @@
     "archive-size": "Archive size mismatch",
     "asset-hash": "asset SHA-256 mismatch",
     "asset-missing": "asset is missing",
-    "asset-not-executable": "is not executable",
     "asset-size": "asset size mismatch",
     "attach-missing-interpreter": "Attached box is missing venv/",
     "attach-root": "is not an extracted box directory",
@@ -33,7 +32,7 @@
     "special-entry": "special entries",
     "unimplemented-runtime": "is not implemented by this version",
     "unsafe-path": "Unsafe relative path|invalid relative path|absolute path",
-    "unsupported-schema-version": "Unsupported schemaVersion [12]"
+    "unsupported-schema-version": "Unsupported schemaVersion 1|Unsupported schemaVersion 2"
   },
   "cases": [
     {

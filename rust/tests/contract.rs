@@ -13,7 +13,8 @@ use scrollcase_consumer::contract::payload_digest::{
     payload_digest_stream, PayloadDigestEntry, PayloadDigestKind,
 };
 use scrollcase_consumer::contract::runtimes::{
-    runtime_adapter, runtime_adapters, RuntimeArgument, RuntimeExecution, SelfTestProbe,
+    is_implemented_runtime, runtime_adapter, runtime_adapters, RuntimeArgument, RuntimeExecution,
+    SelfTestCommand, SelfTestProbe, RUNTIME_IDS,
 };
 use scrollcase_consumer::contract::targets::{box_target_id, BoxTarget};
 
@@ -77,6 +78,7 @@ fn matches_the_shared_target_id_contract() {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeContract {
+    runtime_ids: Vec<String>,
     runtimes: Vec<RuntimeCase>,
     executable_matches: Vec<ExecutableMatchCase>,
     execution_discovery: Vec<ExecutionDiscoveryCase>,
@@ -156,14 +158,35 @@ struct SelfTestCase {
     runtime: String,
     platform: String,
     probe: ProbeFields,
-    args: Vec<String>,
+    #[serde(default)]
+    execution: Option<ExecutionFields>,
+    invocations: Vec<InvocationFields>,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProbeFields {
+    #[serde(default)]
     imports: Vec<String>,
     #[serde(default)]
+    commands: Vec<CommandFields>,
+    #[serde(default)]
     code: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandFields {
+    args: Vec<String>,
+    expect_exit_code: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InvocationFields {
+    command: ArgumentFields,
+    args: Vec<ArgumentFields>,
+    expect_exit_code: u8,
 }
 
 /// The execution declaration as the fixture spells it, so the vectors are read exactly as the other
@@ -176,18 +199,24 @@ struct ExecutionFields {
     script: Option<String>,
     #[serde(default)]
     module: Option<String>,
+    #[serde(default)]
+    binary: Option<String>,
     default_args: Vec<String>,
 }
 
 impl ExecutionFields {
     fn as_runtime(&self) -> RuntimeExecution<'_> {
         match self.kind.as_str() {
-            "python-script" => RuntimeExecution::Script {
+            "python-script" | "node-script" => RuntimeExecution::Script {
                 script: self.script.as_deref().expect("a script case declares a script"),
                 default_args: &self.default_args,
             },
             "python-module" => RuntimeExecution::Module {
                 module: self.module.as_deref().expect("a module case declares a module"),
+                default_args: &self.default_args,
+            },
+            "native-binary" => RuntimeExecution::Binary {
+                binary: self.binary.as_deref().expect("a binary case declares a binary"),
                 default_args: &self.default_args,
             },
             other => panic!("the fixture declares an execution kind this mirror has no shape for: {other}"),
@@ -220,6 +249,16 @@ impl ArgumentFields {
 fn matches_the_shared_runtime_contract() {
     let contract: RuntimeContract = serde_json::from_str(RUNTIME_CONTRACT).unwrap();
 
+    // Two lists on purpose: the vocabulary the format defines, and what this crate can run.
+    let ids: Vec<&str> = contract.runtime_ids.iter().map(String::as_str).collect();
+    assert_eq!(RUNTIME_IDS, ids.as_slice());
+    for id in RUNTIME_IDS {
+        assert_eq!(
+            is_implemented_runtime(id),
+            runtime_adapters().iter().any(|runtime| runtime.id == *id),
+            "{id}"
+        );
+    }
     let mirrored: Vec<&str> = runtime_adapters().iter().map(|runtime| runtime.id).collect();
     let declared: Vec<&str> = contract.runtimes.iter().map(|case| case.id.as_str()).collect();
     assert_eq!(mirrored, declared);
@@ -289,6 +328,7 @@ fn matches_the_shared_runtime_contract() {
         kind: "python-module".to_string(),
         script: None,
         module: Some("pkg".to_string()),
+        binary: None,
         default_args: vec![],
     };
     for invalid in &contract.invalid_runtime_versions {
@@ -312,18 +352,46 @@ fn matches_the_shared_runtime_contract() {
         }
     }
 
+    assert_self_test_invocations(&contract);
+}
+
+
+/// The self-test half, lifted out of the main vector test: a probe may now imply several commands,
+/// each with its own required exit status, and asserting that inline made one function long enough
+/// for clippy to object.
+fn assert_self_test_invocations(contract: &RuntimeContract) {
     for case in &contract.self_test {
-        let argv = runtime_adapter(&case.runtime)
+        let commands: Vec<SelfTestCommand<'_>> = case
+            .probe
+            .commands
+            .iter()
+            .map(|command| SelfTestCommand {
+                args: &command.args,
+                expect_exit_code: command.expect_exit_code,
+            })
+            .collect();
+        let execution = case.execution.as_ref().map(ExecutionFields::as_runtime);
+        let invocations = runtime_adapter(&case.runtime)
             .unwrap()
-            .self_test_argv(
+            .self_test_invocations(
                 &SelfTestProbe {
                     imports: &case.probe.imports,
+                    commands: &commands,
                     code: case.probe.code.as_deref(),
                 },
+                execution.as_ref(),
                 &case.platform,
             )
-            .unwrap();
-        assert_eq!(argv, case.args, "{}", case.name);
+            .unwrap_or_else(|error| panic!("{} was refused: {error}", case.name));
+        assert_eq!(invocations.len(), case.invocations.len(), "{}", case.name);
+        for (expected, produced) in case.invocations.iter().zip(invocations.iter()) {
+            assert!(expected.command.matches(&produced.command), "{}", case.name);
+            assert_eq!(produced.expect_exit_code, expected.expect_exit_code, "{}", case.name);
+            assert_eq!(produced.args.len(), expected.args.len(), "{}", case.name);
+            for (want, got) in expected.args.iter().zip(produced.args.iter()) {
+                assert!(want.matches(got), "{}", case.name);
+            }
+        }
     }
 }
 

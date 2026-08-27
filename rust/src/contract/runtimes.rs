@@ -73,22 +73,38 @@ pub enum RuntimeExecution<'a> {
         /// Arguments always passed before a caller's own.
         default_args: &'a [String],
     },
+    /// A compiled executable the box carries, run with no interpreter in front of it.
+    ///
+    /// Named by the format so implementing the runtime is code rather than another wire break. No
+    /// adapter answers for it yet, so a box declaring it is refused by name.
+    Binary {
+        /// Payload-relative path to the executable.
+        binary: &'a str,
+        /// Arguments always passed before a caller's own.
+        default_args: &'a [String],
+    },
 }
 
 impl RuntimeExecution<'_> {
-    /// The wire `kind` this declaration carries.
+    /// The wire `kind` this declaration carries, for the runtime that owns it.
+    ///
+    /// The kind is `<runtime>-<shape>`, so the shape alone does not name it: a script belongs to
+    /// `python` or to `node` depending on the box, and the caller says which.
     #[must_use]
-    pub fn kind(&self) -> &'static str {
-        match self {
-            RuntimeExecution::Script { .. } => "python-script",
-            RuntimeExecution::Module { .. } => "python-module",
-        }
+    pub fn kind(&self, runtime_id: &str) -> String {
+        let shape = match self {
+            RuntimeExecution::Script { .. } => "script",
+            RuntimeExecution::Module { .. } => "module",
+            RuntimeExecution::Binary { .. } => "binary",
+        };
+        format!("{runtime_id}-{shape}")
     }
 
     fn default_args(&self) -> &[String] {
         match self {
             RuntimeExecution::Script { default_args, .. }
-            | RuntimeExecution::Module { default_args, .. } => default_args,
+            | RuntimeExecution::Module { default_args, .. }
+            | RuntimeExecution::Binary { default_args, .. } => default_args,
         }
     }
 }
@@ -120,13 +136,39 @@ pub struct RuntimeInvocation {
     pub args: Vec<RuntimeArgument>,
 }
 
-/// What a self-test asks the runtime to prove, plus the builder-only extension a scroll may add.
+/// One invocation a self-test probe asks for, borrowed from whatever document carried it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelfTestCommand<'a> {
+    /// Arguments appended to the box's declared execution.
+    pub args: &'a [String],
+    /// The status the invocation must exit with.
+    pub expect_exit_code: u8,
+}
+
+/// What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
+///
+/// `imports` asks the runtime's loader a question and only means something to a runtime that has
+/// one. `commands` asks the box's declared execution a question, which every runtime can answer and
+/// a native one can answer *only* that way. `code` never travels on the wire.
 #[derive(Debug, Clone, Copy)]
 pub struct SelfTestProbe<'a> {
     /// Modules the box must be able to import.
     pub imports: &'a [String],
-    /// Extra source the builder appends; never part of the signed subset.
+    /// Invocations of the box's declared execution.
+    pub commands: &'a [SelfTestCommand<'a>],
+    /// Extra source the builder appends; never part of the signed probe.
     pub code: Option<&'a str>,
+}
+
+/// One command a self-test runs, and the status it must exit with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelfTestInvocation {
+    /// The command to run.
+    pub command: RuntimeArgument,
+    /// Everything before the caller's own arguments.
+    pub args: Vec<RuntimeArgument>,
+    /// The status it must produce.
+    pub expect_exit_code: u8,
 }
 
 /// What a runtime implies for a box, independent of the machine it runs on.
@@ -225,6 +267,9 @@ fn resolve_python_execution_files(
             })
         }
         RuntimeExecution::Module { module, .. } => module,
+        // Unreachable: `resolve_execution_files` refuses a kind that is not this runtime's before
+        // it gets here, and `python` defines only the two above.
+        RuntimeExecution::Binary { .. } => fail!("Unsupported execution kind: {}.", execution.kind("python")),
     };
     let module_path = module.replace('.', "/");
     let relative = [
@@ -306,9 +351,7 @@ impl BoxRuntimeAdapter {
         platform: &str,
         runtime_version: &str,
     ) -> Result<ResolvedExecutionFiles> {
-        if !self.execution_kinds.contains(&execution.kind()) {
-            fail!("Unsupported execution kind: {}.", execution.kind());
-        }
+        self.assert_own_kind(execution)?;
         let layout = self.layout(platform)?;
         (self.resolve)(execution, platform, layout, runtime_version)
     }
@@ -323,9 +366,7 @@ impl BoxRuntimeAdapter {
         execution: &RuntimeExecution<'_>,
         platform: &str,
     ) -> Result<RuntimeInvocation> {
-        if !self.execution_kinds.contains(&execution.kind()) {
-            fail!("Unsupported execution kind: {}.", execution.kind());
-        }
+        self.assert_own_kind(execution)?;
         let layout = self.layout(platform)?;
         let mut args = match execution {
             RuntimeExecution::Script { script, .. } => {
@@ -335,6 +376,9 @@ impl BoxRuntimeAdapter {
                 RuntimeArgument::Literal("-m".to_string()),
                 RuntimeArgument::Literal((*module).to_string()),
             ],
+            RuntimeExecution::Binary { binary, .. } => {
+                vec![RuntimeArgument::PayloadPath((*binary).to_string())]
+            }
         };
         args.extend(
             execution
@@ -348,28 +392,77 @@ impl BoxRuntimeAdapter {
         })
     }
 
-    /// The arguments that follow this runtime's entry point when it runs a self-test probe.
+    /// Refuses an execution kind belonging to another runtime.
+    fn assert_own_kind(&self, execution: &RuntimeExecution<'_>) -> Result<()> {
+        let kind = execution.kind(self.id);
+        if !self.execution_kinds.contains(&kind.as_str()) {
+            fail!("Unsupported execution kind: {kind}.");
+        }
+        Ok(())
+    }
+
+    /// Every command a self-test probe implies, in declaration order.
     ///
     /// # Errors
     ///
-    /// When the runtime has no platform assertion for that platform.
-    pub fn self_test_argv(&self, probe: &SelfTestProbe<'_>, platform: &str) -> Result<Vec<String>> {
-        let Some((_, assertion)) = self
-            .platform_assertions
-            .iter()
-            .find(|(name, _)| *name == platform)
-        else {
-            fail!(
-                "No {} self-test assertion exists for platform {platform}",
-                self.id
+    /// When the runtime has no platform assertion for that platform, or a command probe arrives
+    /// with no declared execution to invoke.
+    pub fn self_test_invocations(
+        &self,
+        probe: &SelfTestProbe<'_>,
+        execution: Option<&RuntimeExecution<'_>>,
+        platform: &str,
+    ) -> Result<Vec<SelfTestInvocation>> {
+        let mut invocations = Vec::new();
+        if !probe.imports.is_empty() {
+            let Some((_, assertion)) = self
+                .platform_assertions
+                .iter()
+                .find(|(name, _)| *name == platform)
+            else {
+                fail!(
+                    "No {} self-test assertion exists for platform {platform}",
+                    self.id
+                );
+            };
+            let imports = format!("import {}", probe.imports.join(", "));
+            let code = match probe.code {
+                Some(extra) => format!("{assertion}\n{imports}\n{extra}"),
+                None => format!("{assertion}\n{imports}"),
+            };
+            invocations.push(SelfTestInvocation {
+                command: RuntimeArgument::PayloadPath(
+                    self.layout(platform)?.entry_point.to_string(),
+                ),
+                args: vec![
+                    RuntimeArgument::Literal("-c".to_string()),
+                    RuntimeArgument::Literal(code),
+                ],
+                expect_exit_code: 0,
+            });
+        }
+        for command in probe.commands {
+            // A command probe appends arguments to the box's own declared execution. With none
+            // declared there is nothing to append them to, which is a contradiction in the
+            // declaration rather than a property of the box.
+            let Some(execution) = execution else {
+                fail!("A self-test command needs a declared execution to invoke");
+            };
+            let invocation = self.build_argv(execution, platform)?;
+            let mut args = invocation.args;
+            args.extend(
+                command
+                    .args
+                    .iter()
+                    .map(|value| RuntimeArgument::Literal(value.clone())),
             );
-        };
-        let imports = format!("import {}", probe.imports.join(", "));
-        let code = match probe.code {
-            Some(extra) => format!("{assertion}\n{imports}\n{extra}"),
-            None => format!("{assertion}\n{imports}"),
-        };
-        Ok(vec!["-c".to_string(), code])
+            invocations.push(SelfTestInvocation {
+                command: invocation.command,
+                args,
+                expect_exit_code: command.expect_exit_code,
+            });
+        }
+        Ok(invocations)
     }
 }
 
@@ -394,12 +487,41 @@ pub fn runtime_adapters() -> &'static [BoxRuntimeAdapter] {
     RUNTIME_ADAPTERS
 }
 
-/// The runtime every box built by this schema version implicitly declares.
+/// Every runtime id the box format admits, in the order the schema lists them.
 ///
-/// The wire format has no runtime field: a box records a Python entry point and Python execution
-/// kinds and nothing that says "Python". So a reader that must name a runtime names this one, from
-/// one place.
-pub const IMPLICIT_RUNTIME_ID: &str = "python";
+/// The wire enum and the implemented set are deliberately two different things: schema version 3
+/// fixes the vocabulary once, so a later release can implement `node` without another wire break.
+/// A box naming a runtime this crate has no adapter for is refused by name, not misread.
+pub const RUNTIME_IDS: &[&str] = &["python", "node", "native"];
+
+/// Whether this build carries an adapter for a runtime id — the question every caller asks before
+/// [`runtime_adapter`], which fails rather than returning nothing.
+#[must_use]
+pub fn is_implemented_runtime(runtime_id: &str) -> bool {
+    RUNTIME_ADAPTERS
+        .iter()
+        .any(|adapter| adapter.id == runtime_id)
+}
+
+/// The message for a box declaring a runtime this build has no adapter for.
+///
+/// The wire vocabulary is fixed and the implemented set is not, so this case is expected rather
+/// than exceptional, and the wording says which of the two the box fell foul of.
+#[must_use]
+pub fn unimplemented_runtime_message(runtime_id: &str) -> String {
+    let implemented: Vec<&str> = RUNTIME_ADAPTERS.iter().map(|adapter| adapter.id).collect();
+    if RUNTIME_IDS.contains(&runtime_id) {
+        format!(
+            "Runtime {runtime_id} is not implemented by this version of Scrollcase; it implements {}.",
+            implemented.join(", ")
+        )
+    } else {
+        format!(
+            "Unknown runtime: {runtime_id}. The box format defines {}.",
+            RUNTIME_IDS.join(", ")
+        )
+    }
+}
 
 /// The complete list of inherited variables that can change what a box executes.
 ///
@@ -433,12 +555,14 @@ pub fn assert_runtime_entry_point(
     adapter: &super::targets::BoxTargetAdapter,
     entry_point: &str,
 ) -> Result<()> {
-    let expected = runtime_adapter(runtime_id)?.layout(adapter.platform)?.entry_point;
+    let runtime = runtime_adapter(runtime_id)?;
+    let expected = runtime.layout(adapter.platform)?.entry_point;
     if entry_point != expected {
-        // The wording still names Python because the wire format still does: a release declares
-        // `pythonEntryPoint`, and an error that called it something else would name a field nobody
-        // can find.
-        fail!("{} boxes must use Python entry point {expected}", adapter.id);
+        fail!(
+            "{} boxes with the {} runtime must use entry point {expected}",
+            adapter.id,
+            runtime.id
+        );
     }
     Ok(())
 }
@@ -446,27 +570,36 @@ pub fn assert_runtime_entry_point(
 #[cfg(test)]
 mod tests {
     use super::{
-        python_major_minor, runtime_adapter, RuntimeArgument, RuntimeExecution, SelfTestProbe,
-        IMPLICIT_RUNTIME_ID,
+        is_implemented_runtime, python_major_minor, runtime_adapter, unimplemented_runtime_message,
+        RuntimeArgument, RuntimeExecution, SelfTestCommand, SelfTestProbe, RUNTIME_IDS,
     };
 
+    const PYTHON: &str = "python";
+
     #[test]
-    fn a_runtime_the_format_does_not_define_is_refused() {
-        assert!(runtime_adapter("node").is_err());
+    fn a_runtime_this_build_has_no_adapter_for_is_refused_by_name() {
+        // The wire vocabulary is wider than the implemented set on purpose, and the two refusals
+        // say which of the two the box fell foul of.
+        assert!(RUNTIME_IDS.contains(&"native"));
+        assert!(runtime_adapter("native").is_err());
+        assert!(!is_implemented_runtime("native"));
+        assert!(unimplemented_runtime_message("native").contains("not implemented by this version"));
+        assert!(unimplemented_runtime_message("ruby").contains("Unknown runtime"));
         assert!(runtime_adapter("").is_err());
-        assert!(runtime_adapter(IMPLICIT_RUNTIME_ID).is_ok());
+        assert!(runtime_adapter(PYTHON).is_ok());
+        assert!(is_implemented_runtime(PYTHON));
     }
 
     #[test]
     fn a_platform_with_no_layout_is_refused_rather_than_guessed() {
-        let python = runtime_adapter(IMPLICIT_RUNTIME_ID).unwrap();
+        let python = runtime_adapter(PYTHON).unwrap();
         assert!(python.layout("plan9").is_err());
         assert!(python.layout("linux").is_ok());
     }
 
     #[test]
     fn a_module_never_becomes_a_payload_path() {
-        let python = runtime_adapter(IMPLICIT_RUNTIME_ID).unwrap();
+        let python = runtime_adapter(PYTHON).unwrap();
         let default_args = vec![];
         let invocation = python
             .build_argv(
@@ -498,15 +631,46 @@ mod tests {
 
     #[test]
     fn a_self_test_opens_with_the_platform_it_was_built_for() {
-        let python = runtime_adapter(IMPLICIT_RUNTIME_ID).unwrap();
+        let python = runtime_adapter(PYTHON).unwrap();
         let imports = vec!["json".to_string()];
-        let argv = python
-            .self_test_argv(&SelfTestProbe { imports: &imports, code: None }, "macos")
+        let probe = SelfTestProbe { imports: &imports, commands: &[], code: None };
+        let invocations = python.self_test_invocations(&probe, None, "macos").unwrap();
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(
+            invocations[0].args[0],
+            RuntimeArgument::Literal("-c".to_string())
+        );
+        let RuntimeArgument::Literal(code) = &invocations[0].args[1] else {
+            panic!("self-test source is not a literal");
+        };
+        assert!(code.starts_with("import sys; assert sys.platform == 'darwin'"));
+        assert!(python.self_test_invocations(&probe, None, "plan9").is_err());
+    }
+
+    #[test]
+    fn a_command_probe_needs_an_execution_to_invoke() {
+        let python = runtime_adapter(PYTHON).unwrap();
+        let args = vec!["--version".to_string()];
+        let commands = [SelfTestCommand { args: &args, expect_exit_code: 2 }];
+        let probe = SelfTestProbe { imports: &[], commands: &commands, code: None };
+        let error = python
+            .self_test_invocations(&probe, None, "linux")
+            .unwrap_err();
+        assert!(error.message().contains("needs a declared execution"), "{error}");
+
+        let default_args = vec![];
+        let execution = RuntimeExecution::Script { script: "app/main.py", default_args: &default_args };
+        let invocations = python
+            .self_test_invocations(&probe, Some(&execution), "linux")
             .unwrap();
-        assert_eq!(argv[0], "-c");
-        assert!(argv[1].starts_with("import sys; assert sys.platform == 'darwin'"));
-        assert!(python
-            .self_test_argv(&SelfTestProbe { imports: &imports, code: None }, "plan9")
-            .is_err());
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(invocations[0].expect_exit_code, 2);
+        assert_eq!(
+            invocations[0].args,
+            vec![
+                RuntimeArgument::PayloadPath("app/main.py".to_string()),
+                RuntimeArgument::Literal("--version".to_string()),
+            ]
+        );
     }
 }

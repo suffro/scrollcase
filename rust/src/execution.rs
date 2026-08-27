@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::contract::runtimes::{runtime_adapter, IMPLICIT_RUNTIME_ID};
+use crate::contract::runtimes::runtime_adapter;
 use crate::contract::targets::BoxTargetAdapter;
 use crate::error::{Error, Result};
 use crate::path::safe_relative_path;
@@ -28,13 +28,14 @@ use crate::release::Execution;
 pub fn assert_execution_files(
     execution: Option<&Execution>,
     adapter: &BoxTargetAdapter,
+    runtime_id: &str,
     runtime_version: &str,
     files: &BTreeSet<String>,
 ) -> Result<()> {
     let Some(execution) = execution else {
         return Ok(());
     };
-    let runtime = runtime_adapter(IMPLICIT_RUNTIME_ID)?;
+    let runtime = runtime_adapter(runtime_id)?;
     let resolved = runtime.resolve_execution_files(
         &execution.as_runtime(),
         adapter.platform,
@@ -83,11 +84,11 @@ mod tests {
             default_args: vec![],
         };
         assert!(
-            assert_execution_files(Some(&execution), adapter, "3.11.9", &files(&["app/main.py"]))
+            assert_execution_files(Some(&execution), adapter, "python", "3.11.9", &files(&["app/main.py"]))
                 .is_ok()
         );
         let error =
-            assert_execution_files(Some(&execution), adapter, "3.11.9", &files(&["app/other.py"]))
+            assert_execution_files(Some(&execution), adapter, "python", "3.11.9", &files(&["app/other.py"]))
                 .unwrap_err();
         assert!(error.message().contains("Execution script is missing"), "{error}");
     }
@@ -107,13 +108,13 @@ mod tests {
             "venv/lib/python3.11/site-packages/example_model/main/__main__.py",
         ] {
             assert!(
-                assert_execution_files(Some(&execution), adapter, "3.11.9", &files(&[location]))
+                assert_execution_files(Some(&execution), adapter, "python", "3.11.9", &files(&[location]))
                     .is_ok(),
                 "{location} did not resolve"
             );
         }
         let error =
-            assert_execution_files(Some(&execution), adapter, "3.11.9", &files(&["elsewhere.py"]))
+            assert_execution_files(Some(&execution), adapter, "python", "3.11.9", &files(&["elsewhere.py"]))
                 .unwrap_err();
         assert!(
             error.message().contains("Execution module is not discoverable"),
@@ -131,6 +132,7 @@ mod tests {
         assert!(assert_execution_files(
             Some(&execution),
             windows,
+            "python",
             "3.11.9",
             &files(&["venv/Lib/site-packages/pkg/__main__.py"])
         )
@@ -139,6 +141,7 @@ mod tests {
         assert!(assert_execution_files(
             Some(&execution),
             windows,
+            "python",
             "3.11.9",
             &files(&["venv/lib/python3.11/site-packages/pkg/__main__.py"])
         )
@@ -154,7 +157,7 @@ mod tests {
         };
         for invalid in ["", "3", "3.x", "x.1", "3."] {
             assert!(
-                assert_execution_files(Some(&execution), adapter, invalid, &files(&[])).is_err(),
+                assert_execution_files(Some(&execution), adapter, "python", invalid, &files(&[])).is_err(),
                 "{invalid} was accepted"
             );
         }
@@ -163,6 +166,6 @@ mod tests {
     #[test]
     fn a_library_only_box_declares_no_execution() {
         let adapter = adapter("macos", "aarch64", "metal");
-        assert!(assert_execution_files(None, adapter, "3.11.9", &files(&[])).is_ok());
+        assert!(assert_execution_files(None, adapter, "python", "3.11.9", &files(&[])).is_ok());
     }
 }

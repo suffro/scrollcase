@@ -1,36 +1,38 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "description": "Language-neutral semantic cases shared by the Node, Python and Rust Scrollcase consumers.",
   "errorPatterns": {
-    "invalid-trust-file": "Invalid trusted ed25519 key file",
-    "invalid-signature": "no valid signature",
     "altered-payload": "Signed payload SHA-256 mismatch",
     "archive-hash": "Archive SHA-256 mismatch",
     "archive-size": "Archive size mismatch",
-    "manifest-disagreement": "box.json mismatch: modelId",
-    "execution-disagreement": "box.json mismatch: execution",
-    "environment-disagreement": "box.json mismatch: environment",
-    "missing-interpreter": "Archive is missing venv/",
-    "missing-script": "Execution script is missing",
-    "missing-module": "Execution module is not discoverable",
-    "unsafe-path": "Unsafe relative path|invalid relative path|absolute path",
-    "link-entry": "link does not resolve to a file inside the payload|would be written through a link|link target is too long",
-    "special-entry": "special entries",
-    "encrypted-entry": "Encrypted ZIP entries",
-    "entry-collision": "Archive entry collides with another entry",
-    "existing-destination": "Destination already exists",
+    "asset-hash": "asset SHA-256 mismatch",
     "asset-missing": "asset is missing",
     "asset-size": "asset size mismatch",
-    "asset-hash": "asset SHA-256 mismatch",
-    "spawn-failure": "failed to start|fixture spawn failed",
-    "attach-root": "is not an extracted box directory",
     "attach-missing-interpreter": "Attached box is missing venv/",
+    "attach-root": "is not an extracted box directory",
+    "encrypted-entry": "Encrypted ZIP entries",
+    "entry-collision": "Archive entry collides with another entry",
+    "environment-disagreement": "box.json mismatch: environment",
+    "execution-disagreement": "box.json mismatch: execution",
+    "existing-destination": "Destination already exists",
     "foreign-target": "cannot run on",
-    "payload-list-missing": "missing its payload digest list",
-    "payload-list-mismatch": "Payload digest list does not match the signed release",
+    "invalid-signature": "no valid signature",
+    "invalid-trust-file": "Invalid trusted ed25519 key file",
+    "link-entry": "link does not resolve to a file inside the payload|would be written through a link|link target is too long",
+    "manifest-disagreement": "box.json mismatch: labels",
+    "missing-interpreter": "Archive is missing venv/",
+    "missing-module": "Execution module is not discoverable",
+    "missing-script": "Execution script is missing",
     "payload-digest-absent": "does not commit to a payload digest",
+    "payload-list-mismatch": "Payload digest list does not match the signed release",
+    "payload-list-missing": "missing its payload digest list",
     "payload-mismatch": "^Payload does not match the signed release:",
-    "unsupported-schema-version": "Unsupported schemaVersion 1"
+    "runtime-disagreement": "box.json mismatch: runtime",
+    "spawn-failure": "failed to start|fixture spawn failed",
+    "special-entry": "special entries",
+    "unimplemented-runtime": "is not implemented by this version",
+    "unsafe-path": "Unsafe relative path|invalid relative path|absolute path",
+    "unsupported-schema-version": "Unsupported schemaVersion 1|Unsupported schemaVersion 2"
   },
   "cases": [
     {
@@ -50,7 +52,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -69,7 +72,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -88,7 +92,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -107,7 +112,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -278,7 +284,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -294,7 +301,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -319,7 +327,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET",
           "environmentReport": {
             "mode": "summary",
@@ -370,7 +379,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET",
           "environmentReport": {
             "mode": "full",
@@ -626,7 +636,7 @@
     {
       "id": "release-box-disagreement",
       "action": "prepare",
-      "mutation": "alter-release-model",
+      "mutation": "alter-release-labels",
       "expected": {
         "outcome": "rejected",
         "error": "manifest-disagreement",
@@ -718,7 +728,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -786,7 +797,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "venv/bin/python",
+          "runtimeId": "python",
+          "entryPoint": "venv/bin/python",
           "targetId": "macos-aarch64-cpu"
         }
       }
@@ -804,7 +816,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "venv/bin/python",
+          "runtimeId": "python",
+          "entryPoint": "venv/bin/python",
           "targetId": "linux-x86_64-cpu"
         }
       }
@@ -822,7 +835,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "venv/python.exe",
+          "runtimeId": "python",
+          "entryPoint": "venv/python.exe",
           "targetId": "windows-x86_64-cpu"
         }
       }
@@ -861,7 +875,7 @@
           "signal": null
         },
         "argv": [
-          "$BOX/$NATIVE_PYTHON",
+          "$BOX/$NATIVE_ENTRY_POINT",
           "$BOX/app/main.py",
           "--default",
           "value with spaces",
@@ -891,7 +905,7 @@
           "signal": null
         },
         "argv": [
-          "$BOX/$NATIVE_PYTHON",
+          "$BOX/$NATIVE_ENTRY_POINT",
           "$BOX/app/main.py",
           "--default",
           "value with spaces",
@@ -1046,7 +1060,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -1069,7 +1084,7 @@
           "signal": null
         },
         "argv": [
-          "$BOX/$NATIVE_PYTHON",
+          "$BOX/$NATIVE_ENTRY_POINT",
           "$BOX/app/main.py",
           "--default",
           "value with spaces",
@@ -1092,7 +1107,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -1113,7 +1129,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 1,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -1129,7 +1146,8 @@
           "boxId": "consumer-fixture",
           "executionKind": "python-script",
           "requiredAssetCount": 0,
-          "pythonEntryPoint": "$NATIVE_PYTHON",
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
           "targetId": "$NATIVE_TARGET"
         }
       }
@@ -1351,6 +1369,52 @@
       "expected": {
         "outcome": "rejected",
         "error": "payload-list-mismatch"
+      }
+    },
+    {
+      "id": "declared-executable-survives-a-restrictive-umask",
+      "action": "prepare",
+      "fixture": {
+        "executableAsset": true
+      },
+      "runtime": {
+        "umask": "077"
+      },
+      "expected": {
+        "outcome": "prepared",
+        "receipt": {
+          "status": "prepared",
+          "boxId": "consumer-fixture",
+          "executionKind": "python-script",
+          "requiredAssetCount": 0,
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
+          "targetId": "$NATIVE_TARGET",
+          "executableModes": {
+            "bin/tool": "755",
+            "box.json": "644"
+          }
+        }
+      }
+    },
+    {
+      "id": "runtime-this-build-cannot-run",
+      "action": "prepare",
+      "mutation": "alter-release-runtime-id",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unimplemented-runtime",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "runtime-block-disagreement",
+      "action": "prepare",
+      "mutation": "alter-release-runtime-version",
+      "expected": {
+        "outcome": "rejected",
+        "error": "runtime-disagreement",
+        "destinationExists": false
       }
     }
   ]

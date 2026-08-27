@@ -231,7 +231,7 @@ mod tests {
         use base64::engine::general_purpose::STANDARD as BASE64;
         use base64::Engine as _;
         serde_json::from_value(serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "payloadEncoding": "base64-json-utf8",
             "payloadBase64": BASE64.encode(PAYLOAD),
             "payloadSha256": crate::contract::documents::sha256_hex(PAYLOAD),

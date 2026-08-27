@@ -96,14 +96,58 @@ pub struct PayloadDigestCommitment {
     pub sha256: String,
 }
 
-/// The import check a box must pass with its own interpreter.
+/// One invocation of the box's declared execution, and the status it must exit with.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SelfTestCommand {
+    /// Arguments appended to the box's declared execution.
+    pub args: Vec<String>,
+    /// Status the invocation must produce.
+    pub expect_exit_code: u8,
+}
+
+/// What a box proves about itself, in whichever shapes its runtime supports.
+///
+/// `imports` asks the runtime's loader a question and only means something to a runtime that has
+/// one; `commands` asks the box's own execution a question, which is the only shape a runtime with
+/// no module system can answer. At least one must be present.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SelfTestProbe {
+    /// Modules the runtime must be able to load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imports: Option<Vec<String>>,
+    /// Invocations of the box's declared execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<SelfTestCommand>>,
+}
+
+/// The check a box must pass, and how long it may take.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SelfTest {
-    /// Modules to import.
-    pub python_imports: Vec<String>,
-    /// How long the import check may take.
+    /// What the box proves about itself.
+    pub probe: SelfTestProbe,
+    /// How long the check may take.
     pub timeout_seconds: u64,
+}
+
+/// What runs inside the box.
+///
+/// A target says which machine a box is for; this says what executes on it. Version 2 had no such
+/// field: a box recorded a Python entry point and Python execution kinds and nothing that said
+/// "Python", so a reader had to infer the runtime from the shape of a path.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BoxRuntime {
+    /// The runtime this box carries: `python`, `node` or `native`.
+    pub id: String,
+    /// Its own version. Absent for a runtime that has none to record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Its own executable, relative to the box root. Absent for a runtime with no separate one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_point: Option<String>,
 }
 
 /// The optional, shell-free application entry point.
@@ -126,6 +170,25 @@ pub enum Execution {
         /// Arguments always passed before a caller's own.
         default_args: Vec<String>,
     },
+    /// Run one regular payload file with the box's own Node runtime.
+    ///
+    /// Named by the format so that implementing the runtime is code rather than another wire
+    /// break. No adapter in this crate answers for it yet, so a box declaring it is refused.
+    #[serde(rename_all = "camelCase")]
+    NodeScript {
+        /// Safe path to a regular JavaScript file inside the box.
+        script: String,
+        /// Arguments always passed before a caller's own.
+        default_args: Vec<String>,
+    },
+    /// Run a compiled executable the box carries, with no interpreter in front of it.
+    #[serde(rename_all = "camelCase")]
+    NativeBinary {
+        /// Safe path to the executable inside the box.
+        binary: String,
+        /// Arguments always passed before a caller's own.
+        default_args: Vec<String>,
+    },
 }
 
 impl Execution {
@@ -137,7 +200,13 @@ impl Execution {
     #[must_use]
     pub fn as_runtime(&self) -> RuntimeExecution<'_> {
         match self {
+            // Both script kinds carry the same shape: which runtime runs it is the box's
+            // declaration, not something the shape can say.
             Execution::PythonScript {
+                script,
+                default_args,
+            }
+            | Execution::NodeScript {
                 script,
                 default_args,
             } => RuntimeExecution::Script {
@@ -149,6 +218,13 @@ impl Execution {
                 default_args,
             } => RuntimeExecution::Module {
                 module,
+                default_args,
+            },
+            Execution::NativeBinary {
+                binary,
+                default_args,
+            } => RuntimeExecution::Binary {
+                binary,
                 default_args,
             },
         }
@@ -169,8 +245,10 @@ pub struct Provenance {
     pub source_tree_dirty: bool,
     /// Commit the box was built from.
     pub source_revision: String,
-    /// Python version inside the box.
-    pub python_version: String,
+    /// The runtime version the environment was solved with. Absent exactly when the runtime has
+    /// none: provenance records what was observed and never invents a value to fill a field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_version: Option<String>,
     /// SHA-256 of the dependency lock.
     pub dependency_lock_sha256: String,
     /// When the box was built.
@@ -179,7 +257,7 @@ pub struct Provenance {
     pub pixi_version: String,
 }
 
-/// One on-demand asset a caller must materialise before execution.
+/// One deferred asset a caller must materialise before execution.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetDescriptor {
@@ -191,22 +269,25 @@ pub struct AssetDescriptor {
     pub size_bytes: u64,
     /// Lowercase hex SHA-256 the placed file must have.
     pub sha256: String,
+    /// Present and true when the scroll declared the file executable. Whoever materialises it owns
+    /// setting the bit: the file never passes through the archive, so nothing here carries a mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable: Option<bool>,
 }
 
 /// The immutable description of one built box.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReleaseManifest {
-    /// Format version; always 2.
+    /// Format version; always 3.
     pub schema_version: u32,
     /// `<namespace>.release`, in the publishing project's own namespace.
     pub kind: String,
     /// Box identity.
     pub box_id: String,
-    /// Model identity.
-    pub model_id: String,
-    /// Installed-directory identity.
-    pub runtime_id: String,
+    /// Free-form annotations the publisher signed. This crate attaches no meaning to any key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<BTreeMap<String, String>>,
     /// Box version.
     pub version: String,
     /// The target this box was built for.
@@ -221,24 +302,22 @@ pub struct ReleaseManifest {
     /// Commitment to the extracted tree, absent on boxes built before it existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload_digest: Option<PayloadDigestCommitment>,
-    /// Interpreter path, relative to the box root.
-    pub python_entry_point: String,
-    /// Where a caller's model cache belongs inside the box.
-    pub model_cache_subdir: String,
-    /// Signed environment applied whenever Scrollcase runs the interpreter.
+    /// What runs inside the box.
+    pub runtime: BoxRuntime,
+    /// Where the box's own large files belong inside it.
+    pub cache_subdir: String,
+    /// Signed environment applied whenever Scrollcase runs the box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<BTreeMap<String, String>>,
-    /// The import check.
+    /// The check a consumer can repeat.
     pub self_test: SelfTest,
     /// The optional application entry point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<Execution>,
     /// How the box was produced.
     pub provenance: Provenance,
-    /// Present only when assets are carried outside the archive.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub weights: Option<String>,
-    /// Descriptors of the assets a caller must materialise.
+    /// Descriptors of the assets a caller must materialise, and only those. Absent when the box is
+    /// self-contained; there is no separate mode field, because the list itself is the statement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetDescriptor>>,
 }
@@ -250,38 +329,81 @@ pub struct ReleaseManifest {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BoxManifest {
-    /// Format version; always 2.
+    /// Format version; always 3.
     pub schema_version: u32,
     /// Box identity.
     pub box_id: String,
-    /// Model identity.
-    pub model_id: String,
-    /// Installed-directory identity.
-    pub runtime_id: String,
+    /// Free-form annotations the publisher signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<BTreeMap<String, String>>,
     /// Box version.
     pub version: String,
     /// The target this box was built for.
     pub target: BoxTarget,
-    /// Interpreter path, relative to the box root.
-    pub python_entry_point: String,
-    /// Where a caller's model cache belongs inside the box.
-    pub model_cache_subdir: String,
-    /// Signed environment applied whenever Scrollcase runs the interpreter.
+    /// What runs inside the box.
+    pub runtime: BoxRuntime,
+    /// Where the box's own large files belong inside it.
+    pub cache_subdir: String,
+    /// Signed environment applied whenever Scrollcase runs the box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<BTreeMap<String, String>>,
-    /// The import check.
+    /// The check a consumer can repeat.
     pub self_test: SelfTest,
     /// The optional application entry point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<Execution>,
     /// How the box was produced.
     pub provenance: Provenance,
-    /// Present only when assets are carried outside the archive.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub weights: Option<String>,
-    /// Descriptors of the assets a caller must materialise.
+    /// Descriptors of the assets a caller must materialise, and only those.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetDescriptor>>,
+}
+
+impl BoxRuntime {
+    /// The runtime block's own constraints, which the types cannot state.
+    ///
+    /// The id is checked against the format's closed vocabulary rather than against what this crate
+    /// implements: a box naming `native` is a well-formed v3 box that this build cannot run, and
+    /// saying so is `run`'s job, not the manifest reader's.
+    fn validate(&self) -> Result<()> {
+        if !crate::contract::runtimes::RUNTIME_IDS.contains(&self.id.as_str()) {
+            fail!(
+                "Invalid release manifest: unknown runtime {}. The box format defines {}.",
+                self.id,
+                crate::contract::runtimes::RUNTIME_IDS.join(", ")
+            );
+        }
+        for (label, value) in [("version", &self.version), ("entryPoint", &self.entry_point)] {
+            if value.as_ref().is_some_and(std::string::String::is_empty) {
+                fail!("Invalid release manifest: runtime {label} must not be empty.");
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SelfTest {
+    /// The probe's own constraints. At least one shape must be present: a box that proves nothing
+    /// about itself is not a box worth signing.
+    fn validate(&self) -> Result<()> {
+        let imports = self.probe.imports.as_deref().unwrap_or_default();
+        let commands = self.probe.commands.as_deref().unwrap_or_default();
+        if imports.is_empty() && commands.is_empty() {
+            fail!("Invalid release manifest: selfTest probe must declare imports or commands.");
+        }
+        if self.probe.imports.is_some()
+            && (imports.is_empty() || imports.iter().any(std::string::String::is_empty))
+        {
+            fail!("Invalid release manifest: selfTest probe imports must be non-empty.");
+        }
+        if self.probe.commands.is_some() && commands.is_empty() {
+            fail!("Invalid release manifest: selfTest probe commands must be non-empty.");
+        }
+        if self.timeout_seconds == 0 {
+            fail!("Invalid release manifest: selfTest timeoutSeconds must be positive.");
+        }
+        Ok(())
+    }
 }
 
 /// Whether a value is lowercase hex of the given length.
@@ -328,8 +450,12 @@ impl Execution {
     /// When the script path is unsafe or the module name is not a strict dotted name.
     pub fn validate(&self) -> Result<()> {
         match self {
-            Self::PythonScript { script, .. } => {
+            Self::PythonScript { script, .. }
+            | Self::NodeScript { script, .. } => {
                 safe_relative_path(script)?;
+            }
+            Self::NativeBinary { binary, .. } => {
+                safe_relative_path(binary)?;
             }
             Self::PythonModule { module, .. } => {
                 if !is_python_module(module) {
@@ -363,19 +489,18 @@ impl ReleaseManifest {
         // outside the supported matrix, a CUDA target without a version, and a version on a target
         // that may not carry one, all in the same call the slug is derived from.
         crate::contract::targets::box_target_id(&self.target)?;
-        for (label, value) in [
-            ("boxId", &self.box_id),
-            ("modelId", &self.model_id),
-            ("runtimeId", &self.runtime_id),
-        ] {
-            if !is_identifier(value) {
-                fail!("Invalid release manifest: {label} is not a valid identifier.");
+        if !is_identifier(&self.box_id) {
+            fail!("Invalid release manifest: boxId is not a valid identifier.");
+        }
+        for key in self.labels.iter().flat_map(std::collections::BTreeMap::keys) {
+            if !is_identifier(key) {
+                fail!("Invalid release manifest: label {key} is not a valid identifier.");
             }
         }
+        self.runtime.validate()?;
         for (label, value) in [
             ("version", &self.version),
-            ("pythonEntryPoint", &self.python_entry_point),
-            ("modelCacheSubdir", &self.model_cache_subdir),
+            ("cacheSubdir", &self.cache_subdir),
             ("archive.url", &self.archive.url),
         ] {
             if value.is_empty() {
@@ -401,18 +526,7 @@ impl ReleaseManifest {
                 fail!("Invalid release manifest: payloadDigest is not a supported commitment.");
             }
         }
-        if self.self_test.python_imports.is_empty()
-            || self
-                .self_test
-                .python_imports
-                .iter()
-                .any(std::string::String::is_empty)
-        {
-            fail!("Invalid release manifest: selfTest pythonImports must be non-empty.");
-        }
-        if self.self_test.timeout_seconds == 0 {
-            fail!("Invalid release manifest: selfTest timeoutSeconds must be positive.");
-        }
+        self.self_test.validate()?;
         validate_environment(self.environment.as_ref())?;
         if let Some(execution) = &self.execution {
             execution.validate()?;
@@ -423,18 +537,11 @@ impl ReleaseManifest {
         Ok(())
     }
 
-    /// The `weights`/`assets` co-requirement, and the descriptors themselves.
+    /// The deferred-asset descriptors, which are the whole statement in version 3: there is no
+    /// second field they have to agree with.
     fn validate_assets(&self) -> Result<()> {
-        let assets = match (self.weights.as_deref(), self.assets.as_deref()) {
-            (None, None) => return Ok(()),
-            (Some("on-demand"), Some(assets)) => assets,
-            (Some(other), Some(_)) => {
-                fail!("Invalid release manifest: unsupported weights value {other}.")
-            }
-            // `dependentRequired` in both directions: neither field means anything alone.
-            (Some(_), None) | (None, Some(_)) => {
-                fail!("Invalid release manifest: weights and assets must be declared together.")
-            }
+        let Some(assets) = self.assets.as_deref() else {
+            return Ok(());
         };
         if assets.is_empty() {
             fail!("Invalid release manifest: assets must not be empty.");
@@ -470,6 +577,13 @@ fn validate_environment(environment: Option<&BTreeMap<String, String>>) -> Resul
 }
 
 fn validate_provenance(provenance: &Provenance) -> Result<()> {
+    if provenance
+        .runtime_version
+        .as_ref()
+        .is_some_and(std::string::String::is_empty)
+    {
+        fail!("Invalid release manifest: provenance runtimeVersion must not be empty.");
+    }
     if !is_lowercase_hex(&provenance.builder_revision, 40) {
         fail!("Invalid release manifest: provenance builderRevision is not a commit.");
     }
@@ -480,7 +594,6 @@ fn validate_provenance(provenance: &Provenance) -> Result<()> {
         ("scrollId", &provenance.scroll_id),
         ("scrollVersion", &provenance.scroll_version),
         ("sourceRevision", &provenance.source_revision),
-        ("pythonVersion", &provenance.python_version),
         ("builtAt", &provenance.built_at),
         ("pixiVersion", &provenance.pixi_version),
     ] {

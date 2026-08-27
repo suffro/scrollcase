@@ -20,7 +20,7 @@ use crate::archive::extract_zip_archive;
 use crate::contract::payload_digest::{
     parse_payload_digest_stream, PayloadDigestKind, MAX_PAYLOAD_DIGEST_BYTES, PAYLOAD_DIGEST_FILE,
 };
-use crate::contract::runtimes::{execution_affecting_variables, IMPLICIT_RUNTIME_ID};
+use crate::contract::runtimes::execution_affecting_variables;
 use crate::contract::targets::{assert_native_host, box_target_id, BoxTargetAdapter};
 use crate::environment::{
     resolve_environment, EnvironmentLayer, EnvironmentReport, EnvironmentSource, ResolveOptions,
@@ -29,7 +29,7 @@ use crate::error::{fail, Error, Result};
 use crate::execution::assert_execution_files;
 use crate::filesystem::{collect_files, payload_size, sha256_file};
 use crate::path::{join_relative, safe_relative_path};
-use crate::release::{AssetDescriptor, Execution, ReleaseManifest};
+use crate::release::{AssetDescriptor, BoxRuntime, Execution, ReleaseManifest};
 use crate::trust::TrustAnchors;
 use crate::verify::{inspect_archive_for, inspect_release_document, InspectedRelease};
 
@@ -131,16 +131,16 @@ impl PreparedBox {
         &self.release.box_id
     }
 
-    /// Model identity, from the signed release.
+    /// Free-form annotations the publisher signed. This crate attaches no meaning to any key.
     #[must_use]
-    pub fn model_id(&self) -> &str {
-        &self.release.model_id
+    pub fn labels(&self) -> Option<&BTreeMap<String, String>> {
+        self.release.labels.as_ref()
     }
 
-    /// Installed-directory identity, from the signed release.
+    /// What runs inside the box, from the signed release.
     #[must_use]
-    pub fn runtime_id(&self) -> &str {
-        &self.release.runtime_id
+    pub fn runtime(&self) -> &BoxRuntime {
+        &self.release.runtime
     }
 
     /// Box version, from the signed release.
@@ -155,11 +155,6 @@ impl PreparedBox {
         &self.target_id
     }
 
-    /// Interpreter path, relative to the box root.
-    #[must_use]
-    pub fn python_entry_point(&self) -> &str {
-        &self.release.python_entry_point
-    }
 
     /// The declared application entry point, if the box has one.
     #[must_use]
@@ -234,13 +229,12 @@ impl PreparedBox {
     }
 }
 
-/// The on-demand descriptors a release requires a caller to have materialised.
+/// The deferred descriptors a release requires a caller to have materialised.
+///
+/// The list is exactly the assets the scroll declared `embed: false`; a release whose assets are
+/// all embedded carries none, and the box needs nothing fetched before it runs.
 fn required_assets_of(release: &ReleaseManifest) -> &[AssetDescriptor] {
-    if release.weights.as_deref() == Some("on-demand") {
-        release.assets.as_deref().unwrap_or(&[])
-    } else {
-        &[]
-    }
+    release.assets.as_deref().unwrap_or(&[])
 }
 
 /// Checks the assets a caller was told to place, against their signed descriptors.
@@ -312,7 +306,7 @@ fn release_environment_report(
                 values: release_pairs,
             },
         ],
-        execution_affecting_variables: &execution_affecting_variables(IMPLICIT_RUNTIME_ID, adapter)?,
+        execution_affecting_variables: &execution_affecting_variables(&release.runtime.id, adapter)?,
         expanded: options.env_report || options.env_report_values,
         reveal_host_values: options.env_report_values,
     })?
@@ -515,18 +509,21 @@ pub fn attach_extracted_box(
     }
 
     let files = collect_files(&root)?;
-    if !files.contains(&release.python_entry_point) {
-        fail!("Attached box is missing {}.", release.python_entry_point);
+    if let Some(entry_point) = &release.runtime.entry_point {
+        if !files.contains(entry_point) {
+            fail!("Attached box is missing {entry_point}.");
+        }
     }
     assert_execution_files(
         release.execution.as_ref(),
         inspected.adapter,
-        &release.provenance.python_version,
+        &release.runtime.id,
+        release.provenance.runtime_version.as_deref().unwrap_or_default(),
         &files,
     )?;
     verify_required_assets(&root, required_assets_of(release))?;
 
-    // Measured, never compared: an installed tree legitimately grows after extraction — on-demand
+    // Measured, never compared: an installed tree legitimately grows after extraction — deferred
     // assets, caches, whatever the application writes — so holding it to the signed figure would
     // fail honest boxes.
     let installed_size_bytes = payload_size(&root)?;

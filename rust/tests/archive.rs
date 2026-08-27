@@ -82,9 +82,9 @@ fn box_json_must_agree_with_the_signed_release_field_by_field() {
     // a different box. Only comparing the two manifests catches it.
     for (field, mutate) in [
         (
-            "modelId",
+            "labels",
             Box::new(|manifest: &mut serde_json::Value| {
-                manifest["modelId"] = json!("another-model");
+                manifest["labels"] = json!({ "model": "another-model" });
             }) as Box<dyn Fn(&mut serde_json::Value)>,
         ),
         (
@@ -142,7 +142,7 @@ fn an_archive_without_its_declared_interpreter_is_refused() {
         |_| {},
         |entries| {
             // The entry point differs per target, so it is asked for rather than spelled out.
-            let interpreter = support::native_python_entry_point();
+            let interpreter = support::native_entry_point();
             entries.retain(|entry| !matches!(entry, Entry::File(path, _, _) if *path == interpreter));
         },
         |_| {},
@@ -292,7 +292,7 @@ fn extraction_reproduces_the_payload_and_its_modes() {
     assert_eq!(
         scrollcase_consumer::filesystem::payload_size(&destination).unwrap(),
         std::fs::metadata(destination.join("box.json")).unwrap().len()
-            + std::fs::metadata(destination.join(support::native_python_entry_point()))
+            + std::fs::metadata(destination.join(support::native_entry_point()))
                 .unwrap()
                 .len()
             + std::fs::metadata(destination.join("app/main.py")).unwrap().len()
