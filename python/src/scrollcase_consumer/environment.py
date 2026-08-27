@@ -52,6 +52,7 @@ def resolve_environment(
     target: BoxTarget,
     layers: Sequence[tuple[EnvironmentSource, Mapping[str, str] | None]],
     *,
+    runtime_id: str,
     expanded: bool = False,
     reveal_host_values: bool = False,
 ) -> tuple[dict[str, str], EnvironmentReport]:
@@ -76,7 +77,7 @@ def resolve_environment(
 
     dangerous = {
         _normalized_name(name, target.platform)
-        for name in execution_affecting_variables(adapter)
+        for name in execution_affecting_variables(adapter, runtime_id)
     }
     variables: list[tuple[EnvironmentVariableReport, bool]] = []
     for normalized, sources in records.items():
@@ -151,10 +152,12 @@ def release_environment_report(
 ) -> EnvironmentReport:
     """Return a verification-time host plus release snapshot without executing anything."""
 
-    declared = cast(Mapping[str, str] | None, release.get("environment"))
+    declared = cast("Mapping[str, str] | None", release.get("environment"))
+    runtime = cast(Mapping[str, object], release["runtime"])
     return resolve_environment(
         target,
         (("host", os.environ), ("release", declared)),
+        runtime_id=cast(str, runtime["id"]),
         expanded=expanded,
         reveal_host_values=reveal_host_values,
     )[1]

@@ -8,6 +8,7 @@ import shutil
 import signal
 import stat
 from pathlib import Path
+from collections.abc import Mapping
 from typing import IO, Any, cast
 
 from scrollcase_consumer import (
@@ -139,13 +140,19 @@ def _fixture_options(spec: dict[str, Any]) -> dict[str, Any]:
         }
     if spec.get("requiredAsset"):
         options["required_asset"] = {
-            "url": "https://assets.example.org/weights.bin",
-            "relativePath": "model-cache/consumer-fixture/weights.bin",
+            "url": "https://assets.example.org/data.bin",
+            "relativePath": "cache/consumer-fixture/data.bin",
             "sizeBytes": len(ASSET_BYTES),
             "sha256": hashlib.sha256(ASSET_BYTES).hexdigest(),
         }
+    if spec.get("executableAsset"):
+        # The mode is synthesised from the scroll's declaration, and extraction has to hand it back
+        # whatever umask the process is running under.
+        options["extra_files"] = {"bin/tool": (b"#!/bin/sh\nexit 0\n", 0o755)}
     if "environment" in spec:
         options["environment"] = spec["environment"]
+    if "labels" in spec:
+        options["labels"] = spec["labels"]
     # A consumer cannot observe key custody. The external-signer case therefore uses the same
     # signed-envelope wire contract with an independently generated caller trust anchor.
     return options
@@ -212,8 +219,18 @@ def _mutate_fixture(
         fixture.release["archive"]["sizeBytes"] += 1
         fixture.sign()
         return
-    if mutation == "alter-release-model":
-        fixture.release["modelId"] = "altered-model"
+    if mutation == "alter-release-labels":
+        fixture.release["labels"] = {"model": "altered-model"}
+        fixture.sign()
+        return
+    if mutation == "alter-release-runtime-version":
+        fixture.release["runtime"] = {**fixture.release["runtime"], "version": "3.99.0"}
+        fixture.sign()
+        return
+    if mutation == "alter-release-runtime-id":
+        # A runtime the format names and this package has no adapter for. The consumer must refuse
+        # the box rather than read it as the runtime it happens to be shaped like.
+        fixture.release["runtime"] = {**fixture.release["runtime"], "id": "native"}
         fixture.sign()
         return
     if mutation == "alter-release-execution":
@@ -241,7 +258,7 @@ def _mutate_fixture(
         destination.mkdir()
         return
     remove_path = {
-        "remove-interpreter": fixture.release["pythonEntryPoint"],
+        "remove-interpreter": fixture.release["runtime"]["entryPoint"],
         "remove-script": fixture.release.get("execution", {}).get("script"),
         "remove-module": (
             fixture.release.get("execution", {}).get("module", "").replace(".", "/")
@@ -257,7 +274,7 @@ def _mutate_fixture(
     # shape — `venv/bin/python` is a link to the versioned binary beside it — so a consumer that
     # only accepts regular files here rejects every box the builder produces on macOS and Linux.
     if mutation == "link-interpreter":
-        entry_point = cast(str, fixture.release["pythonEntryPoint"])
+        entry_point = cast(str, fixture.release["runtime"]["entryPoint"])
         directory, _, name = entry_point.rpartition("/")
         link_target = f"{name}-real"
         renamed = f"{directory}/{link_target}" if directory else link_target
@@ -340,13 +357,13 @@ def _mutate_extracted_root(
         script.write_bytes(script.read_bytes() + b" ")
         return root
     if mutation == "remove-interpreter":
-        (root / fixture.release["pythonEntryPoint"]).unlink()
+        (root / fixture.release["runtime"]["entryPoint"]).unlink()
         return root
     if mutation == "remove-script":
         (root / fixture.release["execution"]["script"]).unlink()
         return root
     if mutation == "retarget-interpreter-link":
-        interpreter = root / fixture.release["pythonEntryPoint"]
+        interpreter = root / fixture.release["runtime"]["entryPoint"]
         target = os.readlink(interpreter)
         interpreter.unlink()
         interpreter.symlink_to(f"{target}-retargeted")
@@ -375,7 +392,7 @@ def _replace_tokens(value: Any, root: str | None = None) -> Any:
             (target["platform"], target["arch"], target["accelerator"])
         )
         return (
-            value.replace("$NATIVE_PYTHON", native_python)
+            value.replace("$NATIVE_ENTRY_POINT", native_python)
             .replace("$NATIVE_TARGET", native_id)
             .replace("$BOX", root or "$BOX")
         )
@@ -501,6 +518,11 @@ def run_python_conformance_case(
         for name in runtime.get("hostEnvironment", {})
     }
     os.environ.update(runtime.get("hostEnvironment", {}))
+    # A restrictive umask is the condition under which the three consumers used to disagree: two
+    # applied the archive's mode through open(2) and lost it, one chmod'd and kept it.
+    previous_umask = (
+        os.umask(int(runtime["umask"], 8)) if "umask" in runtime else None
+    )
     try:
         action = test_case["action"]
         mutation = test_case.get("mutation")
@@ -528,13 +550,21 @@ def run_python_conformance_case(
                 "boxId": prepared.box_id,
                 "executionKind": execution.kind if execution is not None else None,
                 "requiredAssetCount": len(prepared.required_assets),
-                "pythonEntryPoint": prepared.python_entry_point,
+                "runtimeId": prepared.runtime.id,
+                "entryPoint": prepared.runtime.entry_point or "",
                 "targetId": prepared.target_id,
             }
             if test_case["expected"].get("receipt", {}).get("environmentReport"):
                 receipt["environmentReport"] = _environment_report(
                     prepared.environment_report,
                     runtime.get("reportVariables", []),
+                )
+            declared_modes = test_case["expected"].get("receipt", {}).get(
+                "executableModes"
+            )
+            if declared_modes:
+                receipt["executableModes"] = _executable_modes(
+                    Path(prepared.root), declared_modes
                 )
             actual = {
                 "outcome": "prepared",
@@ -573,7 +603,8 @@ def run_python_conformance_case(
                         execution.kind if execution is not None else None
                     ),
                     "requiredAssetCount": len(attached.required_assets),
-                    "pythonEntryPoint": attached.python_entry_point,
+                    "runtimeId": attached.runtime.id,
+                    "entryPoint": attached.runtime.entry_point or "",
                     "targetId": attached.target_id,
                 }
                 if test_case["expected"].get("receipt", {}).get("environmentReport"):
@@ -723,11 +754,30 @@ def run_python_conformance_case(
             )
         return actual, expected, fixture.root
     finally:
+        if previous_umask is not None:
+            os.umask(previous_umask)
         for name, value in previous_host_environment.items():
             if value is None:
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
+
+
+def _executable_modes(root: Path, paths: Mapping[str, object]) -> dict[str, str | None]:
+    """The permission bits an extracted box actually carries, for the paths a case names.
+
+    Windows has no bit to read, so every path reports ``None`` there and the fixture says so rather
+    than the driver quietly skipping the case.
+    """
+
+    return {
+        path: (
+            None
+            if os.name == "nt"
+            else oct((root / path).stat().st_mode & 0o777)[2:]
+        )
+        for path in paths
+    }
 
 
 def remove_conformance_root(root: Path) -> None:

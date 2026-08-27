@@ -127,7 +127,7 @@ class VerificationTests(unittest.TestCase):
         without_interpreter = [
             entry
             for entry in self.fixture.entries
-            if entry.path != self.fixture.release["pythonEntryPoint"]
+            if entry.path != self.fixture.release["runtime"]["entryPoint"]
         ]
         self.fixture.write_archive(without_interpreter)
         with self.assertRaisesRegex(
@@ -170,7 +170,7 @@ class VerificationTests(unittest.TestCase):
                     if target["platform"] == "windows"
                     else "venv/bin/python"
                 )
-                self.assertEqual(prepared.python_entry_point, expected)
+                self.assertEqual(prepared.runtime.entry_point, expected)
         finally:
             for fixture in extra_fixtures:
                 shutil.rmtree(fixture.root, ignore_errors=True)
@@ -373,8 +373,8 @@ class PayloadVerificationTests(unittest.TestCase):
         # Everything an installed box legitimately grows: the application's own output in its
         # working directory, Python's caches, and a model cache filled after extraction.
         (self.root / "output.log").write_bytes(b"the application wrote this")
-        (self.root / "model-cache").mkdir(parents=True, exist_ok=True)
-        (self.root / "model-cache" / "weights.bin").write_bytes(b"downloaded later")
+        (self.root / "cache").mkdir(parents=True, exist_ok=True)
+        (self.root / "cache" / "weights.bin").write_bytes(b"downloaded later")
         (self.root / "__pycache__").mkdir()
         (self.root / "__pycache__" / "x.pyc").write_bytes(b"compiled")
         self.assertEqual(self.verify().status, "verified")

@@ -24,7 +24,10 @@ from referencing import Registry, Resource
 from .errors import ScrollcaseConsumerError
 from .models import (
     BoxExecution,
+    BoxRuntime,
     BoxTarget,
+    NativeBinaryExecution,
+    NodeScriptExecution,
     PythonModuleExecution,
     PythonScriptExecution,
     RequiredAsset,
@@ -165,6 +168,37 @@ class ResolvedExecutionFiles:
 
 
 @dataclass(frozen=True, slots=True)
+class SelfTestCommand:
+    """One invocation of the box's declared execution, and the status it must exit with."""
+
+    args: tuple[str, ...]
+    expect_exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestProbe:
+    """What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
+
+    ``imports`` asks the runtime's loader a question and only means something to a runtime that has
+    one. ``commands`` asks the box's declared execution a question, which every runtime can answer
+    and a native one can answer *only* that way. ``code`` never travels on the wire.
+    """
+
+    imports: tuple[str, ...] = ()
+    commands: tuple[SelfTestCommand, ...] = ()
+    code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestInvocation:
+    """One command a self-test runs, and the status it must exit with."""
+
+    command: RuntimeArgument
+    args: tuple[RuntimeArgument, ...]
+    expect_exit_code: int
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeAdapter:
     """What a runtime implies for a box, independent of the machine it runs on.
 
@@ -211,11 +245,18 @@ class RuntimeAdapter:
                 f"Unsupported execution kind: {execution.kind}."
             )
         layout = self.layout(platform)
-        if isinstance(execution, PythonScriptExecution):
+        if isinstance(execution, (PythonScriptExecution, NodeScriptExecution)):
             return ResolvedExecutionFiles(
                 candidates=(execution.script,),
                 missing=(
                     f"Execution script is missing from the box: {execution.script}."
+                ),
+            )
+        if isinstance(execution, NativeBinaryExecution):
+            return ResolvedExecutionFiles(
+                candidates=(execution.binary,),
+                missing=(
+                    f"Execution binary is missing from the box: {execution.binary}."
                 ),
             )
         module_path = execution.module.replace(".", "/")
@@ -247,8 +288,10 @@ class RuntimeAdapter:
                 f"Unsupported execution kind: {execution.kind}."
             )
         layout = self.layout(platform)
-        if isinstance(execution, PythonScriptExecution):
+        if isinstance(execution, (PythonScriptExecution, NodeScriptExecution)):
             args = [RuntimeArgument("payload-path", execution.script)]
+        elif isinstance(execution, NativeBinaryExecution):
+            args = [RuntimeArgument("payload-path", execution.binary)]
         else:
             args = [
                 RuntimeArgument("literal", "-m"),
@@ -262,19 +305,62 @@ class RuntimeAdapter:
             args=tuple(args),
         )
 
-    def self_test_argv(
-        self, imports: Iterable[str], platform: str, code: str | None = None
-    ) -> tuple[str, ...]:
-        """The arguments that follow this runtime's entry point when it runs a self-test probe."""
+    def self_test_invocations(
+        self,
+        probe: SelfTestProbe,
+        execution: BoxExecution | None,
+        platform: str,
+    ) -> tuple[SelfTestInvocation, ...]:
+        """Every command a self-test probe implies, in declaration order."""
 
-        assertion = self._platform_assertions.get(platform)
-        if assertion is None:
-            raise ScrollcaseConsumerError(
-                f"No {self.id} self-test assertion exists for platform {platform}"
+        invocations: list[SelfTestInvocation] = []
+        if probe.imports:
+            assertion = self._platform_assertions.get(platform)
+            if assertion is None:
+                raise ScrollcaseConsumerError(
+                    f"No {self.id} self-test assertion exists for platform {platform}"
+                )
+            body = f"import {', '.join(probe.imports)}"
+            source = (
+                f"{assertion}\n{body}\n{probe.code}"
+                if probe.code
+                else f"{assertion}\n{body}"
             )
-        body = f"import {', '.join(imports)}"
-        source = f"{assertion}\n{body}\n{code}" if code else f"{assertion}\n{body}"
-        return ("-c", source)
+            invocations.append(
+                SelfTestInvocation(
+                    command=RuntimeArgument(
+                        "payload-path", self.layout(platform).entry_point
+                    ),
+                    args=(
+                        RuntimeArgument("literal", "-c"),
+                        RuntimeArgument("literal", source),
+                    ),
+                    expect_exit_code=0,
+                )
+            )
+        for command in probe.commands:
+            # A command probe appends arguments to the box's own declared execution. With none
+            # declared there is nothing to append them to, which is a contradiction in the
+            # declaration rather than a property of the box.
+            if execution is None:
+                raise ScrollcaseConsumerError(
+                    "A self-test command needs a declared execution to invoke"
+                )
+            invocation = self.build_argv(execution, platform)
+            invocations.append(
+                SelfTestInvocation(
+                    command=invocation.command,
+                    args=(
+                        *invocation.args,
+                        *(
+                            RuntimeArgument("literal", value)
+                            for value in command.args
+                        ),
+                    ),
+                    expect_exit_code=command.expect_exit_code,
+                )
+            )
+        return tuple(invocations)
 
 
 _POSIX_PYTHON_LAYOUT = RuntimeLayout(
@@ -318,15 +404,37 @@ _RUNTIMES = {
     )
 }
 
-#: The runtime every box built by this schema version implicitly declares.
+#: Every runtime id the box format admits, in the order the schema lists them.
 #:
-#: The wire format has no runtime field: a box records a Python entry point and Python execution
-#: kinds and nothing that says "Python". So a reader that must name a runtime names this one, from
-#: one place.
-IMPLICIT_RUNTIME_ID = "python"
+#: The wire enum and the implemented set are deliberately two different things: schema version 3
+#: fixes the vocabulary once, so a later release can implement ``node`` without another wire break.
+#: A box naming a runtime this package has no adapter for is refused by name, not misread.
+RUNTIME_IDS: tuple[str, ...] = ("python", "node", "native")
 
 
-def runtime_adapter(runtime_id: str = IMPLICIT_RUNTIME_ID) -> RuntimeAdapter:
+def is_implemented_runtime(runtime_id: str) -> bool:
+    """Whether this build carries an adapter — the question to ask before ``runtime_adapter``."""
+
+    return runtime_id in _RUNTIMES
+
+
+def unimplemented_runtime_message(runtime_id: str) -> str:
+    """The message for a box declaring a runtime this build has no adapter for.
+
+    The wire vocabulary is fixed and the implemented set is not, so this case is expected rather
+    than exceptional, and the wording says which of the two the box fell foul of.
+    """
+
+    implemented = ", ".join(_RUNTIMES)
+    if runtime_id in RUNTIME_IDS:
+        return (
+            f"Runtime {runtime_id} is not implemented by this version of Scrollcase; "
+            f"it implements {implemented}."
+        )
+    return f"Unknown runtime: {runtime_id}. The box format defines {', '.join(RUNTIME_IDS)}."
+
+
+def runtime_adapter(runtime_id: str) -> RuntimeAdapter:
     """Return the runtime adapter for a runtime id."""
 
     runtime = _RUNTIMES.get(runtime_id)
@@ -344,7 +452,7 @@ def runtime_adapters() -> tuple[RuntimeAdapter, ...]:
 
 
 def execution_affecting_variables(
-    adapter: TargetAdapter, runtime_id: str = IMPLICIT_RUNTIME_ID
+    adapter: TargetAdapter, runtime_id: str
 ) -> tuple[str, ...]:
     """The complete list of inherited variables that can change what a box executes.
 
@@ -468,10 +576,23 @@ def execution_from_json(value: Mapping[str, Any] | None) -> BoxExecution | None:
     if value is None:
         return None
     default_args = tuple(cast(list[str], value["defaultArgs"]))
-    if value["kind"] == "python-script":
+    kind = value["kind"]
+    if kind == "python-script":
         return PythonScriptExecution(
             kind="python-script",
             script=cast(str, value["script"]),
+            default_args=default_args,
+        )
+    if kind == "node-script":
+        return NodeScriptExecution(
+            kind="node-script",
+            script=cast(str, value["script"]),
+            default_args=default_args,
+        )
+    if kind == "native-binary":
+        return NativeBinaryExecution(
+            kind="native-binary",
+            binary=cast(str, value["binary"]),
             default_args=default_args,
         )
     return PythonModuleExecution(
@@ -481,8 +602,37 @@ def execution_from_json(value: Mapping[str, Any] | None) -> BoxExecution | None:
     )
 
 
+def runtime_from_json(value: Mapping[str, Any]) -> BoxRuntime:
+    """Convert a validated runtime block into an immutable value."""
+
+    return BoxRuntime(
+        id=cast(str, value["id"]),
+        version=cast("str | None", value.get("version")),
+        entry_point=cast("str | None", value.get("entryPoint")),
+    )
+
+
+def self_test_probe_from_json(value: Mapping[str, Any]) -> SelfTestProbe:
+    """Convert a validated signed probe into an immutable value."""
+
+    return SelfTestProbe(
+        imports=tuple(cast(list[str], value.get("imports", ()))),
+        commands=tuple(
+            SelfTestCommand(
+                args=tuple(cast(list[str], command["args"])),
+                expect_exit_code=cast(int, command["expectExitCode"]),
+            )
+            for command in cast(list[Mapping[str, Any]], value.get("commands", ()))
+        ),
+    )
+
+
 def required_assets_from_json(values: list[Mapping[str, Any]] | None) -> tuple[RequiredAsset, ...]:
-    """Convert signed on-demand descriptors into immutable values."""
+    """Convert the signed deferred descriptors into immutable values.
+
+    The list is exactly the assets the scroll declared ``embed: false``; a release whose assets are
+    all embedded carries none, and the box needs nothing fetched before it runs.
+    """
 
     if values is None:
         return ()
@@ -492,6 +642,7 @@ def required_assets_from_json(values: list[Mapping[str, Any]] | None) -> tuple[R
             relative_path=safe_relative_path(value["relativePath"]),
             size_bytes=cast(int, value["sizeBytes"]),
             sha256=cast(str, value["sha256"]),
+            executable=bool(value.get("executable", False)),
         )
         for value in values
     )
@@ -500,6 +651,7 @@ def required_assets_from_json(values: list[Mapping[str, Any]] | None) -> tuple[R
 def assert_execution_files(
     execution: BoxExecution | None,
     target: BoxTarget,
+    runtime_id: str,
     runtime_version: str,
     resolvable_paths: Collection[str],
 ) -> None:
@@ -516,7 +668,7 @@ def assert_execution_files(
     if execution is None:
         return
     target_adapter(target)
-    resolved = runtime_adapter().resolve_execution_files(
+    resolved = runtime_adapter(runtime_id).resolve_execution_files(
         execution, target.platform, runtime_version
     )
     for candidate in resolved.candidates:

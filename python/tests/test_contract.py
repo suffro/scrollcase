@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from scrollcase_consumer._contract import (
-    IMPLICIT_RUNTIME_ID,
     PAYLOAD_DIGEST_FILE,
     PAYLOAD_DIGEST_FORMAT,
     SCHEMA_FILES,
@@ -23,9 +22,14 @@ from scrollcase_consumer._contract import (
     execution_affecting_variables,
     execution_from_json,
     parse_payload_digest_stream,
+    RUNTIME_IDS,
+    SelfTestCommand,
+    SelfTestProbe,
+    is_implemented_runtime,
     payload_digest_stream,
     runtime_adapter,
     runtime_adapters,
+    unimplemented_runtime_message,
     target_adapter,
     target_from_json,
     target_id,
@@ -108,11 +112,34 @@ class RuntimeContractTests(unittest.TestCase):
             [case["id"] for case in fixture["runtimes"]],
         )
 
-    def test_refuses_a_runtime_the_format_does_not_define(self) -> None:
-        for runtime_id in ("node", "native", ""):
+    def test_names_every_runtime_the_format_defines(self) -> None:
+        # Two different lists on purpose: the wire vocabulary was fixed once, in the version 3
+        # break, so that implementing a second runtime is code rather than another format change.
+        fixture = self._load()
+        self.assertEqual(list(RUNTIME_IDS), fixture["runtimeIds"])
+        implemented = {runtime.id for runtime in runtime_adapters()}
+        for runtime_id in RUNTIME_IDS:
+            with self.subTest(runtime_id=runtime_id):
+                self.assertEqual(
+                    is_implemented_runtime(runtime_id), runtime_id in implemented
+                )
+
+    def test_refuses_a_runtime_it_has_no_adapter_for(self) -> None:
+        for runtime_id in ("node", "native"):
             with self.subTest(runtime_id=runtime_id):
                 with self.assertRaises(ScrollcaseConsumerError):
                     runtime_adapter(runtime_id)
+                self.assertIn(
+                    "not implemented by this version",
+                    unimplemented_runtime_message(runtime_id),
+                )
+        for runtime_id in ("", "ruby"):
+            with self.subTest(runtime_id=runtime_id):
+                with self.assertRaises(ScrollcaseConsumerError):
+                    runtime_adapter(runtime_id)
+                self.assertIn(
+                    "Unknown runtime", unimplemented_runtime_message(runtime_id)
+                )
 
     def test_reproduces_every_golden_layout_and_executable_rule(self) -> None:
         for case in self._load()["runtimes"]:
@@ -175,7 +202,7 @@ class RuntimeContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     ScrollcaseConsumerError, "Invalid Python version"
                 ):
-                    runtime_adapter().resolve_execution_files(
+                    runtime_adapter("python").resolve_execution_files(
                         execution, "linux", invalid
                     )
 
@@ -202,15 +229,49 @@ class RuntimeContractTests(unittest.TestCase):
                     case["args"],
                 )
 
-    def test_turns_every_golden_probe_into_the_same_arguments(self) -> None:
+    def test_turns_every_golden_probe_into_the_same_invocations(self) -> None:
         for case in self._load()["selfTest"]:
             with self.subTest(case=case["name"]):
-                argv = runtime_adapter(case["runtime"]).self_test_argv(
-                    case["probe"]["imports"],
-                    case["platform"],
-                    case["probe"].get("code"),
+                probe = SelfTestProbe(
+                    imports=tuple(case["probe"].get("imports", ())),
+                    commands=tuple(
+                        SelfTestCommand(
+                            args=tuple(command["args"]),
+                            expect_exit_code=command["expectExitCode"],
+                        )
+                        for command in case["probe"].get("commands", ())
+                    ),
+                    code=case["probe"].get("code"),
                 )
-                self.assertEqual(list(argv), case["args"])
+                invocations = runtime_adapter(case["runtime"]).self_test_invocations(
+                    probe,
+                    execution_from_json(case.get("execution")),
+                    case["platform"],
+                )
+                self.assertEqual(
+                    [
+                        {
+                            "command": {
+                                "kind": invocation.command.kind,
+                                "value": invocation.command.value,
+                            },
+                            "args": [
+                                {"kind": argument.kind, "value": argument.value}
+                                for argument in invocation.args
+                            ],
+                            "expectExitCode": invocation.expect_exit_code,
+                        }
+                        for invocation in invocations
+                    ],
+                    case["invocations"],
+                )
+
+    def test_refuses_a_command_probe_with_no_execution_to_invoke(self) -> None:
+        probe = SelfTestProbe(commands=(SelfTestCommand(args=(), expect_exit_code=0),))
+        with self.assertRaisesRegex(
+            ScrollcaseConsumerError, "needs a declared execution"
+        ):
+            runtime_adapter("python").self_test_invocations(probe, None, "linux")
 
     def test_joins_the_runtime_half_to_the_target_half_runtime_first(self) -> None:
         # The order is what a diagnostic report is printed in, so it is part of the answer rather
@@ -225,12 +286,12 @@ class RuntimeContractTests(unittest.TestCase):
                         {"platform": platform, "arch": arch, "accelerator": "cpu"}
                     )
                 )
-                merged = execution_affecting_variables(adapter)
+                merged = execution_affecting_variables(adapter, "python")
                 self.assertEqual(
                     list(merged),
                     [
                         *runtime_adapter(
-                            IMPLICIT_RUNTIME_ID
+                            "python"
                         ).execution_environment_variables,
                         *adapter.execution_affecting_environment_variables,
                     ],
@@ -397,7 +458,7 @@ class PayloadDigestWalkTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="scrollcase-digest-"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         (self.root / "venv" / "bin").mkdir(parents=True)
-        (self.root / "box.json").write_bytes(b'{"schemaVersion":2}\n')
+        (self.root / "box.json").write_bytes(b'{"schemaVersion":3}\n')
         (self.root / "venv" / "bin" / "python3.11").write_bytes(b"interpreter")
 
     def test_skips_the_list_file_and_the_names_python_generates(self) -> None:

@@ -20,6 +20,7 @@ from types import FrameType
 from typing import IO, Any, Protocol, TypeAlias, cast
 
 from ._contract import (
+    RuntimeArgument,
     absolute_path,
     assert_execution_files,
     assert_native_host,
@@ -151,28 +152,32 @@ def run_extracted_box(
             "Prepared box root no longer matches the prepared box."
         )
     resolvable_paths = frozenset(collect_files(root))
-    if prepared.python_entry_point not in resolvable_paths:
-        raise ScrollcaseConsumerError(
-            f"Prepared box is missing {prepared.python_entry_point}."
-        )
+    entry_point = prepared.runtime.entry_point
+    if entry_point is not None and entry_point not in resolvable_paths:
+        raise ScrollcaseConsumerError(f"Prepared box is missing {entry_point}.")
+    provenance = cast(Mapping[str, object], state.release["provenance"])
     assert_execution_files(
         execution,
         state.target,
-        cast(str, state.release["provenance"]["pythonVersion"]),
+        prepared.runtime.id,
+        cast(str, provenance.get("runtimeVersion", "")),
         resolvable_paths,
     )
     verify_required_assets(Path(prepared.root), prepared.required_assets)
 
-    python = path_under(root, prepared.python_entry_point)
     # The runtime states the command line in payload-relative terms and this end joins it: a box
-    # root is a real path on this host, and the format has no business deciding what one looks like.
-    invocation = runtime_adapter().build_argv(execution, state.target.platform)
-    execution_args = [
-        str(path_under(root, argument.value))
-        if argument.kind == "payload-path"
-        else argument.value
-        for argument in invocation.args
-    ]
+    # root is a real path on this host, and the format has no business deciding what one looks
+    # like. Which runtime states it is the box's declaration, not an assumption about the payload.
+    invocation = runtime_adapter(prepared.runtime.id).build_argv(
+        execution, state.target.platform
+    )
+    def resolve(argument: RuntimeArgument) -> str:
+        if argument.kind == "payload-path":
+            return str(path_under(root, argument.value))
+        return str(argument.value)
+
+    command = resolve(invocation.command)
+    execution_args = [resolve(argument) for argument in invocation.args]
     execution_args.extend(caller_args)
     environment, environment_report = resolve_environment(
         state.target,
@@ -184,6 +189,7 @@ def run_extracted_box(
                 cast(Mapping[str, str] | None, state.release.get("environment")),
             ),
         ),
+        runtime_id=prepared.runtime.id,
         expanded=env_report or env_report_values,
         reveal_host_values=env_report_values,
     )
@@ -191,7 +197,7 @@ def run_extracted_box(
         on_environment_report(environment_report)
     try:
         child = popen_factory(
-            [str(python), *execution_args],
+            [command, *execution_args],
             cwd=str(root),
             env=environment,
             stdin=stdin,
