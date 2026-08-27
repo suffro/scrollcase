@@ -499,6 +499,26 @@ fn report_value(report: &EnvironmentReport, names: &[String]) -> Value {
     })
 }
 
+/// Sets the process umask for as long as the returned guard lives, then puts back what was there.
+#[cfg(unix)]
+fn set_umask(octal: &str) -> UmaskGuard {
+    let mode = rustix::fs::Mode::from_bits_truncate(rustix::fs::RawMode::from_str_radix(octal, 8).unwrap());
+    UmaskGuard(rustix::process::umask(mode))
+}
+
+#[cfg(unix)]
+struct UmaskGuard(rustix::fs::Mode);
+
+#[cfg(unix)]
+impl Drop for UmaskGuard {
+    fn drop(&mut self) {
+        rustix::process::umask(self.0);
+    }
+}
+
+#[cfg(not(unix))]
+fn set_umask(_octal: &str) -> () {}
+
 fn receipt_value(prepared: &PreparedBox, expected: &Value, names: &[String]) -> Value {
     let mut receipt = json!({
         "status": if prepared.status() == PreparedStatus::Prepared { "prepared" } else { "attached" },
@@ -946,6 +966,10 @@ fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
             mutate_fixture(&mut fixture, name, &destination);
         }
     }
+
+    // A restrictive umask is the condition under which the three consumers used to disagree: two
+    // applied the archive's mode through open(2) and lost it, one chmod'd and kept it.
+    let _umask = runtime.get("umask").and_then(Value::as_str).map(set_umask);
 
     let state = Arc::new(Mutex::new(FakeSpawnState::default()));
     let spawner = FakeSpawner {

@@ -552,13 +552,20 @@ pub fn extract_zip_archive(archive_path: &Path, destination: &Path) -> Result<()
 
 #[cfg(unix)]
 fn new_file(path: &Path, mode: u32) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new()
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    let mode = if mode == 0 { 0o644 } else { mode & 0o7777 };
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(if mode == 0 { 0o644 } else { mode })
+        .mode(mode)
         .open(path)
-        .map_err(|error| Error::new(format!("cannot write {}: {error}", path.display())))
+        .map_err(|error| Error::new(format!("cannot write {}: {error}", path.display())))?;
+    // `open(2)` masks the mode it is given by the process umask, so a box extracted under 077 would
+    // silently lose the executable bit the archive states — and the box would fail to run for
+    // reasons nothing in it explains. Say the mode again, explicitly.
+    file.set_permissions(std::fs::Permissions::from_mode(mode))
+        .map_err(|error| Error::new(format!("cannot set mode on {}: {error}", path.display())))?;
+    Ok(file)
 }
 
 #[cfg(not(unix))]
