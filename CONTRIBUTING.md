@@ -7,10 +7,11 @@ knowing them first will save you a rejected pull request.
 
 - **One substrate.** pixi + conda-pack + conda-forge, and only that. A second dependency backend
   means proving every guarantee twice, and the guarantees are the product.
-- **Published v1 is immutable; the next major line is v2-only.** Existing v1 boxes stay with their old
-  Scrollcase versions. New code must not add a v1/v2 union, compatibility aliases, or dual paths;
-  the v2 verifier rejects v1 clearly. Never silently edit a `kind` string, payload encoding,
-  signature algorithm, or golden fixture under `src/contract/fixtures/`.
+- **Published v1 and v2 are immutable; the current line is v3-only.** Existing boxes stay with the
+  Scrollcase versions that built them. New code must not add a v2/v3 union, compatibility aliases,
+  or dual paths; the v3 verifier rejects both older versions clearly, and by name. Never silently
+  edit a `kind` string, payload encoding, signature algorithm, or golden fixture under
+  `src/contract/fixtures/`.
 - **Determinism is a promise.** Rebuilding the same commit must produce a byte-identical archive.
   Do not introduce anything that varies per run: a clock read, a random value, an unsorted
   directory listing.

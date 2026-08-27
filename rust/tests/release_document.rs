@@ -79,7 +79,7 @@ fn nothing_survives_an_edit_to_the_signed_bytes() {
     let restated = mutated(&directory, |document| {
         use base64::engine::general_purpose::STANDARD as BASE64;
         use base64::Engine as _;
-        let payload = br#"{"schemaVersion":2,"kind":"scrollcase.box.release"}"#;
+        let payload = br#"{"schemaVersion":3,"kind":"scrollcase.box.release"}"#;
         document["payloadBase64"] = serde_json::json!(BASE64.encode(payload));
         document["payloadSha256"] = serde_json::json!(sha256_hex(payload));
     });

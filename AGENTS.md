@@ -18,18 +18,18 @@ dependency licence inventory.
 
 The substrate is **pixi + conda-pack + conda-forge**, and only that. `pixi` solves a committed
 `pixi.lock`, `conda-pack` relocates the resulting prefix, and the tree is extracted into the box's
-`venv/`. The v2 CLI has thirteen verbs: `init`, `new`, `add`, `remove`, `edit`, `refresh`, `doctor`,
+`venv/`. The CLI has thirteen verbs: `init`, `new`, `add`, `remove`, `edit`, `refresh`, `doctor`,
 `keygen`, `lock`, `audit`, `build`, `verify`, and `run`.
 
 Scrollcase is **a library as well as a CLI**. Its public Node surfaces include the contract, build
-and signing APIs; v2 adds the local execution API at `scrollcase/consumer`. The Python consumer
+and signing APIs, plus the local execution API at `scrollcase/consumer`. The Python consumer
 exposes the same semantics as `scrollcase_consumer`, and the Rust crate `scrollcase-consumer` under
 `rust/` exposes them again. A change to any public export is a change to a public API, in any of the
 three.
 
-The accepted v2 design is authoritative even while the working tree is migrated in phases. v2 is a
-clean break: do not add v1/v2 unions, legacy aliases, or dual code paths. Existing v1 releases remain
-historical artefacts for the old Scrollcase versions that produced them.
+The accepted v3 design is authoritative even while the working tree is migrated in phases. v3 is a
+clean break: do not add v2/v3 unions, legacy aliases, or dual code paths. Published v1 and v2
+releases remain historical artefacts for the Scrollcase versions that produced them.
 
 It is open source and vendor-neutral, and must stay usable by projects that have nothing to do with
 the one that first needed it.
@@ -60,10 +60,11 @@ This boundary is the whole point of the project, and it is the thing most likely
    namespace its clients recognise. Never hard-code one.
 3. **One substrate.** No second dependency backend. Two backends means proving every guarantee
    twice, and the guarantees are the product.
-4. **Published v1 is immutable; active development is v2-only.** The v2 verifier rejects
-   `schemaVersion: 1` clearly instead of reinterpreting it. Never silently edit a `kind` string, the
-   payload encoding, the signature algorithm, or a golden fixture. Any future breaking wire change
-   needs another new `schemaVersion`.
+4. **Published v1 and v2 are immutable; active development is v3-only.** The v3 verifier rejects
+   either older `schemaVersion` clearly, and by name, instead of reinterpreting it — they are
+   different artefacts with different rebuilds ahead of them. Never silently edit a `kind` string,
+   the payload encoding, the signature algorithm, or a golden fixture. Any future breaking wire
+   change needs another new `schemaVersion`.
 5. **Determinism is a promise.** Rebuilding the same commit must produce a byte-identical archive.
    Introduce nothing that varies per run: no clock read, no random value, no unsorted directory
    listing.
@@ -132,10 +133,13 @@ afterwards.**
 - **box** — the built artefact. Never "image", never "container", never a consumer's product term.
 - **scroll** — the declarative input (`scroll.json`), the only input a build accepts.
 - **target** — the `(platform, arch, accelerator)` triple, plus `cudaVersion` for CUDA.
+- **runtime** — what runs *inside* the box: `python`, `node` or `native`. The format names all
+  three; only `python` is implemented, and a box naming another is refused by name.
 - **payload** — the tree assembled before archiving.
 - **release / channel / revocations** — the three signed document types.
 - **self-test** — the import check run with the box's *own* interpreter.
 - **parity** — the optional cross-accelerator numerical gate.
+- **deferred asset** — one the scroll declared `embed: false`. Never "weights": that field is gone.
 
 **Casing is functional, not cosmetic.** Write **Scrollcase** in prose, and `scrollcase` lowercase
 wherever it is an identifier: the command, the npm package, the exports, `scrollcase.config.json`,
@@ -172,10 +176,13 @@ without reading each hit.
 
 ### Layout
 
-- `src/contract/` — the format: target model and identity rule (`targets.mjs`), signed-document
-  envelope and namespacing (`documents.mjs`), `schema/`, `fixtures/`, generated `types/`.
-- `src/build/` — solving and packing (`pixi.mjs`), toolchain bootstrap (`toolchain.mjs`), relocation
-  repair (`launchers.mjs`), archive and filesystem primitives, the lock-derived licence audit,
+- `src/contract/` — the format: target model and identity rule (`targets.mjs`), runtime model —
+  layout, execution kinds, argv, self-test (`runtimes.mjs`), signed-document envelope and
+  namespacing (`documents.mjs`), `schema/`, `fixtures/`, generated `types/`.
+- `src/runtimes/<id>/` — the builder-side half of a runtime: launcher repair, dependency reading,
+  authoring templates, the pixi dependency it contributes. Only `python/` exists.
+- `src/build/` — solving and packing (`pixi.mjs`), toolchain bootstrap (`toolchain.mjs`),
+  archive and filesystem primitives, the lock-derived licence audit,
   workspace resolution, scroll authoring (`authoring.mjs`), reading and provenance (`scroll.mjs`),
   asset staging, the build core (`box.mjs`), `verify.mjs`, `audit.mjs`, `project.mjs`
   (init/doctor), and the parity gate.
@@ -271,9 +278,10 @@ affect them, read it against each — even the ones you cannot execute here.
 1. **The three targets.** macOS, Linux and Windows differ in interpreter layout (`venv/bin/python`
    vs `venv/python.exe`), scripts directory, launcher repair and native-library inspection. Anything
    touching packing, relocation or path handling must be checked against all three.
-2. **`embed` vs `on-demand` weights.** The second leaves assets out of the archive, carries their
-   descriptors in the signed release, and refuses `assetArchives`. Asset staging and manifest
-   changes affect both.
+2. **Embedded vs deferred assets.** `embed: false` leaves one asset out of the archive and carries
+   its descriptor in the signed release instead. It is per entry, so one box does both at once;
+   asset staging and manifest changes affect both halves, and a test whose assets are all embedded
+   covers half the behaviour.
 3. **Local key vs external signer.** The external path must still echo back the exact payload it was
    given and verify locally before the build continues.
 4. **Toolchain from `PATH` vs the project's own.** Discovery is flag > env > project toolchain >
