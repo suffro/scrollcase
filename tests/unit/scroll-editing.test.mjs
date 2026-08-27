@@ -38,14 +38,13 @@ const OTHER_TARGET = { platform: 'macos', arch: 'aarch64', accelerator: 'cpu' };
 const REFERENCE = `example-model/${TARGET_ID}`;
 
 const SHARED = {
-  $schema: 'https://scrollcase.dev/schema/v2/scroll.schema.json',
-  schemaVersion: 2,
+  $schema: 'https://scrollcase.dev/schema/v3/scroll.schema.json',
+  schemaVersion: 3,
   boxId: 'example-model',
-  modelId: 'example-org-example-model',
-  runtimeId: 'example-model-runtime',
+  labels: { model: 'example-org-example-model' },
   version: '1.0.0',
   sourceRevision: 'upstream-v1',
-  pythonVersion: '3.14',
+  runtime: { id: 'python', version: '3.14' },
   pixiVersion: '0.73.0',
   assetBaseUrl: 'https://assets.example.org/boxes',
   selfTest: { imports: ['json'] },
@@ -92,21 +91,21 @@ describe('editing an existing scroll', () => {
     const { entry } = await addAsset({
       boxId: 'example-model',
       target: ALL_TARGETS,
-      url: 'https://assets.example.org/weights.bin',
-      fetchImpl: servingBytes('weights'),
+      url: 'https://assets.example.org/data.bin',
+      fetchImpl: servingBytes('data'),
     });
 
     // The two values nobody can write by hand, taken from the bytes rather than from the author.
     expect(entry).toEqual({
-      url: 'https://assets.example.org/weights.bin',
-      relativePath: 'model-cache/example-model/weights.bin',
-      sizeBytes: 7,
-      sha256: createHash('sha256').update('weights').digest('hex'),
+      url: 'https://assets.example.org/data.bin',
+      relativePath: 'cache/example-model/data.bin',
+      sizeBytes: 4,
+      sha256: createHash('sha256').update('data').digest('hex'),
     });
     const { scroll } = await readScroll(REFERENCE);
     expect(scroll.assets).toHaveLength(1);
     // Both targets share it, and the self-test now guards it against an over-eager prune.
-    expect(scroll.selfTest.files).toContain('model-cache/example-model/weights.bin');
+    expect(scroll.selfTest.files).toContain('cache/example-model/data.bin');
     const other = await readScroll(`example-model/${OTHER_TARGET_ID}`);
     expect(other.scroll.assets).toHaveLength(1);
   });
@@ -171,8 +170,8 @@ describe('editing an existing scroll', () => {
       boxId: 'example-model',
       target: ALL_TARGETS,
       field: 'assets',
-      relativePath: 'model-cache/absent.bin',
-    })).rejects.toThrow(/No asset at model-cache\/absent\.bin/);
+      relativePath: 'cache/absent.bin',
+    })).rejects.toThrow(/No asset at cache\/absent\.bin/);
   });
 
   it('restores every file when an edit would leave the box unreadable', async () => {
@@ -186,7 +185,7 @@ describe('editing an existing scroll', () => {
       target: TARGET,
       assets: [{
         url: 'https://assets.example.org/other.bin',
-        relativePath: 'model-cache/example-model/weights.bin',
+        relativePath: 'cache/example-model/data.bin',
         sizeBytes: 4,
         sha256: 'a'.repeat(64),
       }],
@@ -195,8 +194,8 @@ describe('editing an existing scroll', () => {
     await expect(addAsset({
       boxId: 'example-model',
       target: ALL_TARGETS,
-      url: 'https://assets.example.org/weights.bin',
-      fetchImpl: servingBytes('weights'),
+      url: 'https://assets.example.org/data.bin',
+      fetchImpl: servingBytes('data'),
     })).rejects.toThrow(/both claim that path/);
 
     expect(await readFile(basePath, 'utf8')).toBe(before);
@@ -273,11 +272,8 @@ describe('editing an existing scroll', () => {
 
     expect((await readScroll(REFERENCE)).scroll.version).toBe('2.0.0');
     await expect(setScrollField({
-      boxId: 'example-model', target: ALL_TARGETS, field: 'pythonEntryPoint', value: 'venv/python.exe',
+      boxId: 'example-model', target: ALL_TARGETS, field: 'runtime', value: 'node',
     })).rejects.toThrow(/not an editable scroll field/);
-    await expect(setScrollField({
-      boxId: 'example-model', target: ALL_TARGETS, field: 'weights', value: 'maybe',
-    })).rejects.toThrow(/Unsupported weights/);
   });
 
   it('offers editable fields from the schema, never the derived or structural ones', async () => {
@@ -285,7 +281,7 @@ describe('editing an existing scroll', () => {
 
     expect(names).toContain('version');
     expect(names).toContain('assetBaseUrl');
-    for (const excluded of ['boxId', 'target', 'pythonEntryPoint', 'schemaVersion', 'extends', 'assets']) {
+    for (const excluded of ['boxId', 'target', 'runtime', 'schemaVersion', 'extends', 'assets']) {
       expect(names, excluded).not.toContain(excluded);
     }
   });
@@ -315,8 +311,8 @@ describe('editing an existing scroll', () => {
     await addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'NOTICE.md' });
     const base = JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
     base.assets = [{
-      url: 'https://assets.example.org/weights.bin',
-      relativePath: 'model-cache/example-model/weights.bin',
+      url: 'https://assets.example.org/data.bin',
+      relativePath: 'cache/example-model/data.bin',
       sizeBytes: 7,
       sha256: 'a'.repeat(64),
     }];
@@ -331,8 +327,8 @@ describe('editing an existing scroll', () => {
     const { boxDir } = await splitBox();
     const base = JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
     base.assets = [{
-      url: 'https://assets.example.org/weights.bin',
-      relativePath: 'model-cache/example-model/weights.bin',
+      url: 'https://assets.example.org/data.bin',
+      relativePath: 'cache/example-model/data.bin',
       sizeBytes: 7,
       sha256: 'a'.repeat(64),
     }];
@@ -346,7 +342,7 @@ describe('editing an existing scroll', () => {
     expect((await readScroll(REFERENCE)).scroll.assets[0].sha256).toBe('a'.repeat(64));
 
     const accepted = await refreshScroll({ boxId: 'example-model', repin: true, fetchImpl });
-    expect(accepted.repinned).toEqual(['model-cache/example-model/weights.bin']);
+    expect(accepted.repinned).toEqual(['cache/example-model/data.bin']);
     expect((await readScroll(REFERENCE)).scroll.assets[0].sha256).not.toBe('a'.repeat(64));
   });
 

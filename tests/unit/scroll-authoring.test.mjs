@@ -23,8 +23,7 @@ const TARGET = { platform: 'macos', arch: 'aarch64', accelerator: 'metal' };
 const BASE = {
   boxId: 'example-model',
   target: TARGET,
-  modelId: 'example-org-example-model',
-  runtimeId: 'example-model-runtime',
+  labels: { model: 'example-org-example-model' },
   version: '1.0.0',
   scrollVersion: '1.0.0',
   sourceRevision: 'upstream-v1',
@@ -32,7 +31,6 @@ const BASE = {
   pixiVersion: '0.73.0',
   compatibility: { minHostAppVersion: '1.0.0' },
   assetBaseUrl: 'https://assets.example.org',
-  weights: 'embed',
 };
 
 describe('scroll authoring', () => {
@@ -62,7 +60,7 @@ describe('scroll authoring', () => {
     expect(result.scrollRef).toBe('example-model/macos-aarch64-metal');
     expect(result.scroll.execution).toBeUndefined();
     expect(result.scroll.localFiles).toBeUndefined();
-    expect(result.scroll.$schema).toBe('https://scrollcase.dev/schema/v2/scroll.schema.json');
+    expect(result.scroll.$schema).toBe('https://scrollcase.dev/schema/v3/scroll.schema.json');
     expect(await readScroll(result.scrollRef)).toMatchObject({
       scroll: { boxId: BASE.boxId, target: TARGET, pixiVersion: BASE.pixiVersion },
     });
@@ -107,13 +105,13 @@ describe('scroll authoring', () => {
 
     // Four questions, not nine: identity, provenance, where it will be published, how it runs.
     expect(asked).toEqual([...answers.keys()]);
-    // The weights mode is not among the menus. It decides where declared assets live, and a scroll
-    // packaging plain Python declares none — so it is a flag, and the scroll takes the default.
+    // Labels are not among the menus, and there is nothing to derive: Scrollcase reads none of
+    // them, so prompting for one would be asking the author to fill in a field on the tool's
+    // behalf. A generated scroll carries none.
     expect(chosen).toEqual(['execution kind']);
-    expect(options.weights).toBe('embed');
-    expect(result.scroll.weights).toBeUndefined();
-    expect(options.modelId).toBe(BASE.boxId);
-    expect(options.runtimeId).toBe(`${BASE.boxId}-runtime`);
+    expect(options.labels).toEqual({});
+    expect(result.scroll.labels).toBeUndefined();
+    expect(result.scroll.runtime).toEqual({ id: 'python', version: DEFAULT_PYTHON_VERSION });
     expect(options.version).toBe('1.0.0');
     expect(options.pythonVersion).toBe(DEFAULT_PYTHON_VERSION);
     expect(options.pixiVersion).toBe(BASE.pixiVersion);
@@ -128,7 +126,7 @@ describe('scroll authoring', () => {
   it('pins the pixi that is installed, since a build refuses any other', async () => {
     const options = await collectNewScrollOptions(
       new Map([['box-id', 'example-model'], ['source-revision', 'upstream-v1'],
-        ['asset-base-url', 'https://assets.example.org'], ['weights', 'embed'],
+        ['asset-base-url', 'https://assets.example.org'],
         ['execution', 'library-only'], ['target', 'macos-aarch64-metal']]),
       { terminal: false, probe: () => ({ path: 'pixi', version: '9.9.9' }) },
     );
@@ -219,11 +217,11 @@ describe('scroll authoring', () => {
     });
 
     const written = JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8'));
-    expect(written.pythonEntryPoint).toBeUndefined();
-    expect(written.modelCacheSubdir).toBeUndefined();
+    expect(written.runtime.entryPoint).toBeUndefined();
+    expect(written.cacheSubdir).toBeUndefined();
     const { scroll } = await readScroll(result.scrollRef);
-    expect(scroll.pythonEntryPoint).toBe('venv/python.exe');
-    expect(scroll.modelCacheSubdir).toBe('model-cache/example-model');
+    expect(scroll.runtime.entryPoint).toBe('venv/python.exe');
+    expect(scroll.cacheSubdir).toBe('cache/example-model');
     expect(await readFile(join(result.scrollDir, 'pixi.toml'), 'utf8'))
       .toContain('platforms = ["win-64"]');
   });
@@ -243,8 +241,8 @@ describe('scroll authoring', () => {
     await writeFile(join(result.scrollDir, 'scroll.json'), `${JSON.stringify({
       ...minimal,
       scrollVersion: '1.0.0',
-      pythonEntryPoint: 'venv/bin/python',
-      modelCacheSubdir: 'model-cache/example-model',
+      runtime: { ...minimal.runtime, entryPoint: 'venv/bin/python' },
+      cacheSubdir: 'cache/example-model',
       assets: [],
       selfTest: { ...minimal.selfTest, files: [] },
     }, null, 2)}\n`);
@@ -263,10 +261,10 @@ describe('scroll authoring', () => {
     const scroll = JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8'));
     await writeFile(join(result.scrollDir, 'scroll.json'), `${JSON.stringify({
       ...scroll,
-      pythonEntryPoint: 'venv/python.exe',
+      runtime: { ...scroll.runtime, entryPoint: 'venv/python.exe' },
     }, null, 2)}\n`);
 
-    await expect(readScroll(result.scrollRef)).rejects.toThrow(/must use Python entry point/);
+    await expect(readScroll(result.scrollRef)).rejects.toThrow(/must use entry point/);
   });
 
   it('generates a runnable self-test as a Python file, not a JSON string', async () => {
@@ -277,9 +275,9 @@ describe('scroll authoring', () => {
       executionKind: 'library-only',
     });
 
-    expect(result.scroll.selfTest.pythonCode).toBeUndefined();
+    expect(result.scroll.selfTest.code).toBeUndefined();
     const selfTestPath = join(result.scrollDir, 'self_test.py');
-    expect(result.scroll.selfTest.pythonFile)
+    expect(result.scroll.selfTest.script)
       .toBe(`scrolls/example-model/macos-aarch64-metal/self_test.py`);
     expect(await readFile(selfTestPath, 'utf8')).toContain('self-test ok');
     expect(result.written).toContain(selfTestPath);

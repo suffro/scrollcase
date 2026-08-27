@@ -87,7 +87,7 @@ def model_dir() -> Path:
     """Model directory, as the box itself declares it.
 
     A box ships a `box.json` at its root, and one of the things it states is
-    `modelCacheSubdir` -- where the model files were placed. Reading it here means
+    `cacheSubdir` -- where the model files were placed. Reading it here means
     the application never has to guess a path, and the scroll never has to be bent
     to match a constant compiled into this file. Change where the model lives and
     this keeps working; hard-code it and the two drift apart silently.
@@ -98,9 +98,9 @@ def model_dir() -> Path:
         raise DemoError(f"missing box manifest: {manifest}")
     try:
         with manifest.open(encoding="utf-8") as handle:
-            subdirectory = json.load(handle)["modelCacheSubdir"]
+            subdirectory = json.load(handle)["cacheSubdir"]
     except (KeyError, ValueError) as error:
-        raise DemoError(f"{BOX_MANIFEST} declares no usable modelCacheSubdir: {error}") from None
+        raise DemoError(f"{BOX_MANIFEST} declares no usable cacheSubdir: {error}") from None
     return root.joinpath(*str(subdirectory).split("/"))
 
 

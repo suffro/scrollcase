@@ -19,14 +19,13 @@ const REFERENCE = `example-model/${TARGET_ID}`;
 
 /** Everything the targets of one box share. A base declares no target of its own. */
 const BASE = {
-  $schema: 'https://scrollcase.dev/schema/v2/scroll.schema.json',
-  schemaVersion: 2,
+  $schema: 'https://scrollcase.dev/schema/v3/scroll.schema.json',
+  schemaVersion: 3,
   boxId: 'example-model',
-  modelId: 'example-org-example-model',
-  runtimeId: 'example-model-runtime',
+  labels: { model: 'example-org-example-model' },
   version: '1.0.0',
   sourceRevision: 'upstream-v1',
-  pythonVersion: '3.14',
+  runtime: { id: 'python', version: '3.14' },
   pixiVersion: '0.73.0',
   assetBaseUrl: 'https://assets.example.org/boxes',
   selfTest: { imports: ['json'] },
@@ -34,7 +33,7 @@ const BASE = {
 
 const asset = (name, hash) => ({
   url: `https://assets.example.org/${name}`,
-  relativePath: `model-cache/${name}`,
+  relativePath: `cache/${name}`,
   sizeBytes: 4,
   sha256: hash.repeat(64),
 });
@@ -68,7 +67,7 @@ describe('joining a base scroll with a target fragment', () => {
 
     expect(scroll.boxId).toBe('example-model');
     expect(scroll.target).toEqual(TARGET);
-    expect(scroll.pythonVersion).toBe('3.14');
+    expect(scroll.runtime.version).toBe('3.14');
     // The joined scroll extends nothing: it is the whole scroll, not half of one.
     expect(scroll.extends).toBeUndefined();
     expect(scroll.scrollId).toBe(`example-model-${TARGET_ID}`);
@@ -114,23 +113,23 @@ describe('joining a base scroll with a target fragment', () => {
 
     // A target that adds one asset must not lose the shared ones.
     expect(scroll.assets.map(({ relativePath }) => relativePath))
-      .toEqual(['model-cache/shared.bin', 'model-cache/metal.bin']);
+      .toEqual(['cache/shared.bin', 'cache/metal.bin']);
     expect(scroll.localFiles.map(({ relativePath }) => relativePath))
       .toEqual(['NOTICE.md', 'metal.py']);
   });
 
   it('refuses two entries claiming one payload path', async () => {
     await family(
-      { ...BASE, assets: [asset('weights.bin', 'a')] },
+      { ...BASE, assets: [asset('data.bin', 'a')] },
       {
         extends: '../scroll.json',
         target: TARGET,
-        assets: [{ ...asset('weights.bin', 'b'), url: 'https://assets.example.org/other.bin' }],
+        assets: [{ ...asset('data.bin', 'b'), url: 'https://assets.example.org/other.bin' }],
       },
     );
 
     await expect(readScroll(REFERENCE))
-      .rejects.toThrow(/asset and the asset at model-cache\/weights\.bin both claim that path/);
+      .rejects.toThrow(/asset and the asset at cache\/data\.bin both claim that path/);
   });
 
   it('refuses an asset and a local file claiming one path, whichever half declared them', async () => {
@@ -139,13 +138,13 @@ describe('joining a base scroll with a target fragment', () => {
       {
         extends: '../scroll.json',
         target: TARGET,
-        localFiles: [{ sourcePath: 'shim.py', relativePath: 'model-cache/shim.py' }],
+        localFiles: [{ sourcePath: 'shim.py', relativePath: 'cache/shim.py' }],
       },
     );
 
     // The conflict is about the destination, not about which list an author wrote it in.
     await expect(readScroll(REFERENCE))
-      .rejects.toThrow(/asset and the local file at model-cache\/shim\.py both claim that path/);
+      .rejects.toThrow(/asset and the local file at cache\/shim\.py both claim that path/);
   });
 
   it('joins string lists and drops repeats', async () => {
@@ -197,20 +196,20 @@ describe('joining a base scroll with a target fragment', () => {
     expect(scroll.environment).toEqual({ HF_HUB_OFFLINE: '1', LOG_LEVEL: 'debug' });
   });
 
-  it('lets a fragment replace the extra self-test Python in either spelling', async () => {
+  it('lets a fragment replace the extra self-test source in either spelling', async () => {
     await family(
-      { ...BASE, selfTest: { imports: ['json'], pythonFile: 'checks/shared.py' } },
+      { ...BASE, selfTest: { imports: ['json'], script: 'checks/shared.py' } },
       {
         extends: '../scroll.json',
         target: TARGET,
-        selfTest: { imports: ['json'], pythonCode: 'assert True' },
+        selfTest: { imports: ['json'], code: 'assert True' },
       },
     );
     const { scroll } = await readScroll(REFERENCE);
 
     // One logical slot, two spellings: keeping both would produce a scroll the schema refuses.
-    expect(scroll.selfTest.pythonCode).toBe('assert True');
-    expect(scroll.selfTest.pythonFile).toBeUndefined();
+    expect(scroll.selfTest.code).toBe('assert True');
+    expect(scroll.selfTest.script).toBeUndefined();
   });
 
   it('refuses a base that declares a target', async () => {
@@ -257,9 +256,9 @@ describe('joining a base scroll with a target fragment', () => {
       ...BASE,
       compatibility: { minHostAppVersion: '1.0.0' },
       environment: { HF_HUB_OFFLINE: '1' },
-      assets: [asset('weights.bin', 'a')],
+      assets: [asset('data.bin', 'a')],
       prunePaths: ['venv/share/doc'],
-      selfTest: { imports: ['json'], files: ['model-cache/weights.bin'] },
+      selfTest: { imports: ['json'], files: ['cache/data.bin'] },
     };
     await family(shared, { extends: '../scroll.json', target: TARGET });
     const { scroll: split } = await readScroll(REFERENCE);

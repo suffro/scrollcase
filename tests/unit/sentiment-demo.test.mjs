@@ -80,7 +80,7 @@ describe('published sentiment demo box', () => {
       scrollId: null,
       target: null,
       condaDependencyLicenseAudit: null,
-      pythonEntryPoint: null,
+      runtime: null,
     }));
 
     expect(new Set(normalised).size).toBe(1);

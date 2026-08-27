@@ -187,8 +187,10 @@ export function signWithLocalKey(payloadBytes, { privateKey, metadata }) {
  * @throws {Error} when the envelope is unsupported or its checksum does not match
  */
 export function decodeSignedDocument(document) {
-  if (document?.schemaVersion === 1) {
-    fail(unsupportedSchemaVersionMessage(1));
+  // Named by version before the generic refusal: a superseded document is a common thing to be
+  // holding, and "unsupported signed document" would not tell its owner what to do about it.
+  if (document?.schemaVersion === 1 || document?.schemaVersion === 2) {
+    fail(unsupportedSchemaVersionMessage(document.schemaVersion));
   }
   if (document?.schemaVersion !== BOX_SCHEMA_VERSION || document?.payloadEncoding !== PAYLOAD_ENCODING) {
     fail('Unsupported signed document.');

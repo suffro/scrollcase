@@ -1,19 +1,24 @@
 {
-  "$schema": "https://scrollcase.dev/schema/v2/scroll.schema.json",
-  "schemaVersion": 2,
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
   "scrollVersion": "1.0.0",
   "boxId": "llm-demo",
-  "modelId": "smollm2-1.7b-instruct-gguf-q4-k-m",
-  "runtimeId": "llama-cpp-cpu",
+  "labels": {
+    "model": "smollm2-1.7b-instruct-gguf-q4-k-m",
+    "stack": "llama-cpp-cpu"
+  },
   "version": "1.0.0",
   "sourceRevision": "2d4a76a30b4af41ecd395c35725ac11688d4cfe4",
   "compatibility": {
     "minHostAppVersion": "1.0.0",
     "minRamGb": 4
   },
-  "pythonVersion": "3.11.*",
+  "runtime": {
+    "id": "python",
+    "version": "3.11.*"
+  },
   "pixiVersion": "0.73.0",
-  "modelCacheSubdir": "model-cache/llm-demo",
+  "cacheSubdir": "cache/llm-demo",
   "environment": {
     "PYTHONDONTWRITEBYTECODE": "1"
   },
@@ -21,7 +26,7 @@
   "assets": [
     {
       "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf",
-      "relativePath": "model-cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf",
+      "relativePath": "cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf",
       "sizeBytes": 1055609536,
       "sha256": "decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33"
     }
@@ -30,12 +35,12 @@
     {
       "sourcePath": "examples/llm-demo/shared/entrypoint.py",
       "relativePath": "entrypoint.py",
-      "sha256": "c8b15f057a90ddba07b07d2cd983e2f200090a6b2dd2ac33fd9e54dfda2afa06"
+      "sha256": "ff344a7a91e0baceb6b3230923f03e21bfbc549f1b519ecfba4634af7fbe7943"
     },
     {
       "sourcePath": "examples/llm-demo/shared/MODEL_NOTICE.md",
       "relativePath": "THIRD_PARTY_NOTICES/smollm2/MODEL_NOTICE.md",
-      "sha256": "32c8619c5c6c5d94699d37fd78b90723aed8ae08f85bb037a92aa2a6d149454c"
+      "sha256": "6a289f5a4c501e959bb7a646cd6b40a456ff8598844c1e4dd17684ff7a92c1b2"
     },
     {
       "sourcePath": "examples/llm-demo/shared/APACHE-2.0.txt",
@@ -43,18 +48,17 @@
       "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
     }
   ],
-  "weights": "embed",
   "selfTest": {
     "imports": [
       "llama_cpp"
     ],
     "files": [
       "entrypoint.py",
-      "model-cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf",
+      "cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf",
       "THIRD_PARTY_NOTICES/smollm2/MODEL_NOTICE.md",
       "THIRD_PARTY_NOTICES/smollm2/APACHE-2.0.txt"
     ],
-    "pythonFile": "examples/llm-demo/shared/self_test.py"
+    "script": "examples/llm-demo/shared/self_test.py"
   },
   "execution": {
     "kind": "python-script",

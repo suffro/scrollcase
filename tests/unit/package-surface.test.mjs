@@ -153,7 +153,7 @@ describe('the package surface', () => {
     const scroll = await import('scrollcase/contract/schema/scroll.schema.json', { with: { type: 'json' } });
     const fixture = await import('scrollcase/contract/fixtures/target-id-contract.json', { with: { type: 'json' } });
     expect(schema.default.$id).toMatch(/target\.schema\.json$/);
-    expect(scroll.default.$id).toBe('https://scrollcase.dev/schema/v2/scroll.schema.json');
+    expect(scroll.default.$id).toBe('https://scrollcase.dev/schema/v3/scroll.schema.json');
     expect(fixture.default.valid.length).toBeGreaterThan(0);
   });
 });

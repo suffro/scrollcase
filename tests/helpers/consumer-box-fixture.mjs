@@ -74,6 +74,7 @@ export async function createConsumerBoxFixture({
   labels = undefined,
   runtimeId = 'python',
   executablePaths = [],
+  extraFiles = {},
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'scrollcase-consumer-fixture-'));
   const payload = join(root, 'payload');
@@ -83,6 +84,12 @@ export async function createConsumerBoxFixture({
   const pythonPath = join(payload, ...layout.entryPoint.split('/'));
   await mkdir(dirname(pythonPath), { recursive: true });
   await writeFile(pythonPath, interpreterContents);
+
+  for (const [relativePath, contents] of Object.entries(extraFiles)) {
+    const filePath = join(payload, ...relativePath.split('/'));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, contents);
+  }
 
   if (execution?.kind === 'python-script') {
     const scriptPath = join(payload, ...execution.script.split('/'));

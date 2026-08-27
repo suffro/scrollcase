@@ -8,7 +8,7 @@ import { auditScroll } from '../../src/build/audit.mjs';
 import { readScroll } from '../../src/build/scroll.mjs';
 import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mjs';
 import { boxTargetAdapter, condaSubdir } from '../../src/contract/targets.mjs';
-import { IMPLICIT_RUNTIME_ID, runtimeAdapter } from '../../src/contract/runtimes.mjs';
+import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const example = join(root, 'examples', 'llm-demo');
@@ -126,7 +126,7 @@ describe('published local LLM demo box', () => {
       scrollId: null,
       target: null,
       condaDependencyLicenseAudit: null,
-      pythonEntryPoint: null,
+      runtime: null,
       environment: null,
     }));
 
@@ -152,11 +152,12 @@ describe('published local LLM demo box', () => {
       expect(asset.url, target).toContain(`/resolve/${modelRevision}/`);
       expect(asset.url, target).not.toContain('/resolve/main/');
       expect(asset.relativePath, target).toBe(
-        'model-cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf',
+        'cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf',
       );
       expect(asset.sizeBytes, target).toBe(modelSizeBytes);
       expect(asset.sha256, target).toBe(modelSha256);
-      expect(scroll.weights, target).toBe('embed');
+      // Embedded, which is now what saying nothing means: the box installs with no network.
+      expect(asset.embed, target).toBeUndefined();
     }
   });
 
@@ -190,8 +191,10 @@ describe('published local LLM demo box', () => {
     for (const { target, scroll } of await scrolls()) {
       const manifest = await readFile(join(example, target, 'pixi.toml'), 'utf8');
       expect(manifest, target).toContain(`platforms = ["${condaSubdir(scroll.target)}"]`);
-      expect(scroll.pythonEntryPoint, target)
-        .toBe(runtimeAdapter(IMPLICIT_RUNTIME_ID).layout(boxTargetAdapter(scroll.target)).entryPoint);
+      // Derived rather than declared: the runtime's layout admits exactly one value per target, so
+      // an example that wrote one down would only be restating what reading the scroll fills in.
+      expect(scroll.runtime.entryPoint, target)
+        .toBe(runtimeAdapter(scroll.runtime.id).layout(boxTargetAdapter(scroll.target)).entryPoint);
     }
   });
 

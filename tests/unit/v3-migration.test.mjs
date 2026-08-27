@@ -15,25 +15,28 @@ import { resolveWorkspace } from '../../src/build/workspace.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 
-describe('the v2-only contract boundary', () => {
-  it('publishes only the canonical v2 scroll schema', async () => {
-    expect(BOX_SCHEMA_VERSION).toBe(2);
+describe('the v3-only contract boundary', () => {
+  it('publishes only the canonical v3 scroll schema', async () => {
+    expect(BOX_SCHEMA_VERSION).toBe(3);
     const schema = JSON.parse(await readFile(schemaUrl('scroll'), 'utf8'));
-    expect(schema.$id).toBe('https://scrollcase.dev/schema/v2/scroll.schema.json');
-    expect(schema.properties.schemaVersion.const).toBe(2);
+    expect(schema.$id).toBe('https://scrollcase.dev/schema/v3/scroll.schema.json');
+    expect(schema.properties.schemaVersion.const).toBe(3);
   });
 
-  it('rejects a v1 signed document with the migration remedy', () => {
+  // Both superseded versions, each named. Published v1 and v2 boxes stay historical artefacts and
+  // there is no dual-read path anywhere: a reader holding one is told which rebuild it needs, not
+  // handed a guess at what the document meant.
+  it.each([1, 2])('rejects a v%i signed document with the migration remedy', (schemaVersion) => {
     const bytes = Buffer.from('{}');
     const document = {
-      schemaVersion: 1,
+      schemaVersion,
       payloadEncoding: 'base64-json-utf8',
       payloadBase64: bytes.toString('base64'),
       payloadSha256: createHash('sha256').update(bytes).digest('hex'),
       signatures: [{ algorithm: 'ed25519', keyId: 'test', signatureBase64: 'test' }],
     };
     expect(() => decodeSignedDocument(document))
-      .toThrow('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+      .toThrow(`Unsupported schemaVersion ${schemaVersion}; rebuild this box with Scrollcase v3.`);
   });
 
   it('closes the channel vocabulary to nightly, beta, and stable', () => {
@@ -43,7 +46,7 @@ describe('the v2-only contract boundary', () => {
 
 describe('canonical scroll workspace names', () => {
   it('uses scrolls and exposes no legacy compatibility field', () => {
-    const cwd = join(tmpdir(), 'scrollcase-v2-workspace');
+    const cwd = join(tmpdir(), 'scrollcase-v3-workspace');
     const workspace = resolveWorkspace({ cwd });
     expect(workspace.scrollsDir).toBe(join(cwd, 'scrolls'));
     const legacyField = ['re', 'cipesDir'].join('');
