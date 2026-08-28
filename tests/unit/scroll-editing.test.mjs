@@ -258,7 +258,7 @@ describe('editing an existing scroll', () => {
     })).rejects.toThrow(/a box must prove it can import something/);
     await expect(addSelfTestImport({
       boxId: 'example-model', target: ALL_TARGETS, module: 'not a module',
-    })).rejects.toThrow(/Not an importable module name/);
+    })).rejects.toThrow(/Not an importable python module name/);
   });
 
   it('sets a field, and refuses one the format does not let a person change', async () => {

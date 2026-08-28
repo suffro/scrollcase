@@ -152,12 +152,20 @@ function plantPrefixSymlinks(prefix) {
  * asset staging, pruning, the self-test gate, box.json, the deterministic archive, signing — is the
  * real implementation, which is what this test is here to exercise.
  */
-function fakeToolchain(payloadDir, { module = null, onSelfTest = null, consoleScript = null } = {}) {
+function fakeToolchain(payloadDir, {
+  module = null,
+  onSelfTest = null,
+  consoleScript = null,
+  // What the box starts. A native box starts a file the scroll brought in, and its packed prefix
+  // carries no interpreter at all — so both are parameters rather than the Python answer baked in.
+  interpreter = true,
+  selfTestCommand = join(payloadDir, ...ENTRY_SEGMENTS),
+} = {}) {
   const run = function run(command, args = [], options = {}) {
     if (command === 'pixi' && args[0] === 'install') {
       const manifest = args[args.indexOf('--manifest-path') + 1];
       const prefix = join(dirname(manifest), '.pixi', 'envs', 'default');
-      writeDeep(join(prefix, ...ENTRY_SEGMENTS.slice(1)), '#!/bin/sh\nexit 0\n');
+      if (interpreter) writeDeep(join(prefix, ...ENTRY_SEGMENTS.slice(1)), '#!/bin/sh\nexit 0\n');
       if (consoleScript) {
         // What conda actually generates: the *build machine's* interpreter, reached through the
         // shell trampoline it falls back to when an absolute shebang would be too long.
@@ -196,8 +204,8 @@ function fakeToolchain(payloadDir, { module = null, onSelfTest = null, consoleSc
       tar.c({ file: output, cwd: prefix, gzip: true, sync: true }, ['.']);
       return '';
     }
-    // Anything else is the box's own interpreter, running the self-test.
-    expect(command).toBe(join(payloadDir, ...ENTRY_SEGMENTS));
+    // Anything else is the box running its own self-test, with whatever the runtime starts.
+    expect(command).toBe(selfTestCommand);
     onSelfTest?.({ command, args, options });
     return '';
   };
@@ -331,11 +339,169 @@ describe('the build pipeline', () => {
     await expect(readScroll(SCROLL_REF)).rejects.toThrow(/entry point/);
   });
 
-  it('refuses a runtime the format defines but this build cannot produce', async () => {
-    // The wire vocabulary is deliberately wider than the implemented set, so this is an expected
-    // refusal with a message that says which of the two the scroll fell foul of.
-    await makeProject({ ...SCROLL, runtime: { id: 'native' } }, { commit: false });
-    await expect(readScroll(SCROLL_REF)).rejects.toThrow(/native is not implemented/);
+  it('builds, signs and verifies a native box that starts a binary of its own', async () => {
+    const NATIVE_SCROLL = {
+      ...SCROLL,
+      runtime: { id: 'native' },
+      condaDependencyLicenseAudit: undefined,
+      bundledLicenseDeclaration: 'legal/bundled.json',
+      localFiles: [{ sourcePath: 'tool', relativePath: 'bin/tool', executable: true }],
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: ['--quiet'] },
+      selfTest: { commands: [{ args: ['--version'] }], files: ['bin/tool'] },
+    };
+    delete NATIVE_SCROLL.condaDependencyLicenseAudit;
+    const declared = [{
+      name: 'zlib',
+      version: '1.3.1',
+      declaredLicense: 'Zlib',
+      linkedInto: ['bin/tool'],
+      sourceUrl: 'https://zlib.net/',
+    }];
+    const { keys, payloadDir } = await makeProject(NATIVE_SCROLL, {
+      projectFiles: {
+        tool: '#!/bin/sh\nexit 0\n',
+        'legal/bundled.json': `${JSON.stringify(declared, null, 2)}\n`,
+      },
+    });
+    const invoked = [];
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir, {
+        interpreter: false,
+        selfTestCommand: join(payloadDir, 'bin', 'tool'),
+        onSelfTest: ({ args }) => invoked.push(args),
+      }),
+      log: () => {},
+    });
+
+    // The binary is the command; the declaration's own arguments come first, the probe's after.
+    expect(invoked).toEqual([['--quiet', '--version']]);
+    const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
+    expect(release.runtime).toEqual({ id: 'native' });
+    // Transported and signed exactly as declared: Scrollcase derives nothing here and reorders
+    // nothing, because it has no way to know what is inside a binary somebody else compiled.
+    expect(release.bundledLicenses).toEqual(declared);
+    // A payload file the scroll declared executable, so the archive marks it — which is the only
+    // reason the box can start at all.
+    const modes = await zipModes(join(dirname(built.releasePath), `${built.archiveSha256}.zip`));
+    if (process.platform !== 'win32') expect(modes.get('bin/tool')).toBe(0o100755);
+    const extracted = join(payloadDir, '..', 'extracted');
+    await extractZipArchive(join(dirname(built.releasePath), `${built.archiveSha256}.zip`), extracted);
+    // The same list a reader of the release saw, shipped where someone opening the box will look.
+    expect(JSON.parse(await readFile(join(extracted, 'THIRD_PARTY_NOTICES', 'bundled-dependencies.json'), 'utf8')))
+      .toEqual(declared);
+    const box = JSON.parse(await readFile(join(extracted, 'box.json'), 'utf8'));
+    expect(box.bundledLicenses).toEqual(declared);
+    expect(() => assertBoxManifestAgreement(box, release)).not.toThrow();
+    await expect(verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} }))
+      .resolves.toMatchObject({ status: 'passed' });
+  });
+
+  it('refuses a bundled licence entry naming a file the box does not carry', async () => {
+    const { keys, payloadDir } = await makeProject({
+      ...SCROLL,
+      bundledLicenseDeclaration: 'legal/bundled.json',
+    }, {
+      projectFiles: {
+        'legal/bundled.json': `${JSON.stringify([{
+          name: 'zlib',
+          version: '1.3.1',
+          declaredLicense: 'Zlib',
+          linkedInto: ['bin/gone'],
+        }])}\n`,
+      },
+    });
+    await expect(buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      log: () => {},
+    })).rejects.toThrow(/zlib==1\.3\.1 is declared linked into bin\/gone, which this box does not carry/);
+  });
+
+  it('refuses a bundled licence declaration the format cannot carry', async () => {
+    const { keys, payloadDir } = await makeProject({
+      ...SCROLL,
+      bundledLicenseDeclaration: 'legal/bundled.json',
+    }, {
+      projectFiles: {
+        // No `linkedInto`: an entry that names no file is a notice, not an inventory, and nothing
+        // about it could ever be checked against the box.
+        'legal/bundled.json': `${JSON.stringify([{ name: 'zlib', version: '1.3.1', declaredLicense: 'Zlib' }])}\n`,
+      },
+    });
+    await expect(buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      log: () => {},
+    })).rejects.toThrow(/declared bundled licence inventory is invalid/);
+  });
+
+  it('refuses a box that runs a file the archive would not mark executable', async () => {
+    const { keys, payloadDir } = await makeProject({
+      ...SCROLL,
+      runtime: { id: 'native' },
+      // Declared without `executable`, so the archive would ship it 0644 and nothing could start it.
+      localFiles: [{ sourcePath: 'tool', relativePath: 'bin/tool' }],
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+      selfTest: { commands: [{ args: [] }], files: [] },
+    }, { projectFiles: { tool: '#!/bin/sh\nexit 0\n' } });
+    await expect(buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir, {
+        interpreter: false,
+        selfTestCommand: join(payloadDir, 'bin', 'tool'),
+      }),
+      log: () => {},
+    })).rejects.toThrow(/runs bin\/tool, which the archive would not mark executable/);
+  });
+
+  it('refuses a native scroll that declares a runtime entry point', async () => {
+    // A native box starts a binary the scroll named; there is no interpreter to point at, and a
+    // declaration here would name a file the box never runs.
+    await makeProject({
+      ...SCROLL,
+      runtime: { id: 'native', entryPoint: HOST_LAYOUT.entryPoint },
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+      selfTest: { commands: [{ args: ['--version'] }], files: [] },
+    }, { commit: false });
+    await expect(readScroll(SCROLL_REF)).rejects.toThrow(/no runtime entry point to declare/);
+  });
+
+  it('refuses an import probe in a box whose runtime has no module system', async () => {
+    await makeProject({
+      ...SCROLL,
+      runtime: { id: 'native' },
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+      selfTest: { imports: ['json'], files: [] },
+    }, { commit: false });
+    await expect(readScroll(SCROLL_REF))
+      .rejects.toThrow(/native runtime cannot answer a selfTest.imports probe/);
+  });
+
+  it('derives no entry point for a runtime that has none', async () => {
+    await makeProject({
+      ...SCROLL,
+      runtime: { id: 'native' },
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+      selfTest: { commands: [{ args: ['--version'] }], files: [] },
+    }, { commit: false });
+    const { scroll } = await readScroll(SCROLL_REF);
+    expect(scroll.runtime).toEqual({ id: 'native' });
+  });
+
+  it('refuses a parity gate in a box with no interpreter to run it', async () => {
+    await makeProject({
+      ...SCROLL,
+      runtime: { id: 'native' },
+      execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
+      selfTest: { commands: [{ args: ['--version'] }], files: [] },
+      parity: {
+        script: 'parity.py',
+        accelerators: ['cpu', 'cuda'],
+        tolerances: { absolute: 1e-6 },
+      },
+    }, { commit: false });
+    await expect(readScroll(SCROLL_REF)).rejects.toThrow(/no interpreter to run a parity check/);
   });
 
   it('refuses an execution kind belonging to another runtime', async () => {

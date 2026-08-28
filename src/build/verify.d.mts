@@ -7,7 +7,9 @@
  *
  * `assets` carries the per-entry `embed` decision by construction: it lists exactly the deferred
  * entries, and it is compared deeply, so a box that quietly changed its mind about one asset
- * disagrees with its release.
+ * disagrees with its release. `bundledLicenses` is here for the same reason it is signed at all: a
+ * licence inventory that could differ between the document a reviewer read and the box a user
+ * installed would be worth nothing.
  */
 export function assertBoxManifestAgreement(box: any, release: any): void;
 /**

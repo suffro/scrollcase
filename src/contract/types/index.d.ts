@@ -162,6 +162,10 @@ export interface BoxScroll {
    */
   condaDependencyLicenseAudit?: string;
   /**
+   * Path to the project's inventory of dependencies compiled *inside* the binaries this box ships. pixi.lock declares a licence per conda package, but it cannot see what was linked into a supplied executable before the build ever started, and nothing Scrollcase can read will tell it. So this half is declared rather than derived: the file is a JSON array of { name, version, declaredLicense, linkedInto } entries, and the build checks that every path it names is really in the box before carrying the list into the signed release. What belongs in it is the project's judgement; Scrollcase transports and signs what the project reviewed and never decides what a complete inventory is.
+   */
+  bundledLicenseDeclaration?: string;
+  /**
    * Payload directory the box's own large files live under — the destination a scroll's assets conventionally share. Defaults to cache/<boxId>.
    */
   cacheSubdir?: string;
@@ -282,6 +286,55 @@ export interface Runtime {
 /**
  * Run one regular payload file with the box's own Python interpreter.
  */
+export type BundledLicenses = [
+  {
+    /**
+     * The dependency as its own project names it.
+     */
+    name: string;
+    version: string;
+    /**
+     * The licence the project reviewed, conventionally an SPDX expression. Scrollcase carries the string through and never parses it: what a licence permits is not a question a packaging tool answers.
+     */
+    declaredLicense: string;
+    /**
+     * Payload files this dependency is compiled into. Every path must be a file the built box actually carries, which is what makes the declaration checkable rather than a free-text notice.
+     *
+     * @minItems 1
+     */
+    linkedInto: [string, ...string[]];
+    /**
+     * Where the dependency's source can be obtained, for a licence that requires the offer.
+     */
+    sourceUrl?: string;
+  },
+  ...{
+    /**
+     * The dependency as its own project names it.
+     */
+    name: string;
+    version: string;
+    /**
+     * The licence the project reviewed, conventionally an SPDX expression. Scrollcase carries the string through and never parses it: what a licence permits is not a question a packaging tool answers.
+     */
+    declaredLicense: string;
+    /**
+     * Payload files this dependency is compiled into. Every path must be a file the built box actually carries, which is what makes the declaration checkable rather than a free-text notice.
+     *
+     * @minItems 1
+     */
+    linkedInto: [string, ...string[]];
+    /**
+     * Where the dependency's source can be obtained, for a licence that requires the offer.
+     */
+    sourceUrl?: string;
+  }[]
+];
+/**
+ * The optional, shell-free application entry point shared by a scroll, the signed release, and box.json. Its absence means the box is intentionally library-only.
+ *
+ * Each kind is named <runtime>-<shape>, and the runtime half must be the one the box declares: a python-script in a box whose runtime is native describes something that cannot be run, and is refused rather than guessed at.
+ */
 export type DeferredAssets = [
   {
     url: string;
@@ -316,6 +369,7 @@ export interface BoxManifest {
   target: BoxTarget;
   runtime: Runtime;
   cacheSubdir: string;
+  bundledLicenses?: BundledLicenses;
   /**
    * Environment variables repeated from the signed release. Scrollcase consumers compare this declaration before execution and apply it over inherited and caller-supplied values.
    */
@@ -445,6 +499,7 @@ export interface BoxReleaseManifest {
    * Directory relative to the extracted box root holding the box's own large files.
    */
   cacheSubdir: string;
+  bundledLicenses?: BundledLicenses;
   /**
    * Signed environment variables applied whenever Scrollcase runs the box interpreter. These values override both the inherited host environment and caller-supplied values.
    */

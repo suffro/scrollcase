@@ -15,14 +15,33 @@ export function runtimeAdapters(): BoxRuntimeAdapter[];
 /**
  * Ensures a declared entry point agrees with where the runtime actually sits in the payload.
  *
+ * Three answers, because there are three cases. A runtime with an interpreter admits exactly one
+ * value for a given target, so a declaration is checked against it. A runtime without one — a
+ * native box — admits none, and a declaration there is refused rather than ignored: it would name a
+ * file the box never starts, and a reader would believe it. And a box that declares nothing at all
+ * is checked against nothing, because `runtime.entryPoint` is optional on the wire and its absence
+ * is a legitimate answer for both.
+ *
  * @param {string} runtimeId
  * @param {import('./targets.mjs').BoxTargetAdapter} adapter the resolved target adapter, whose id
  *   names the layout the entry point is being judged against
- * @param {string} entryPoint
+ * @param {string | null | undefined} entryPoint
  * @returns {void}
  * @throws {TypeError} when the entry point is not the one the runtime defines for this target
  */
-export function assertRuntimeEntryPoint(runtimeId: string, adapter: import("./targets.mjs").BoxTargetAdapter, entryPoint: string): void;
+export function assertRuntimeEntryPoint(runtimeId: string, adapter: import("./targets.mjs").BoxTargetAdapter, entryPoint: string | null | undefined): void;
+/**
+ * The message for a self-test probe shape the runtime cannot answer.
+ *
+ * Stated here, beside the rule, for the same reason `resolveExecutionFiles` returns its own
+ * `missing`: the wording is part of the contract, and the builder and all three consumers should
+ * refuse an impossible probe identically instead of each inventing a phrasing.
+ *
+ * @param {string} runtimeId
+ * @param {string} probeKind
+ * @returns {string}
+ */
+export function unsupportedSelfTestProbeMessage(runtimeId: string, probeKind: string): string;
 /**
  * The message for a box declaring a runtime this build has no adapter for.
  *
@@ -85,8 +104,11 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
  *
  * Schema version 3 made the runtime a declaration: a box says `runtime: { id, version, entryPoint }`
  * instead of leaving a reader to infer Python from a Python-shaped entry point. `RUNTIME_IDS` is the
- * vocabulary that declaration may use and `RUNTIME_ADAPTERS` is what this build can actually run —
- * two different lists on purpose, so implementing `node` later is code and not another wire break.
+ * vocabulary that declaration may use and `RUNTIME_ADAPTERS` is what this build can actually run.
+ * They now hold the same three, which is what the split was for: `node` and `native` arrived as
+ * adapters and the wire did not move. The two lists stay separate because they answer to different
+ * release cycles — a consumer crate published before a runtime landed still has to refuse a box
+ * naming it, by name, rather than misread it as another runtime.
  *
  * Only the pure half lives here. Nothing in this module reads a file, joins a host path, or starts
  * a process: every function is a statement about names, so the same inputs give the same answer in
@@ -113,6 +135,7 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
  * @property {readonly string[]} executionEnvironmentVariables inherited variables whose presence
  *   can change which code this runtime loads — the runtime half of the diagnostic list, to which
  *   the target adapter adds the operating system's own
+ * @property {readonly string[]} selfTestProbeKinds the probe shapes this runtime can answer
  * @property {(target: BoxRuntimeTarget) => BoxRuntimeLayout} layout where the runtime lives inside
  *   the payload
  * @property {(target: BoxRuntimeTarget) => ExecutablePayloadPaths} executablePayloadPaths payload
@@ -134,11 +157,19 @@ export function executionAffectingVariables(runtimeId: string, adapter: import("
 /**
  * Where a runtime lives inside an extracted box.
  *
+ * Two fields are nullable, and both mean the same thing: the runtime does not have that. A native
+ * box carries no interpreter to name and no bundled library to search, so `entryPoint` and
+ * `standardLibrary` are null rather than a plausible-looking path nothing would find. Every caller
+ * that reads one already has to decide what to do when the box declares none, because
+ * `runtime.entryPoint` is optional on the wire for exactly this reason.
+ *
  * @typedef {object} BoxRuntimeLayout
  * @property {string} root directory the runtime was relocated into
- * @property {string} entryPoint the runtime's own executable, relative to the box root
+ * @property {string | null} entryPoint the runtime's own executable, relative to the box root, or
+ *   null for a runtime that has no separate executable to name
  * @property {string} scriptsDirectory directory holding generated console scripts
- * @property {string} standardLibrary directory holding the runtime's bundled library
+ * @property {string | null} standardLibrary directory holding the runtime's bundled library, or
+ *   null for a runtime that has none
  * @property {string} executableSuffix suffix an executable carries on this platform
  * @property {string} launcherKind frozen wire string naming how launchers were repaired
  */
@@ -214,6 +245,10 @@ export type BoxRuntimeAdapter = {
      */
     executionEnvironmentVariables: readonly string[];
     /**
+     * the probe shapes this runtime can answer
+     */
+    selfTestProbeKinds: readonly string[];
+    /**
      * where the runtime lives inside
      * the payload
      */
@@ -250,6 +285,12 @@ export type BoxRuntimeTarget = {
 };
 /**
  * Where a runtime lives inside an extracted box.
+ *
+ * Two fields are nullable, and both mean the same thing: the runtime does not have that. A native
+ * box carries no interpreter to name and no bundled library to search, so `entryPoint` and
+ * `standardLibrary` are null rather than a plausible-looking path nothing would find. Every caller
+ * that reads one already has to decide what to do when the box declares none, because
+ * `runtime.entryPoint` is optional on the wire for exactly this reason.
  */
 export type BoxRuntimeLayout = {
     /**
@@ -257,17 +298,19 @@ export type BoxRuntimeLayout = {
      */
     root: string;
     /**
-     * the runtime's own executable, relative to the box root
+     * the runtime's own executable, relative to the box root, or
+     * null for a runtime that has no separate executable to name
      */
-    entryPoint: string;
+    entryPoint: string | null;
     /**
      * directory holding generated console scripts
      */
     scriptsDirectory: string;
     /**
-     * directory holding the runtime's bundled library
+     * directory holding the runtime's bundled library, or
+     * null for a runtime that has none
      */
-    standardLibrary: string;
+    standardLibrary: string | null;
     /**
      * suffix an executable carries on this platform
      */

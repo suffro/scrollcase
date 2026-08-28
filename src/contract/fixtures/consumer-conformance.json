@@ -28,9 +28,9 @@
     "payload-list-missing": "missing its payload digest list",
     "payload-mismatch": "^Payload does not match the signed release:",
     "runtime-disagreement": "box.json mismatch: runtime",
+    "runtime-without-entry-point": "no runtime entry point to declare",
     "spawn-failure": "failed to start|fixture spawn failed",
     "special-entry": "special entries",
-    "unimplemented-runtime": "is not implemented by this version",
     "unsafe-path": "Unsafe relative path|invalid relative path|absolute path",
     "unsupported-schema-version": "Unsupported schemaVersion 1|Unsupported schemaVersion 2"
   },
@@ -1398,12 +1398,12 @@
       }
     },
     {
-      "id": "runtime-this-build-cannot-run",
+      "id": "runtime-relabelled-after-signing",
       "action": "prepare",
       "mutation": "alter-release-runtime-id",
       "expected": {
         "outcome": "rejected",
-        "error": "unimplemented-runtime",
+        "error": "runtime-without-entry-point",
         "destinationExists": false
       }
     },

@@ -17,6 +17,10 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import {
+  runtimeAdapter,
+  unsupportedSelfTestProbeMessage,
+} from '../contract/runtimes.mjs';
 import { compareStableStrings, fileExists, safeRelativePath, sha256File } from './filesystem.mjs';
 import { fail } from './process.mjs';
 import { readScroll, scrollDirectory } from './scroll.mjs';
@@ -372,6 +376,34 @@ export async function removeEnvironmentVariable({ boxId, target, name }) {
 }
 
 /**
+ * What an importable name looks like, per runtime.
+ *
+ * A dotted identifier is a Python fact, not a format one: `node:path` and `@scope/pkg` are perfectly
+ * good Node specifiers and the Python pattern refuses both. The list here is narrow on purpose —
+ * enough to catch a shell fragment or a quoted string that would end up inside generated source, and
+ * no more, because deciding what resolves is the runtime's job at self-test time and not this
+ * command's.
+ */
+const IMPORT_SPECIFIERS = Object.freeze({
+  python: /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/,
+  node: /^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z_][A-Za-z0-9._-]*(?::[A-Za-z0-9._/-]+|\/[A-Za-z0-9._/-]+)?$/,
+});
+
+/** Refuses a specifier this box's runtime could not be asked about, or could never resolve. */
+async function assertImportSpecifier(boxId, module) {
+  const scrolls = await readEffectiveScrolls(boxId);
+  for (const scroll of scrolls) {
+    const runtime = runtimeAdapter(scroll.runtime.id);
+    if (!runtime.selfTestProbeKinds.includes('imports')) {
+      fail(unsupportedSelfTestProbeMessage(runtime.id, 'imports'));
+    }
+    if (!IMPORT_SPECIFIERS[runtime.id].test(String(module))) {
+      fail(`Not an importable ${runtime.id} module name: ${module}`);
+    }
+  }
+}
+
+/**
  * `add import` — adds a module to the list the box must be able to import.
  *
  * These names are signed into the release and repeated by `verify --self-test`, so they are the one
@@ -381,9 +413,7 @@ export async function removeEnvironmentVariable({ boxId, target, name }) {
  * @param {{ boxId: string, target: string, module: string }} options
  */
 export async function addSelfTestImport({ boxId, target, module }) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(String(module))) {
-    fail(`Not an importable module name: ${module}`);
-  }
+  await assertImportSpecifier(boxId, module);
   let added = 0;
   const { written } = await updateScrollFiles(boxId, target, (scroll) => {
     const imports = scroll.selfTest?.imports ?? [];

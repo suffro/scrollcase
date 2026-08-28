@@ -67,6 +67,28 @@ function declaredExecutablePaths(runtimeId, adapter, declared) {
 }
 
 /**
+ * Whether the archive will give one payload path the executable bit.
+ *
+ * Asked before the archive is written, by the one check that matters for a box nobody can start:
+ * the file a box runs has to come out of the archive runnable. A Windows target carries no modes at
+ * all — `archiveFileMode` writes 0644 for every entry there and Windows decides executability by
+ * extension — so the question does not arise and the answer is yes.
+ *
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {string} runtimeId
+ * @param {readonly string[]} declared payload paths the scroll marked executable
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+export function archiveMarksExecutable(adapter, runtimeId, declared, relativePath) {
+  if (adapter.host.platform === 'win32') return true;
+  return isExecutablePayloadPath(
+    declaredExecutablePaths(runtimeId, adapter, declared),
+    relativePath,
+  );
+}
+
+/**
  * Whether a payload path was declared as one whose bytes are already compressed.
  *
  * A match is exact or by directory prefix, so one declaration can name a single large file or

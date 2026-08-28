@@ -178,40 +178,54 @@ scrollcase new scroll \
 | Flag | Meaning |
 | --- | --- |
 | `--target` | Complete canonical target; CUDA IDs include the ABI, such as `linux-x86_64-cuda12.4` |
+| `--runtime` | `python`, `node` or `native`. Defaults to `python` |
 | `--box-id` | Box identity and parent directory |
 | `--source-revision` | Upstream revision recorded in provenance |
 | `--asset-base-url` | Base URL copied into built release metadata |
 | `--labels` | JSON object of free-form annotations carried into the signed release. Scrollcase reads none of them |
 | `--version` | Box version. Defaults to `1.0.0` |
 | `--scroll-version` | Version of the authoring input. Defaults to `1.0.0` |
-| `--python-version` | Python dependency version written into `pixi.toml`, or `latest`. Defaults to one minor behind the newest Python conda-forge publishes |
+| `--runtime-version` | Interpreter version written into `pixi.toml`, or `latest`. Refused for `native`, which installs no interpreter |
 | `--pixi-version` | Exact resolver version required by `lock` and `build`. Defaults to the installed pixi's version |
 | `--min-host-app-version` | Optional compatibility floor |
 | `--max-host-app-version-exclusive` | Optional compatibility ceiling |
 | `--min-macos-version` | Optional macOS floor |
 | `--min-ram-gb` | Optional positive RAM requirement |
 | `--min-nvidia-driver-version` | Optional NVIDIA driver floor |
-| `--execution` | `python-script`, `python-module`, or `library-only` |
-| `--script` | Existing project-relative Python script |
-| `--generate-script` | Generate a minimal starter instead of using an existing script |
-| `--script-destination` | Safe payload path, default `entrypoint.py` |
-| `--generated-script-path` | Project path for the generated source; defaults to `box-entrypoints/<boxId>/<targetId>/entrypoint.py` |
+| `--execution` | The runtime's own kinds, plus `library-only` where it applies — see the table below |
+| `--script` | Existing project-relative file the box runs |
+| `--generate-script` | Generate a minimal starter instead of using an existing file |
+| `--script-destination` | Safe payload path; defaults to the runtime's own starter name |
+| `--generated-script-path` | Project path for the generated source; defaults to `box-entrypoints/<boxId>/<targetId>/<starter>` |
 | `--module` | Strict dotted Python module name |
 | `--default-args` | JSON array of default application arguments |
 
-For `python-script`, choose exactly one of `--script` and `--generate-script`. Scrollcase records the
-source in `localFiles` **without a hash pin**, so the first edit to a freshly generated script does
-not fail its own build; add `sha256` yourself for a file that must not change without review. It
-refuses traversal and non-regular sources, and never overwrites an existing source or scroll.
-Generated defaults are grouped by both box and target; `library-only` omits execution metadata.
+The runtime decides what the rest of the session offers:
 
-Alongside `scroll.json` and `pixi.toml`, `new scroll` writes a `self_test.py` next to them and
-points `selfTest.script` at it, so the box's own check starts life as real Python rather than
-an escaped JSON string.
+| Runtime | `--execution` | Starter | Default `--runtime-version` |
+| --- | --- | --- | --- |
+| `python` | `python-script`, `python-module`, `library-only` | `entrypoint.py`, `self_test.py` | one minor behind the newest Python conda-forge publishes |
+| `node` | `node-script`, `library-only` | `entrypoint.js`, `self_test.js` | the current Node LTS line |
+| `native` | `native-binary` | none — point `--script` at the binary you built | none; a native box installs no interpreter |
 
-`--python-version latest` resolves once, at authoring time, and writes the resulting number into the
+`native` offers no `library-only` because it could not then prove anything about itself: a native box
+has no module system, so an invocation of its own binary is its only self-test, and that needs an
+execution to invoke.
+
+For every kind that names a file, choose exactly one of `--script` and `--generate-script`.
+Scrollcase records the source in `localFiles` **without a hash pin**, so the first edit to a freshly
+generated script does not fail its own build; add `sha256` yourself for a file that must not change
+without review. It refuses traversal and non-regular sources, and never overwrites an existing
+source or scroll. A `native-binary` entry is additionally recorded `executable: true`, because a
+copied file carries no mode of its own and the box could not otherwise start.
+
+Alongside `scroll.json` and `pixi.toml`, a runtime with a starter gets a self-test file written next
+to them with `selfTest.script` pointing at it, so the box's own check starts life as real source in
+the runtime's own language rather than an escaped JSON string.
+
+`--runtime-version latest` resolves once, at authoring time, and writes the resulting number into the
 scroll — never the word `latest`. Both it and the default are constants moved deliberately at each
-Scrollcase release by `npm run python:bump`, which asks conda-forge what it publishes: a version
+Scrollcase release; for Python, `npm run python:bump` asks conda-forge what it publishes. A version
 looked up on every invocation would make the same command produce different scrolls in different
 months.
 

@@ -105,6 +105,11 @@
       "minLength": 1,
       "description": "Path to the reviewed licence inventory derived from pixi.lock, which carries an SPDX licence per package. The build fails if the lock no longer matches what was reviewed."
     },
+    "bundledLicenseDeclaration": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the project's inventory of dependencies compiled *inside* the binaries this box ships. pixi.lock declares a licence per conda package, but it cannot see what was linked into a supplied executable before the build ever started, and nothing Scrollcase can read will tell it. So this half is declared rather than derived: the file is a JSON array of { name, version, declaredLicense, linkedInto } entries, and the build checks that every path it names is really in the box before carrying the list into the signed release. What belongs in it is the project's judgement; Scrollcase transports and signs what the project reviewed and never decides what a complete inventory is."
+    },
     "cacheSubdir": {
       "type": "string",
       "minLength": 1,

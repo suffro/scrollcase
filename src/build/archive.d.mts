@@ -1,4 +1,19 @@
 /**
+ * Whether the archive will give one payload path the executable bit.
+ *
+ * Asked before the archive is written, by the one check that matters for a box nobody can start:
+ * the file a box runs has to come out of the archive runnable. A Windows target carries no modes at
+ * all — `archiveFileMode` writes 0644 for every entry there and Windows decides executability by
+ * extension — so the question does not arise and the answer is yes.
+ *
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {string} runtimeId
+ * @param {readonly string[]} declared payload paths the scroll marked executable
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+export function archiveMarksExecutable(adapter: import("../contract/targets.mjs").BoxTargetAdapter, runtimeId: string, declared: readonly string[], relativePath: string): boolean;
+/**
  * Streams a deterministic, Zip64-capable box archive using the pinned Node backend.
  *
  * Deflating an already-compressed file is pure loss: measured on incompressible bytes, level 6

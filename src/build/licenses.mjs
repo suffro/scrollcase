@@ -1,15 +1,25 @@
 /**
- * Builds the dependency licence inventory shipped inside every box.
+ * The dependency licence inventories a box ships, and there are two of them because they are known
+ * in two different ways.
  *
- * The inventory is derived from the committed lock file rather than from the installed tree: the
- * lock already carries an SPDX licence per package, and `pixi install --frozen` guarantees the
+ * The conda half is **derived** from the committed lock file rather than from the installed tree:
+ * the lock already carries an SPDX licence per package, and `pixi install --frozen` guarantees the
  * installed set equals it. That makes the audit a pure function of a file the user reviews, so it
  * can be computed without a built prefix and cannot drift from what was approved.
+ *
+ * The bundled half cannot be derived at all. A binary a scroll brings into the box was linked
+ * before Scrollcase saw it, and no file in the build says what went into it; reading the binary
+ * would be guessing, and guessing about a licence is worse than not answering. So that half is
+ * **declared** by the project and checked for the one thing a tool can actually check — that every
+ * file it claims to be linked into is a file this box really carries. What belongs in the list is
+ * the project's judgement, exactly as the reviewed conda audit is.
  */
 
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { DEFAULT_DOCUMENT_NAMESPACE } from '../contract/documents.mjs';
-import { compareStableStrings } from './filesystem.mjs';
+import { compareStableStrings, safeRelativePath } from './filesystem.mjs';
+import { schemaValidationError } from './schema-validation.mjs';
 
 /**
  * One package as the lock declares it.
@@ -135,4 +145,60 @@ export function validateCondaDependencyLicenseAudit(reviewed, actual) {
     fail('locked conda dependency licenses differ from the reviewed audit');
   }
   return actual;
+}
+
+/**
+ * One dependency compiled inside a binary the box ships, as the project declared it.
+ *
+ * @typedef {object} BundledDependency
+ * @property {string} name
+ * @property {string} version
+ * @property {string} declaredLicense the licence the project reviewed
+ * @property {string[]} linkedInto payload files it is compiled into
+ * @property {string} [sourceUrl]
+ */
+
+const releaseSchemaUrl = new URL('../contract/schema/release-manifest.schema.json', import.meta.url);
+let bundledLicenseSchema;
+
+/**
+ * The `bundledLicenses` definition, lifted out of the release manifest schema so the declaration a
+ * project writes is judged against the very shape that will be signed. Re-stating the fields here
+ * would create a second definition of the format, which is the one thing `src/contract/` exists to
+ * prevent.
+ */
+async function loadBundledLicenseSchema() {
+  bundledLicenseSchema ??= readFile(releaseSchemaUrl, 'utf8').then((text) => {
+    const release = JSON.parse(text);
+    return { $id: release.$id, $defs: release.$defs, $ref: '#/$defs/bundledLicenses' };
+  });
+  return bundledLicenseSchema;
+}
+
+/**
+ * Checks a declared bundled inventory against its schema and against the box it describes.
+ *
+ * The second half is the part worth having. A licence file nobody can check is a licence file
+ * nobody maintains: a path that stopped being in the box means the entry is stale, and the build
+ * says so instead of signing a claim about a file that is not there. Deferred assets count as
+ * carried — the box declares them and a consumer materializes them — because leaving one out of the
+ * inventory on the grounds that it is fetched later would exempt exactly the large binaries this
+ * exists for.
+ *
+ * @param {unknown} declared the parsed contents of the project's declaration file
+ * @param {Set<string>} carriedPaths every payload path this box carries, deferred assets included
+ * @returns {Promise<BundledDependency[]>} the declaration, unchanged, when it holds
+ * @throws {Error} when the shape is wrong or an entry names a file the box does not carry
+ */
+export async function validateBundledLicenses(declared, carriedPaths) {
+  const error = schemaValidationError(declared, await loadBundledLicenseSchema());
+  if (error) fail(`declared bundled licence inventory is invalid: ${error}`);
+  for (const entry of /** @type {BundledDependency[]} */ (declared)) {
+    for (const path of entry.linkedInto) {
+      if (!carriedPaths.has(safeRelativePath(path))) {
+        fail(`${entry.name}==${entry.version} is declared linked into ${path}, which this box does not carry`);
+      }
+    }
+  }
+  return /** @type {BundledDependency[]} */ (declared);
 }

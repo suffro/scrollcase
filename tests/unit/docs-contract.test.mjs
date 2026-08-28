@@ -106,7 +106,7 @@ describe('public documentation routes', () => {
       const source = await readFile(join(schemaSource, name), 'utf8');
       const schema = JSON.parse(source);
       expect(new URL(schema.$id).pathname).toBe(`/schema/v3/${name}`);
-      for (const match of source.matchAll(/"\$ref":\s*"(https:\/\/scrollcase\.dev\/schema\/v2\/([^"#]+)(?:#[^"]*)?)"/g)) {
+      for (const match of source.matchAll(/"\$ref":\s*"(https:\/\/scrollcase\.dev\/schema\/v3\/([^"#]+)(?:#[^"]*)?)"/g)) {
         expect(published.has(match[2]), match[1]).toBe(true);
       }
     }

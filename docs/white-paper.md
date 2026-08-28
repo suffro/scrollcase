@@ -1719,18 +1719,58 @@ launcher repair, authoring templates, the pixi dependency a runtime contributes 
 #### Two lists, on purpose
 
 `RUNTIME_IDS` is the vocabulary a box may declare — `python`, `node`, `native` — and it is fixed by
-the wire format. `RUNTIME_ADAPTERS` is what this build can actually run, and today that is `python`
-alone: `runtimeAdapter('node')` is a `TypeError` rather than a stub, because a registry that
-answered for a runtime no build can produce would move the failure somewhere further down, where the
-message no longer says what went wrong.
+the wire format. `RUNTIME_ADAPTERS` is what this build can actually run. They now hold the same
+three, which is exactly what the split was for: `node` and `native` arrived as adapters and the wire
+did not move.
 
-Keeping the two apart is what makes implementing `node` code rather than another format break. A box
-declaring a runtime with no adapter is refused by name — `isImplementedRuntime()` asks the question
-and `unimplementedRuntimeMessage()` gives the one wording the builder and all three consumers use —
-and never misread as the runtime it happens to be shaped like.
+The two lists stay separate because they answer to different release cycles. The Python and Rust
+consumers version independently of the builder, so one published before a runtime landed still has
+to refuse a box naming it — `isImplementedRuntime()` asks the question and
+`unimplementedRuntimeMessage()` gives the one wording the builder and all three consumers use — and
+never misread it as the runtime it happens to be shaped like.
 
 Reference: `tests/unit/contract-runtimes.test.mjs`, `rust/tests/contract.rs`,
 `python/tests/test_contract.py`.
+
+</div>
+
+<div class="h4-section">
+
+#### What the three runtimes actually differ in
+
+| | `python` | `node` | `native` |
+| --- | --- | --- | --- |
+| Entry point | `venv/bin/python`, `venv/python.exe` | `venv/bin/node`, `venv/node.exe` | **none** |
+| Execution kinds | `python-script`, `python-module` | `node-script` | `native-binary` |
+| argv | interpreter, then the declaration | interpreter, then the declaration | the binary *is* the command |
+| Self-test probes | `imports`, `commands` | `imports`, `commands` | `commands` only |
+| Import probe source | `python -c "import a, b"` | `node -e "require('a')"` | — |
+| Environment variables | `PYTHON*` | `NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS` | none of its own |
+| pixi dependency | `python` | `nodejs` | **none** |
+| Launcher repair | rewrites the conda trampoline | scans and refuses | scans and refuses |
+| Generated starter | `entrypoint.py`, `self_test.py` | `entrypoint.js`, `self_test.js` | **none** |
+
+Two of those rows are the whole of what `native` means, and both propagate. Its layout's
+`entryPoint` and `standardLibrary` are `null` rather than a plausible-looking path nothing would
+find, so `assertRuntimeEntryPoint` gains a third answer: a runtime with an interpreter admits
+exactly one value, a runtime without one admits none and **refuses** a declaration rather than
+ignoring it, and a box that declares nothing at all is checked against nothing, because
+`runtime.entryPoint` is optional on the wire for exactly this reason. And its only probe shape is
+`commands`, so an `imports` probe in a native box is refused where the scroll is read —
+`unsupportedSelfTestProbeMessage()` — rather than silently dropped, which would report a pass for a
+check that never ran.
+
+A native box is not "no environment", only "no interpreter". It is built from a `pixi.lock` like
+every other box, its binary links against the shared libraries that lock installed, and those
+libraries get the same derived licence audit. What it contributes to `[dependencies]` is nothing at
+all: only the person who compiled the binary knows what it needs.
+
+**Link repair is deliberately out of scope.** A binary that resolves its libraries through an
+absolute path recorded at compile time will not find them inside a box, and fixing that means
+per-format work — rpath on Linux, `install_name` on macOS, the DLL search order on Windows — that
+deserves its own pass rather than a guess. A native box must ship a binary that already resolves:
+statically linked, or built with a relative rpath. This is a stated limitation, not an assumption
+left for someone to discover.
 
 </div>
 
@@ -6244,10 +6284,14 @@ what a box's runtime is allowed to need that another runtime would not.
 | Module | Role | Section |
 | --- | --- | --- |
 | `src/runtimes/index.mjs` | The registry of builder-side runtime adapters | 6.6 |
+| `src/runtimes/launchers.mjs` | The launcher check shared by the runtimes that cannot rewrite one | 6.6 |
 | `src/runtimes/python/index.mjs` | The Python adapter: its pixi dependency, its launcher repair, its starter files | 6.6 |
 | `src/runtimes/python/launchers.mjs` | Repairing the console scripts a conda environment generates | 6.6 |
 | `src/runtimes/python/dependencies.mjs` | Reading a pip `requirements.txt` into conda-forge terms | 6.16 |
 | `src/runtimes/python/templates/index.mjs` | The Python source `new scroll` writes, and the interpreter constraint a generated manifest declares | 6.16 |
+| `src/runtimes/node/index.mjs` | The Node adapter: `nodejs` from conda-forge, and nothing to repair | 6.6 |
+| `src/runtimes/node/templates/index.mjs` | The JavaScript source `new scroll` writes, and the Node constraint a generated manifest declares | 6.16 |
+| `src/runtimes/native/index.mjs` | The native adapter: no interpreter, no dependency of its own, nothing to generate | 6.6 |
 
 </div>
 

@@ -30,7 +30,7 @@ import {
 } from '../contract/payload-digest.mjs';
 import { signDocument } from '../sign/index.mjs';
 import { copyVerifiedLocalFile, downloadVerified, expandAssetArchive, moveIntoPlace } from './assets.mjs';
-import { createDeterministicZip } from './archive.mjs';
+import { archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
 import {
   collectFiles,
   fileExists,
@@ -42,7 +42,11 @@ import {
 } from './filesystem.mjs';
 import { assertExecutionFiles } from './execution.mjs';
 import { boxReleaseObjectPrefix, boxReleaseStem, builderVersionFields } from './identity.mjs';
-import { createCondaDependencyLicenseAudit, validateCondaDependencyLicenseAudit } from './licenses.mjs';
+import {
+  createCondaDependencyLicenseAudit,
+  validateBundledLicenses,
+  validateCondaDependencyLicenseAudit,
+} from './licenses.mjs';
 import { checkParity } from './parity.mjs';
 import { findCondaPack, findPixi, installAndPackPixiEnvironment } from './pixi.mjs';
 import { fail, run as runProcess } from './process.mjs';
@@ -99,19 +103,46 @@ function runSelfTest({ adapter, scroll, payloadDir, run, extraCode = null }) {
   }
 }
 
-/** Writes the licence inventory the box ships, after proving it still matches the reviewed one. */
-async function writeLicenceAudit({ scroll, lockPath, payloadDir, projectRoot }) {
-  if (!scroll.condaDependencyLicenseAudit) return;
-  const actual = createCondaDependencyLicenseAudit({
-    lockBytes: await readFile(lockPath),
-    targetId: boxTargetId(scroll.target),
-  });
-  const reviewedPath = join(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
-  const reviewed = JSON.parse(await readFile(reviewedPath, 'utf8'));
-  validateCondaDependencyLicenseAudit(reviewed, actual);
-  const auditPath = join(payloadDir, 'THIRD_PARTY_NOTICES', 'conda-distributions.json');
-  await mkdir(dirname(auditPath), { recursive: true });
-  await writeFile(auditPath, `${JSON.stringify(actual, null, 2)}\n`);
+/** Writes one notices file, creating the directory the first of them needs. */
+async function writeNotice(payloadDir, name, value) {
+  const path = join(payloadDir, 'THIRD_PARTY_NOTICES', name);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Writes the licence inventories the box ships, after proving each still describes this box.
+ *
+ * Two halves, known two different ways — see `licenses.mjs`. Both land under `THIRD_PARTY_NOTICES/`,
+ * because someone opening a box to answer a licence question looks in one place and half a notices
+ * directory is worse than none. The declared half is also returned, because unlike the derived one
+ * it travels in the signed release: a licence decision is made before an archive is downloaded, and
+ * a list only a downloaded archive reveals is a list that arrives too late to act on.
+ *
+ * @returns {Promise<import('./licenses.mjs').BundledDependency[] | null>}
+ */
+async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRoot, carriedPaths }) {
+  if (scroll.condaDependencyLicenseAudit) {
+    const actual = createCondaDependencyLicenseAudit({
+      lockBytes: await readFile(lockPath),
+      targetId: boxTargetId(scroll.target),
+    });
+    const reviewedPath = join(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
+    const reviewed = JSON.parse(await readFile(reviewedPath, 'utf8'));
+    validateCondaDependencyLicenseAudit(reviewed, actual);
+    await writeNotice(payloadDir, 'conda-distributions.json', actual);
+  }
+  if (!scroll.bundledLicenseDeclaration) return null;
+  const declarationPath = join(projectRoot, safeRelativePath(scroll.bundledLicenseDeclaration));
+  if (!await fileExists(declarationPath)) {
+    fail(`Bundled licence declaration is missing: ${scroll.bundledLicenseDeclaration}`);
+  }
+  const bundled = await validateBundledLicenses(
+    JSON.parse(await readFile(declarationPath, 'utf8')),
+    carriedPaths,
+  );
+  await writeNotice(payloadDir, 'bundled-dependencies.json', bundled);
+  return bundled;
 }
 
 /**
@@ -234,7 +265,17 @@ export async function buildBox(name, options = {}) {
   for (const prunePath of scroll.prunePaths ?? []) {
     await rm(join(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
   }
-  await writeLicenceAudit({ scroll, lockPath, payloadDir, projectRoot: workspace.root });
+  // Read once, after every staging step and every prune: this is the payload as it will be
+  // archived, and both the licence declaration and the execution check are questions about that
+  // tree rather than about what the scroll asked for.
+  const payloadFiles = new Set(await collectFiles(payloadDir));
+  const bundledLicenses = await writeLicenceInventories({
+    scroll,
+    lockPath,
+    payloadDir,
+    projectRoot: workspace.root,
+    carriedPaths: new Set([...payloadFiles, ...deferredAssets]),
+  });
   // Guards against over-pruning: the files the box needs at run time must still be there.
   for (const requiredFile of scroll.selfTest.files ?? []) {
     // A deferred asset is legitimately absent from the payload; anything else missing means pruning
@@ -249,7 +290,7 @@ export async function buildBox(name, options = {}) {
     adapter,
     runtimeId: scroll.runtime.id,
     runtimeVersion: scroll.runtime.version,
-    files: new Set(await collectFiles(payloadDir)),
+    files: payloadFiles,
   });
   // Everything needed to answer "where did this box come from, and could I rebuild it?".
   const provenance = {
@@ -298,6 +339,9 @@ export async function buildBox(name, options = {}) {
   };
   const execution = scroll.execution ? { execution: scroll.execution } : {};
   const environment = scroll.environment === undefined ? {} : { environment: scroll.environment };
+  // Absent rather than empty when the project declared nothing: an empty list would read as "this
+  // box bundles no third-party code", which is a claim Scrollcase is in no position to make.
+  const notices = bundledLicenses === null ? {} : { bundledLicenses };
   // box.json travels *inside* the archive. A consumer compares it field by field against the signed
   // release, which is what binds the archive's contents to its signed metadata.
   //
@@ -312,6 +356,7 @@ export async function buildBox(name, options = {}) {
     target: scroll.target,
     runtime: scroll.runtime,
     cacheSubdir: scroll.cacheSubdir,
+    ...notices,
     selfTest,
     ...environment,
     ...execution,
@@ -373,6 +418,21 @@ export async function buildBox(name, options = {}) {
     ...(scroll.localFiles ?? []),
   ].filter((entry) => entry.executable && entry.embed !== false)
     .map((entry) => safeRelativePath(entry.relativePath));
+  // Whatever the box starts has to come out of the archive runnable. For an interpreted runtime
+  // that is the interpreter, and the runtime's own rule covers it; for a native one it is a file
+  // the scroll brought in, and only the scroll can say the bit belongs on it. Asked through the
+  // argv rule rather than by naming an execution kind here, so the guard holds for every runtime
+  // and keeps holding for the next one.
+  if (scroll.execution) {
+    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
+      execution: scroll.execution,
+      target: adapter,
+    });
+    const commandPath = safeRelativePath(command.value);
+    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in.`);
+    }
+  }
   log('Creating deterministic archive');
   await createDeterministicZip(payloadDir, archivePath, adapter, {
     uncompressedPaths,
@@ -403,6 +463,7 @@ export async function buildBox(name, options = {}) {
     payloadDigest: payloadDigestValue,
     runtime: scroll.runtime,
     cacheSubdir: scroll.cacheSubdir,
+    ...notices,
     selfTest,
     ...environment,
     ...execution,

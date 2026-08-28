@@ -21,7 +21,7 @@ import { resolvePayloadLinkTarget, targetCarriesLinks } from '../contract/links.
 import { runtimeAdapter } from '../contract/runtimes.mjs';
 import { compareStableStrings, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult as defaultRunResult } from './process.mjs';
-import { repairPosixLaunchers } from '../runtimes/python/launchers.mjs';
+import { runtimeBuilder } from '../runtimes/index.mjs';
 import { CONDA_PACK_VERSION, toolchainPaths } from './toolchain.mjs';
 import { getWorkspace } from './workspace.mjs';
 
@@ -340,7 +340,7 @@ async function keepsAsLink(root, linkPath, canonicalRoot) {
  *   run: typeof import('./process.mjs').run,
  *   runtimeId: string,
  * }} options
- * @returns {Promise<{ interpreter: string, venvDir: string, sitePackagesRelative: string }>}
+ * @returns {Promise<{ interpreter: string | null, venvDir: string, sitePackagesRelative: string }>}
  */
 export async function installAndPackPixiEnvironment({
   pixi,
@@ -413,7 +413,11 @@ export async function installAndPackPixiEnvironment({
     await symlink(link.target, linkPath, type);
   }
 
-  const interpreter = join(payloadDir, ...layout.entryPoint.split('/'));
+  // Null for a runtime that has none. Only the parity gate wants it, and a scroll declaring parity
+  // for such a runtime is refused where scrolls are read — there is nothing to run a check with.
+  const interpreter = layout.entryPoint === null
+    ? null
+    : join(payloadDir, ...layout.entryPoint.split('/'));
   // Deliberately do NOT run conda-unpack. conda-pack already replaces the build prefix with a
   // neutral placeholder, and the box imports and runs fine that way (a cold import from a moved
   // prefix was proven before any fixer). Running the fixer here would stamp the *build machine's*
@@ -434,10 +438,12 @@ export async function installAndPackPixiEnvironment({
   // Order matters: settle the links first, so the launcher repair that follows walks a tree whose
   // shape is final and rewrites each script's bytes exactly once, under its own name.
   await settleSymlinksInPlace(venvDir, targetCarriesLinks(adapter.platform));
-  // conda console scripts (tqdm, isympy, …) embed the absolute build interpreter in a shell
-  // trampoline shebang. Rewrite them to resolve Python next to themselves, so no build path
-  // ships inside the box.
-  await repairPosixLaunchers(layout, payloadDir, [prefix, workspace, payloadDir]);
+  // conda console scripts (tqdm, isympy, …) can embed the absolute build interpreter in a shell
+  // trampoline shebang, and no build path may ship inside a box. How that is dealt with is the
+  // runtime's answer, not this module's: Python rewrites them to resolve its interpreter next to
+  // themselves, and a runtime with no trampoline parser refuses a prefix that carries one rather
+  // than pretending to have fixed it.
+  await runtimeBuilder(runtimeId).repairLaunchers(layout, payloadDir, [prefix, workspace, payloadDir]);
 
   await rm(workspace, { recursive: true, force: true });
   await rm(packPath, { force: true });

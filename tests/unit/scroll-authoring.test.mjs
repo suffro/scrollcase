@@ -6,12 +6,14 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyVerifiedLocalFile } from '../../src/build/assets.mjs';
 import {
+  DEFAULT_NODE_VERSION,
   DEFAULT_PYTHON_VERSION,
+  LATEST_NODE_VERSION,
   LATEST_PYTHON_VERSION,
   createScroll,
   ensureConsumerTemplates,
   ensureExampleScroll,
-  resolvePythonVersion,
+  resolveRuntimeVersion,
 } from '../../src/build/authoring.mjs';
 import { fileExists, sha256File } from '../../src/build/filesystem.mjs';
 import { initProject } from '../../src/build/project.mjs';
@@ -27,7 +29,7 @@ const BASE = {
   version: '1.0.0',
   scrollVersion: '1.0.0',
   sourceRevision: 'upstream-v1',
-  pythonVersion: '3.11.15',
+  runtimeVersion: '3.11.15',
   pixiVersion: '0.73.0',
   compatibility: { minHostAppVersion: '1.0.0' },
   assetBaseUrl: 'https://assets.example.org',
@@ -68,6 +70,87 @@ describe('scroll authoring', () => {
       .toContain('platforms = ["osx-arm64"]');
   });
 
+  it('writes a node scroll in the node runtime\'s own terms', async () => {
+    const current = await workspace();
+    const result = await createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'node',
+      runtimeVersion: undefined,
+      executionKind: 'node-script',
+      generateScript: true,
+    });
+
+    expect(result.scroll.runtime).toEqual({ id: 'node', version: DEFAULT_NODE_VERSION });
+    expect(result.scroll.execution)
+      .toEqual({ kind: 'node-script', script: 'entrypoint.js', defaultArgs: [] });
+    // The probe, the generated files and the pixi dependency all come from the runtime; nothing
+    // above it names a language.
+    expect(result.scroll.selfTest.imports).toEqual(['fs']);
+    expect(result.scroll.selfTest.script).toMatch(/self_test\.js$/);
+    expect(result.generatedScriptPath).toMatch(/entrypoint\.js$/);
+    expect(await readFile(join(result.scrollDir, 'pixi.toml'), 'utf8'))
+      .toContain(`nodejs = "${DEFAULT_NODE_VERSION}.*"`);
+    await expect(readScroll(result.scrollRef)).resolves.toBeTruthy();
+  });
+
+  it('writes a native scroll that points at a binary and declares it executable', async () => {
+    const current = await workspace();
+    await writeFile(join(current.root, 'tool'), '#!/bin/sh\nexit 0\n');
+    const result = await createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'native',
+      runtimeVersion: undefined,
+      executionKind: 'native-binary',
+      scriptSourcePath: 'tool',
+      scriptRelativePath: 'bin/tool',
+    });
+
+    // No version, because there is no interpreter to version — and `readScroll` derives no entry
+    // point for the same reason.
+    expect(result.scroll.runtime).toEqual({ id: 'native' });
+    expect(result.scroll.execution)
+      .toEqual({ kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] });
+    // Without this the archive would not mark the file executable and the box could not start.
+    expect(result.scroll.localFiles)
+      .toEqual([{ sourcePath: 'tool', relativePath: 'bin/tool', executable: true }]);
+    // A native box has no module system, so its only probe is an invocation of its own binary.
+    expect(result.scroll.selfTest.imports).toBeUndefined();
+    expect(result.scroll.selfTest.commands).toEqual([{ args: [] }]);
+    expect(result.scroll.selfTest.script).toBeUndefined();
+    expect(await readFile(join(result.scrollDir, 'pixi.toml'), 'utf8'))
+      .toContain('# Add the libraries this box');
+    const { scroll } = await readScroll(result.scrollRef);
+    expect(scroll.runtime.entryPoint).toBeUndefined();
+  });
+
+  it('refuses what a runtime cannot be asked for', async () => {
+    const current = await workspace();
+    await expect(createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'native',
+      runtimeVersion: undefined,
+      executionKind: 'library-only',
+    })).rejects.toThrow(/Unsupported execution kind for a native box/);
+    await expect(createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'native',
+      runtimeVersion: undefined,
+      executionKind: 'native-binary',
+      generateScript: true,
+    })).rejects.toThrow(/cannot generate an entry point for a native box/);
+    await expect(createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'node',
+      executionKind: 'python-module',
+      module: 'example',
+    })).rejects.toThrow(/Unsupported execution kind for a node box/);
+  });
+
   it('asks only what it cannot work out, and derives the rest', async () => {
     const current = await workspace();
     const answers = new Map([
@@ -93,7 +176,7 @@ describe('scroll authoring', () => {
       choose: async (question, _choices, chooseOptions = {}) => {
         expect(chooseOptions.hint).toEqual(expect.any(String));
         chosen.push(question);
-        return 'python-module';
+        return question === 'runtime' ? 'python' : 'python-module';
       },
       chooseTargetValue: async (_candidates, targetOptions = {}) => {
         expect(targetOptions.hint).toEqual(expect.any(String));
@@ -108,12 +191,13 @@ describe('scroll authoring', () => {
     // Labels are not among the menus, and there is nothing to derive: Scrollcase reads none of
     // them, so prompting for one would be asking the author to fill in a field on the tool's
     // behalf. A generated scroll carries none.
-    expect(chosen).toEqual(['execution kind']);
+    expect(chosen).toEqual(['runtime', 'execution kind']);
     expect(options.labels).toEqual({});
     expect(result.scroll.labels).toBeUndefined();
     expect(result.scroll.runtime).toEqual({ id: 'python', version: DEFAULT_PYTHON_VERSION });
     expect(options.version).toBe('1.0.0');
-    expect(options.pythonVersion).toBe(DEFAULT_PYTHON_VERSION);
+    expect(options.runtimeId).toBe('python');
+    expect(options.runtimeVersion).toBe(DEFAULT_PYTHON_VERSION);
     expect(options.pixiVersion).toBe(BASE.pixiVersion);
     expect(result.scroll.execution).toEqual({
       kind: 'python-module',
@@ -176,11 +260,17 @@ describe('scroll authoring', () => {
     );
   });
 
-  it('resolves --python-version latest to a number, never the word', async () => {
-    expect(resolvePythonVersion('latest')).toBe(LATEST_PYTHON_VERSION);
-    expect(resolvePythonVersion('latest')).toMatch(/^\d+\.\d+$/);
-    expect(resolvePythonVersion(null)).toBe(DEFAULT_PYTHON_VERSION);
-    expect(resolvePythonVersion('3.10.4')).toBe('3.10.4');
+  it('resolves --runtime-version latest to a number, never the word', async () => {
+    expect(resolveRuntimeVersion('python', 'latest')).toBe(LATEST_PYTHON_VERSION);
+    expect(resolveRuntimeVersion('python', 'latest')).toMatch(/^\d+\.\d+$/);
+    expect(resolveRuntimeVersion('python', null)).toBe(DEFAULT_PYTHON_VERSION);
+    expect(resolveRuntimeVersion('python', '3.10.4')).toBe('3.10.4');
+    expect(resolveRuntimeVersion('node', 'latest')).toBe(LATEST_NODE_VERSION);
+    expect(resolveRuntimeVersion('node', null)).toBe(DEFAULT_NODE_VERSION);
+    // A runtime that installs no interpreter has no version to pin, so asking for one is refused
+    // rather than answered with a number that would mean nothing.
+    expect(resolveRuntimeVersion('native', null)).toBeNull();
+    expect(() => resolveRuntimeVersion('native', '1.0')).toThrow(/no version to pin/);
   });
 
   it('records a Python module and its default arguments', async () => {

@@ -135,6 +135,9 @@
       "minLength": 1,
       "description": "Directory relative to the extracted box root holding the box's own large files."
     },
+    "bundledLicenses": {
+      "$ref": "#/$defs/bundledLicenses"
+    },
     "environment": {
       "type": "object",
       "description": "Signed environment variables applied whenever Scrollcase runs the box interpreter. These values override both the inherited host environment and caller-supplied values.",
@@ -264,6 +267,59 @@
           }
         }
       }
+    },
+    "bundledLicenses": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Dependencies compiled inside the binaries this box ships, as the publishing project declared them. The conda environment's own licences are derived from pixi.lock and travel inside the payload; this list is the half no lock can see — code linked into a supplied executable before the build began — so it is declared, reviewed by the project, and signed here unchanged. It is carried in the release rather than only in the payload so that a licence decision can be made from the document alone, before an archive is downloaded. A box that declares none carries no such list, which means the project declared none and never that the box has no dependencies.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "declaredLicense",
+          "linkedInto"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The dependency as its own project names it."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declaredLicense": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The licence the project reviewed, conventionally an SPDX expression. Scrollcase carries the string through and never parses it: what a licence permits is not a question a packaging tool answers.",
+            "examples": [
+              "Apache-2.0 OR MIT"
+            ]
+          },
+          "linkedInto": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Payload files this dependency is compiled into. Every path must be a file the built box actually carries, which is what makes the declaration checkable rather than a free-text notice.",
+            "items": {
+              "$ref": "#/$defs/payloadPath"
+            }
+          },
+          "sourceUrl": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Where the dependency's source can be obtained, for a licence that requires the offer."
+          }
+        }
+      }
+    },
+    "payloadPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//).+$",
+      "description": "A forward-slash path inside the box payload: relative, non-empty, and unable to escape the payload root."
     },
     "deferredAssets": {
       "type": "array",

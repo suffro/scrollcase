@@ -13,10 +13,12 @@
  */
 
 import { createInterface } from 'node:readline/promises';
+import { runtimeAdapters } from './contract/runtimes.mjs';
 import {
-  DEFAULT_PYTHON_VERSION,
+  DEFAULT_RUNTIME_ID,
   EXAMPLE_PIXI_VERSION,
-  resolvePythonVersion,
+  authoredExecutionKinds,
+  resolveRuntimeVersion,
 } from './build/authoring.mjs';
 import { probePixi } from './build/pixi.mjs';
 import { fail } from './build/process.mjs';
@@ -40,9 +42,11 @@ const HINTS = Object.freeze({
   boxId: 'Name of the box across all its versions. Used in its directory, its archives and its channel pointer.',
   sourceRevision: 'Which version of the thing you are packaging this is — a model commit, a release tag. Recorded verbatim in the box provenance.',
   assetBaseUrl: 'Where you will publish built boxes. The signed release points at it; it does not have to exist yet.',
-  execution: 'What `scrollcase run` starts inside the box: a script file, an importable module, or nothing at all.',
-  scriptSource: 'Point at a Python file you already have, or start from a generated stub.',
-  scriptPath: 'Path from the project root to the Python file the box should run.',
+  runtime: 'What runs inside the box. python and node bring an interpreter; native runs a binary you compiled yourself.',
+  execution: 'What `scrollcase run` starts inside the box: a file, an importable module, or nothing at all.',
+  scriptSource: 'Point at a file you already have, or start from a generated stub.',
+  scriptPath: 'Path from the project root to the file the box should run.',
+  binaryPath: 'Path from the project root to the compiled executable the box should run.',
   module: 'Dotted name of a module importable inside the box, run with python -m.',
 });
 
@@ -177,13 +181,26 @@ export async function collectNewScrollOptions(flags, {
   };
 
   const target = await collectTarget(flags, { terminal, ask, chooseTargetValue });
+  // Asked first among the box's own decisions, because it decides which of the later questions
+  // exist: a native box is never asked for a module, and is never offered a generated stub.
+  // Not `finite`: this is the one closed choice with a defensible default, so a scripted session
+  // that never mentioned a runtime keeps working and gets the runtime it has always got.
+  const runtimeIds = runtimeAdapters().map((runtime) => runtime.id);
+  if (runtimeIds[0] !== DEFAULT_RUNTIME_ID) {
+    fail('The runtime menu must offer the default first; it is what a non-terminal session gets.');
+  }
+  const runtimeId = await choose('runtime', runtimeIds, {
+    flag: flagText(flags, 'runtime'),
+    hint: HINTS.runtime,
+    terminal,
+  });
   const boxId = await required('box-id', 'Box ID', HINTS.boxId);
   // The upstream revision is the one identity nothing here can supply: it names the version of the
   // thing being packaged, and inventing it would put a false claim into the box's provenance.
   const sourceRevision = await required('source-revision', 'Upstream revision', HINTS.sourceRevision);
   const version = derived('version', '1.0.0');
   const scrollVersion = derived('scroll-version', undefined);
-  const pythonVersion = resolvePythonVersion(derived('python-version', DEFAULT_PYTHON_VERSION));
+  const runtimeVersion = resolveRuntimeVersion(runtimeId, flagText(flags, 'runtime-version'));
   // Pinning the pixi that is actually installed: `findPixi` refuses to build with any other, so a
   // pinned version the machine does not have is a scroll that cannot be built where it was written.
   const pixiVersion = derived('pixi-version', probe()?.version ?? EXAMPLE_PIXI_VERSION);
@@ -210,7 +227,7 @@ export async function collectNewScrollOptions(flags, {
   const executionKind = await finite(
     'execution',
     'execution kind',
-    ['python-script', 'python-module', 'library-only'],
+    authoredExecutionKinds(runtimeId),
     HINTS.execution,
   );
   const defaultArgs = parseDefaultArgs(flagText(flags, 'default-args'));
@@ -222,7 +239,8 @@ export async function collectNewScrollOptions(flags, {
     version,
     scrollVersion,
     sourceRevision,
-    pythonVersion,
+    runtimeId,
+    runtimeVersion,
     pixiVersion,
     compatibility,
     assetBaseUrl,
@@ -231,16 +249,25 @@ export async function collectNewScrollOptions(flags, {
   };
   if (executionKind === 'python-module') {
     result.module = await required('module', 'Python module', HINTS.module);
-  } else if (executionKind === 'python-script') {
+  } else if (executionKind !== 'library-only') {
+    // Every remaining kind names a payload file. Whether Scrollcase can write a starter for it is
+    // the runtime's answer: it generates source, and it does not generate compiled binaries.
+    const generable = executionKind !== 'native-binary';
+    const noun = generable ? 'script' : 'binary';
     const existing = flagText(flags, 'script');
     const generateScript = Boolean(flags.get('generate-script'));
     if (existing && generateScript) {
       fail('Choose either --script <path> or --generate-script, not both.');
     }
+    if (generateScript && !generable) {
+      fail(`Scrollcase cannot generate a ${noun}; point --script at the one you built.`);
+    }
     if (existing) result.scriptSourcePath = existing;
     else if (generateScript) result.generateScript = true;
     else if (!terminal) {
-      fail('python-script execution requires --script <path> or --generate-script without a terminal.');
+      fail(`${executionKind} execution requires --script <path>${generable ? ' or --generate-script' : ''} without a terminal.`);
+    } else if (!generable) {
+      result.scriptSourcePath = await ask('Binary path', { hint: HINTS.binaryPath });
     } else {
       const source = await choose(
         'script source',
@@ -251,7 +278,8 @@ export async function collectNewScrollOptions(flags, {
         result.scriptSourcePath = await ask('Script path', { hint: HINTS.scriptPath });
       } else result.generateScript = true;
     }
-    result.scriptRelativePath = flagText(flags, 'script-destination') ?? 'entrypoint.py';
+    const destination = flagText(flags, 'script-destination');
+    if (destination) result.scriptRelativePath = destination;
     const generatedScriptSourcePath = flagText(flags, 'generated-script-path');
     if (generatedScriptSourcePath) result.generatedScriptSourcePath = generatedScriptSourcePath;
   }

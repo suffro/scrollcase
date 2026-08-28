@@ -110,7 +110,7 @@ export function findCondaPack({ path, runResult }?: {
  *   run: typeof import('./process.mjs').run,
  *   runtimeId: string,
  * }} options
- * @returns {Promise<{ interpreter: string, venvDir: string, sitePackagesRelative: string }>}
+ * @returns {Promise<{ interpreter: string | null, venvDir: string, sitePackagesRelative: string }>}
  */
 export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, lockPath, buildDir, payloadDir, adapter, run, runtimeId, }: {
     pixi: string;
@@ -123,7 +123,7 @@ export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, l
     run: typeof import("./process.mjs").run;
     runtimeId: string;
 }): Promise<{
-    interpreter: string;
+    interpreter: string | null;
     venvDir: string;
     sitePackagesRelative: string;
 }>;

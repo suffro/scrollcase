@@ -689,8 +689,9 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
             fixture.release["runtime"]["version"] = json!("3.99.0");
             fixture.sign();
         }
-        // A runtime the format names and this crate has no adapter for. The consumer must refuse
-        // the box rather than read it as the runtime it happens to be shaped like.
+        // A Python box relabelled as native after it was built. Everything about the payload
+        // still says Python, so the consumer must refuse it rather than read the declaration as
+        // the truth about a box that disagrees with it.
         "alter-release-runtime-id" => {
             fixture.release["runtime"]["id"] = json!("native");
             fixture.sign();

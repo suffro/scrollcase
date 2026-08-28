@@ -9,13 +9,17 @@
  *
  * What is generated is deliberately short. A scroll that restates what the target already implies is
  * a scroll nobody wants to write by hand, so anything `readScroll` can derive is left out and the
- * self-test is written as a real Python file rather than escaped into a JSON string.
+ * self-test is written as a real source file in the runtime's own language rather than escaped into
+ * a JSON string. Which language that is, what the starter says, and whether there is one at all are
+ * the runtime's answers: a native box has no source to generate, so it is pointed at a binary that
+ * already exists.
  */
 
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { boxTargetAdapter, boxTargetId, condaSubdir } from '../contract/targets.mjs';
 import { BOX_SCHEMA_VERSION } from '../contract/documents.mjs';
+import { isImplementedRuntime, runtimeAdapter, unimplementedRuntimeMessage } from '../contract/runtimes.mjs';
 import { runtimeBuilder } from '../runtimes/index.mjs';
 import { fileExists, safeRelativePath } from './filesystem.mjs';
 import { fail } from './process.mjs';
@@ -24,15 +28,40 @@ import { schemaValidationError } from './schema-validation.mjs';
 const scrollSchemaUrl = new URL('../contract/schema/scroll.schema.json', import.meta.url);
 const targetSchemaUrl = new URL('../contract/schema/target.schema.json', import.meta.url);
 const executionSchemaUrl = new URL('../contract/schema/execution.schema.json', import.meta.url);
-const EXECUTION_KINDS = Object.freeze(['python-script', 'python-module', 'library-only']);
 /**
- * The runtime `scrollcase new` writes. Authoring is deliberately narrower than the format: the
- * wire vocabulary names every runtime the format defines, and this names the one a generated
- * scroll can actually be built from today.
+ * A box with no entry point at all: the one execution choice that belongs to no runtime, because it
+ * is the choice not to declare one. Offered wherever it makes sense, which is wherever the box can
+ * still prove something about itself without being started.
  */
-export const AUTHORED_RUNTIME_ID = 'python';
+const LIBRARY_ONLY = 'library-only';
+
+/**
+ * The runtime `scrollcase new` writes when nobody says otherwise.
+ *
+ * Python, because it is what the overwhelming majority of boxes are and because a default that
+ * silently changed under existing users would be a worse kind of surprise than typing a flag.
+ */
+export const DEFAULT_RUNTIME_ID = 'python';
 export const EXAMPLE_PIXI_VERSION = '0.73.0';
 export const DEFAULT_SCROLL_VERSION = '1.0.0';
+
+/**
+ * What `scrollcase new scroll --execution` may be given, per runtime.
+ *
+ * Derived from the runtime's own execution kinds rather than listed here, so a runtime cannot be
+ * offered a shape it does not define. `library-only` is added for the runtimes that can still
+ * self-test without it — a native box cannot, since a command probe is its only probe and a command
+ * probe needs an execution to invoke, so offering the choice would be offering an invalid scroll.
+ *
+ * @param {string} runtimeId
+ * @returns {string[]}
+ */
+export function authoredExecutionKinds(runtimeId) {
+  const kinds = [...runtimeAdapter(runtimeId).executionKinds];
+  return runtimeAdapter(runtimeId).selfTestProbeKinds.includes('imports')
+    ? [...kinds, LIBRARY_ONLY]
+    : kinds;
+}
 
 /**
  * The Python a new scroll asks for when nobody says otherwise.
@@ -59,16 +88,43 @@ export const DEFAULT_PYTHON_VERSION = '3.14';
 export const LATEST_PYTHON_VERSION = '3.15';
 
 /**
- * Turns a requested Python version into the one a scroll records.
+ * The Node a new scroll asks for, and what `latest` means for it.
  *
- * @param {string | null | undefined} requested a version, `latest`, or nothing
- * @returns {string}
+ * Same reasoning as the Python pair above, applied to a project that releases differently: Node's
+ * even-numbered lines are the ones with long-term support, so the default is the current LTS rather
+ * than one minor behind the newest. conda-forge builds both.
  */
-export function resolvePythonVersion(requested) {
-  if (requested === null || requested === undefined || requested === '') {
-    return DEFAULT_PYTHON_VERSION;
+export const DEFAULT_NODE_VERSION = '22';
+export const LATEST_NODE_VERSION = '24';
+
+/**
+ * The version a generated scroll asks for, per runtime, and what `latest` resolves to.
+ *
+ * `native` has neither, and that is not an omission: there is no runtime to install, so there is no
+ * version to pin, and `runtime.version` is legitimately absent from the scroll it writes.
+ */
+const RUNTIME_VERSIONS = Object.freeze({
+  python: Object.freeze({ default: DEFAULT_PYTHON_VERSION, latest: LATEST_PYTHON_VERSION }),
+  node: Object.freeze({ default: DEFAULT_NODE_VERSION, latest: LATEST_NODE_VERSION }),
+  native: null,
+});
+
+/**
+ * Turns a requested runtime version into the one a scroll records.
+ *
+ * @param {string} runtimeId
+ * @param {string | null | undefined} requested a version, `latest`, or nothing
+ * @returns {string | null} null for a runtime that has no version to record
+ */
+export function resolveRuntimeVersion(runtimeId, requested) {
+  const versions = RUNTIME_VERSIONS[runtimeId];
+  const asked = requested === '' ? null : requested ?? null;
+  if (!versions) {
+    if (asked !== null) fail(`The ${runtimeId} runtime installs no interpreter, so it has no version to pin.`);
+    return null;
   }
-  return requested === 'latest' ? LATEST_PYTHON_VERSION : requested;
+  if (asked === null) return versions.default;
+  return asked === 'latest' ? versions.latest : asked;
 }
 
 const TYPESCRIPT_CONSUMER_TEMPLATE = `/**
@@ -237,10 +293,16 @@ function projectRelativePath(projectRoot, path) {
   return relativePath.split(sep).join('/');
 }
 
-function pixiManifest(environmentName, target, runtimeVersion, runtimeId = AUTHORED_RUNTIME_ID) {
+function pixiManifest(environmentName, target, runtimeVersion, runtimeId) {
   // The workspace table is substrate — one channel, one platform, whatever the box runs. Only the
-  // dependency line knows which runtime is being packed, and the runtime is what writes it.
+  // dependency line knows which runtime is being packed, and the runtime is what writes it. A
+  // runtime that installs nothing of its own writes none, and the table is left for the author:
+  // a native box's environment holds the libraries its binary links against and nothing else, and
+  // only the person who compiled it knows what those are.
   const runtime = runtimeBuilder(runtimeId).pixiDependency(runtimeVersion);
+  const dependencies = runtime
+    ? `${runtime.name} = "${runtime.spec}"\n`
+    : '# Add the libraries this box\'s binary links against.\n';
   return `# Solved by \`scrollcase lock\` into pixi.lock, which is committed and reviewed.
 # \`platforms\` must equal the target's conda subdirectory, or the solve produces an environment
 # that cannot run on the machine the box is for.
@@ -250,8 +312,7 @@ channels = ["conda-forge"]
 platforms = ["${condaSubdir(target)}"]
 
 [dependencies]
-${runtime.name} = "${runtime.spec}"
-`;
+${dependencies}`;
 }
 
 async function validateScroll(scroll) {
@@ -278,7 +339,8 @@ export async function createScroll({
   version,
   scrollVersion = DEFAULT_SCROLL_VERSION,
   sourceRevision,
-  pythonVersion = DEFAULT_PYTHON_VERSION,
+  runtimeId = DEFAULT_RUNTIME_ID,
+  runtimeVersion,
   pixiVersion,
   compatibility = {},
   assetBaseUrl,
@@ -286,7 +348,7 @@ export async function createScroll({
   scriptSourcePath = null,
   generateScript = false,
   generatedScriptSourcePath = null,
-  scriptRelativePath = 'entrypoint.py',
+  scriptRelativePath = null,
   module = null,
   defaultArgs = [],
 }) {
@@ -295,12 +357,19 @@ export async function createScroll({
     fail('No initialized Scrollcase workspace; run scrollcase init first.');
   }
 
+  if (!isImplementedRuntime(runtimeId)) fail(unimplementedRuntimeMessage(runtimeId));
+  const builder = runtimeBuilder(runtimeId);
+  const resolvedRuntimeVersion = runtimeVersion === undefined
+    ? resolveRuntimeVersion(runtimeId, null)
+    : resolveRuntimeVersion(runtimeId, runtimeVersion);
   const identity = {
     boxId: requiredText(boxId, 'boxId'),
     version: requiredText(version, 'version'),
     scrollVersion: requiredText(scrollVersion, 'scrollVersion'),
     sourceRevision: requiredText(sourceRevision, 'sourceRevision'),
-    pythonVersion: requiredText(pythonVersion, 'pythonVersion'),
+    runtimeVersion: resolvedRuntimeVersion === null
+      ? null
+      : requiredText(resolvedRuntimeVersion, 'runtimeVersion'),
     pixiVersion: requiredText(pixiVersion, 'pixiVersion'),
     // Required whether or not any asset is deferred: the release manifest names the archive's own
     // published URL, not just the assets'.
@@ -312,8 +381,9 @@ export async function createScroll({
   if (!labels || typeof labels !== 'object' || Array.isArray(labels)) {
     fail('labels must be an object.');
   }
-  if (!EXECUTION_KINDS.includes(executionKind)) {
-    fail(`Unsupported execution kind: ${executionKind}. Use ${EXECUTION_KINDS.join(', ')}.`);
+  const executionKinds = authoredExecutionKinds(runtimeId);
+  if (!executionKinds.includes(executionKind)) {
+    fail(`Unsupported execution kind for a ${runtimeId} box: ${executionKind}. Use ${executionKinds.join(', ')}.`);
   }
   if (!Array.isArray(defaultArgs) || defaultArgs.some((value) => typeof value !== 'string')) {
     fail('defaultArgs must be an array of strings.');
@@ -326,27 +396,45 @@ export async function createScroll({
   const scrollDir = join(workspace.scrollsDir, identity.boxId, targetId);
   if (await fileExists(scrollDir)) fail(`Scroll already exists: ${scrollRef}.`);
 
+  // Every kind that names a payload file — a Python script, a Node script, a compiled binary —
+  // resolves the same way: an existing project file, or one Scrollcase writes a starter for. Only
+  // the field it lands in and whether generation is possible differ, so the shape is stated once
+  // and the differences are read off the runtime.
+  const FILE_KINDS = Object.freeze({
+    'python-script': { field: 'script', executable: false },
+    'node-script': { field: 'script', executable: false },
+    // The one entry that needs the bit. A native box runs this file directly, and a downloaded or
+    // copied file carries no mode of its own — so if the scroll does not say it is executable, the
+    // archive will not mark it and the box will not start.
+    'native-binary': { field: 'binary', executable: true },
+  });
+
   let localFile = null;
   let execution;
   let generatedScriptPath = null;
   let generatedSource = null;
-  if (executionKind === 'python-script') {
+  const fileKind = FILE_KINDS[executionKind];
+  if (fileKind) {
     if (generateScript && scriptSourcePath) {
-      fail('Choose either an existing script or --generate-script, not both.');
+      fail('Choose either an existing file or --generate-script, not both.');
+    }
+    if (generateScript && !builder.templates) {
+      fail(`Scrollcase cannot generate an entry point for a ${runtimeId} box; point --script at the binary you built.`);
     }
     if (!generateScript && !scriptSourcePath) {
-      fail('python-script execution requires an existing script or --generate-script.');
+      fail(`${executionKind} execution requires an existing file${builder.templates ? ' or --generate-script' : ''}.`);
     }
-    const relativePath = safeRelativePath(scriptRelativePath);
+    const defaultFileName = builder.templates?.scriptFileName ?? 'entrypoint';
+    const relativePath = safeRelativePath(scriptRelativePath ?? defaultFileName);
     let sourcePath;
     if (generateScript) {
       sourcePath = safeRelativePath(generatedScriptSourcePath
-        ?? `box-entrypoints/${identity.boxId}/${targetId}/entrypoint.py`);
+        ?? `box-entrypoints/${identity.boxId}/${targetId}/${defaultFileName}`);
       generatedScriptPath = join(workspace.root, ...sourcePath.split('/'));
       if (await fileExists(generatedScriptPath)) {
         fail(`Generated script already exists: ${sourcePath}.`);
       }
-      generatedSource = runtimeBuilder(AUTHORED_RUNTIME_ID).templates.script;
+      generatedSource = builder.templates.script;
     } else {
       sourcePath = safeRelativePath(scriptSourcePath);
       const source = join(workspace.root, ...sourcePath.split('/'));
@@ -354,17 +442,21 @@ export async function createScroll({
       try {
         details = await lstat(source);
       } catch {
-        fail(`Project script is missing: ${sourcePath}.`);
+        fail(`Project file is missing: ${sourcePath}.`);
       }
       if (!details.isFile() || details.isSymbolicLink()) {
-        fail(`Project script must be a regular file: ${sourcePath}.`);
+        fail(`Project file must be a regular file: ${sourcePath}.`);
       }
     }
     // No sha256: this file is the one the author is about to start editing, and pinning it here
     // would make the first edit fail the build. A project pins a file it wants frozen by adding the
     // hash itself.
-    localFile = { sourcePath, relativePath };
-    execution = { kind: 'python-script', script: relativePath, defaultArgs: [...defaultArgs] };
+    localFile = { sourcePath, relativePath, ...(fileKind.executable ? { executable: true } : {}) };
+    execution = {
+      kind: executionKind,
+      [fileKind.field]: relativePath,
+      defaultArgs: [...defaultArgs],
+    };
   } else if (executionKind === 'python-module') {
     execution = {
       kind: 'python-module',
@@ -378,7 +470,16 @@ export async function createScroll({
   // Everything the target or the identity already determines is left out: a generated scroll should
   // read like the decisions its author made, and `readScroll` derives the rest. What stays is what a
   // person had to choose.
-  const selfTestPath = projectRelativePath(workspace.root, join(scrollDir, 'self_test.py'));
+  // The generated probe is the weakest true statement the runtime can make about a fresh box: for
+  // one with a module system, that its own standard library loads; for one without, that the binary
+  // the scroll names starts and exits cleanly. Both are placeholders the author is meant to replace,
+  // and neither pretends to have checked anything the box actually does.
+  const selfTestPath = builder.templates
+    ? projectRelativePath(workspace.root, join(scrollDir, builder.templates.selfTestFileName))
+    : null;
+  const probe = builder.templates
+    ? { imports: [builder.templates.starterImport] }
+    : { commands: [{ args: [] }] };
   const scroll = {
     $schema: 'https://scrollcase.dev/schema/v3/scroll.schema.json',
     schemaVersion: BOX_SCHEMA_VERSION,
@@ -391,11 +492,14 @@ export async function createScroll({
       ? {}
       : { scrollVersion: identity.scrollVersion }),
     ...(Object.keys(compatibility).length > 0 ? { compatibility: { ...compatibility } } : {}),
-    runtime: { id: AUTHORED_RUNTIME_ID, version: identity.pythonVersion },
+    runtime: {
+      id: runtimeId,
+      ...(identity.runtimeVersion === null ? {} : { version: identity.runtimeVersion }),
+    },
     pixiVersion: identity.pixiVersion,
     assetBaseUrl: identity.assetBaseUrl,
     selfTest: {
-      imports: ['json'],
+      ...probe,
       ...(localFile ? { files: [localFile.relativePath] } : {}),
       ...(selfTestPath ? { script: selfTestPath } : {}),
     },
@@ -412,13 +516,10 @@ export async function createScroll({
     await writeFile(join(staging, 'scroll.json'), `${JSON.stringify(scroll, null, 2)}\n`);
     await writeFile(
       join(staging, 'pixi.toml'),
-      pixiManifest(`${identity.boxId}-${targetId}`, target, identity.pythonVersion),
+      pixiManifest(`${identity.boxId}-${targetId}`, target, identity.runtimeVersion, runtimeId),
     );
     if (selfTestPath) {
-      await writeFile(
-        join(staging, 'self_test.py'),
-        runtimeBuilder(AUTHORED_RUNTIME_ID).templates.selfTest,
-      );
+      await writeFile(join(staging, builder.templates.selfTestFileName), builder.templates.selfTest);
     }
     if (generatedScriptPath) {
       await mkdir(dirname(generatedScriptPath), { recursive: true });
@@ -435,7 +536,7 @@ export async function createScroll({
   const written = [
     join(scrollDir, 'scroll.json'),
     join(scrollDir, 'pixi.toml'),
-    ...(selfTestPath ? [join(scrollDir, 'self_test.py')] : []),
+    ...(selfTestPath ? [join(scrollDir, builder.templates.selfTestFileName)] : []),
     ...(generatedScriptPath ? [generatedScriptPath] : []),
   ];
   return { written, scroll, scrollDir, scrollRef, targetId, generatedScriptPath };

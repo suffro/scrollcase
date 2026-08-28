@@ -685,10 +685,12 @@ Init options:
                              offers a PyPI fallback.
 
 New scroll options:
-                             Interactively it asks four things — target, box id, upstream
-                             revision, and where boxes will be published — plus the execution
-                             kind, and derives the rest. Every derived value below is a flag.
+                             Interactively it asks five things — target, runtime, box id,
+                             upstream revision, and where boxes will be published — plus the
+                             execution kind, and derives the rest. Every derived value below is
+                             a flag.
   --target <targetId>        Complete target, including the CUDA ABI when applicable
+  --runtime <id>             python, node or native (default python)
   --box-id <id>              Box identity
   --source-revision <rev>    Upstream source revision recorded in provenance
   --asset-base-url <url>     Base URL used in built release documents
@@ -696,13 +698,15 @@ New scroll options:
                              release. Scrollcase reads none of them.
   --version <version>        Box version (default 1.0.0)
   --scroll-version <version> Scroll authoring version (default 1.0.0)
-  --python-version <version> Python dependency version, or latest
+  --runtime-version <version> Interpreter version solved into the box, or latest. Refused for
+                             native, which installs no interpreter
   --pixi-version <version>   pixi resolver version (default: the installed pixi)
   --min-host-app-version <v> Minimum compatible host application version
-  --execution <kind>         python-script, python-module, or library-only
-  --script <path>            Existing project script for python-script
-  --generate-script          Generate a minimal project script instead
-  --script-destination <path> Payload path for the script (default entrypoint.py)
+  --execution <kind>         The runtime's own kinds, plus library-only where the box can still
+                             prove something without an entry point
+  --script <path>            Existing project file the box runs
+  --generate-script          Generate a minimal starter instead, where the runtime has one
+  --script-destination <path> Payload path for that file (default: the runtime's own name)
   --generated-script-path <path> Project path for a generated starter
   --module <name>            Dotted module name for python-module
   --default-args <json>      JSON array of default application arguments

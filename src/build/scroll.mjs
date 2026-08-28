@@ -20,6 +20,7 @@ import {
   isImplementedRuntime,
   runtimeAdapter,
   unimplementedRuntimeMessage,
+  unsupportedSelfTestProbeMessage,
 } from '../contract/runtimes.mjs';
 import { compareStableStrings, fileExists, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult } from './process.mjs';
@@ -229,7 +230,12 @@ export function scrollDirectory(reference) {
 function effectiveScroll(scroll, adapter, targetId) {
   // Only a runtime this build implements gets this far, so its layout is the one authority on where
   // the entry point sits — derived when the scroll stays quiet, checked against when it does not.
+  // A runtime with no interpreter has none to derive, and leaving the field out is the honest
+  // answer: `runtime.entryPoint` is optional on the wire precisely so a native box can omit it.
   const layout = runtimeAdapter(scroll.runtime.id).layout(adapter);
+  const runtime = layout.entryPoint === null
+    ? { ...scroll.runtime }
+    : { ...scroll.runtime, entryPoint: scroll.runtime.entryPoint ?? layout.entryPoint };
   return {
     ...scroll,
     // Provenance needs a stable source identity. It is derived when the scroll does not name one,
@@ -237,7 +243,7 @@ function effectiveScroll(scroll, adapter, targetId) {
     scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
     scrollVersion: scroll.scrollVersion ?? '1.0.0',
     compatibility: scroll.compatibility ?? {},
-    runtime: { ...scroll.runtime, entryPoint: scroll.runtime.entryPoint ?? layout.entryPoint },
+    runtime,
     cacheSubdir: scroll.cacheSubdir ?? `cache/${scroll.boxId}`,
     assets: scroll.assets ?? [],
     selfTest: { ...scroll.selfTest, files: scroll.selfTest.files ?? [] },
@@ -275,11 +281,24 @@ async function readExactScroll(reference) {
   if ((declared.selfTest.commands ?? []).length > 0 && !declared.execution) {
     fail('selfTest.commands invokes the box\'s execution, which this scroll does not declare.');
   }
+  // An import probe asks a module system a question. A runtime without one cannot answer it, and
+  // running the build only to discover that at self-test time would be a worse place to find out.
+  for (const probeKind of ['imports', 'commands']) {
+    if (!(declared.selfTest[probeKind] ?? []).length) continue;
+    if (!runtime.selfTestProbeKinds.includes(probeKind)) {
+      fail(unsupportedSelfTestProbeMessage(runtime.id, probeKind));
+    }
+  }
   // Checked here rather than in the schema: a base legitimately has no target, and requiring one
   // there would make every base file light up in an editor.
   if (declared.target === undefined) fail(`Scroll ${normalized} declares no target.`);
   const adapter = boxTargetAdapter(declared.target);
   const targetId = boxTargetId(declared.target);
+  // The parity gate runs a source file with the box's own runtime, once per accelerator. A runtime
+  // with no interpreter has nothing to run it with, and a compiled binary is not a check script.
+  if (declared.parity && runtime.layout(adapter).entryPoint === null) {
+    fail(`A ${runtime.id} box has no interpreter to run a parity check with; parity compares source run inside the box.`);
+  }
   const scroll = effectiveScroll(declared, adapter, targetId);
   const payloadPaths = [
     scroll.cacheSubdir,
@@ -294,6 +313,7 @@ async function readExactScroll(reference) {
     ...(scroll.execution?.binary ? [scroll.execution.binary] : []),
     ...(scroll.parity ? [scroll.parity.script] : []),
     ...(scroll.condaDependencyLicenseAudit ? [scroll.condaDependencyLicenseAudit] : []),
+    ...(scroll.bundledLicenseDeclaration ? [scroll.bundledLicenseDeclaration] : []),
   ];
   for (const path of payloadPaths) safeRelativePath(path);
   assertDistinctPayloadDestinations(scroll);

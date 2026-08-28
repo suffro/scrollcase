@@ -185,8 +185,9 @@ async function mutateFixture(fixture, mutation, destination) {
     return;
   }
   if (mutation === 'alter-release-runtime-id') {
-    // A runtime the format names and this build has no adapter for. The consumer must refuse the
-    // box rather than fall back to reading it as the runtime it happens to be shaped like.
+    // A Python box relabelled as native after it was built. Everything about the payload still
+    // says Python, so the consumer must refuse it rather than read the declaration as the truth
+    // about a box that disagrees with it.
     fixture.release.runtime = { ...fixture.release.runtime, id: 'native' };
     await writeSignedRelease(fixture, fixture.release);
     return;

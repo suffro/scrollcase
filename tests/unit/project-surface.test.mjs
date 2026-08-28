@@ -172,16 +172,13 @@ describe('auditing dependency licences', () => {
       workspace: getWorkspace(),
       boxId: 'example-model',
       target: TARGET,
-      modelId: 'example-org-example-model',
-      runtimeId: 'example-runtime',
       version: '1.0.0',
       scrollVersion: '1.0.0',
       sourceRevision: 'upstream-v1',
-      pythonVersion: '3.11.15',
+      runtimeVersion: '3.11.15',
       pixiVersion: '0.73.0',
       compatibility: { minHostAppVersion: '1.0.0' },
       assetBaseUrl: 'https://assets.example.org',
-      weights: 'embed',
       executionKind: 'library-only',
     });
     const scroll = JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8'));

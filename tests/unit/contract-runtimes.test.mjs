@@ -4,12 +4,14 @@ import { fixtureUrl } from '../../src/contract/index.mjs';
 import { boxTargetAdapters } from '../../src/contract/targets.mjs';
 import {
   RUNTIME_IDS,
+  assertRuntimeEntryPoint,
   executionAffectingVariables,
   isExecutablePayloadPath,
   isImplementedRuntime,
   runtimeAdapter,
   runtimeAdapters,
   unimplementedRuntimeMessage,
+  unsupportedSelfTestProbeMessage,
 } from '../../src/contract/runtimes.mjs';
 
 const PYTHON = 'python';
@@ -46,17 +48,41 @@ describe('runtime adapters', () => {
     }
   });
 
-  it('refuses a runtime it has no adapter for, and says which kind of refusal it is', () => {
-    for (const id of ['node', 'native']) {
-      expect(() => runtimeAdapter(id), id).toThrow(TypeError);
-      expect(isImplementedRuntime(id), id).toBe(false);
-      expect(unimplementedRuntimeMessage(id)).toContain('not implemented by this version');
-    }
+  it('refuses a runtime the format does not define, and says so as such', () => {
+    // This build implements every id the format names, so the other branch of the message — a
+    // runtime the format defines that this build cannot run — is unreachable here. It is not dead:
+    // the Python and Rust consumers version independently, and one published before a runtime
+    // landed still has to refuse a box naming it rather than misread it.
     for (const id of ['', undefined, null, 42, 'ruby']) {
       expect(() => runtimeAdapter(id), String(id)).toThrow(TypeError);
       expect(isImplementedRuntime(id), String(id)).toBe(false);
       expect(unimplementedRuntimeMessage(id)).toContain('Unknown runtime');
     }
+  });
+
+  it('refuses a probe shape the runtime cannot answer, in the shared wording', () => {
+    for (const testCase of contract.unsupportedProbes) {
+      expect(unsupportedSelfTestProbeMessage(testCase.runtime, testCase.probeKind), testCase.name)
+        .toBe(testCase.message);
+      expect(() => runtimeAdapter(testCase.runtime).selfTestInvocations({
+        probe: { [testCase.probeKind]: ['anything'] },
+        execution: null,
+        target: targetFor('linux'),
+      }), testCase.name).toThrow(testCase.message);
+    }
+  });
+
+  it('admits an entry point only where the runtime has one', () => {
+    const linux = targetFor('linux');
+    // Optional on the wire, so declaring nothing is fine for either kind of runtime.
+    expect(() => assertRuntimeEntryPoint(PYTHON, linux, undefined)).not.toThrow();
+    expect(() => assertRuntimeEntryPoint('native', linux, undefined)).not.toThrow();
+    expect(() => assertRuntimeEntryPoint(PYTHON, linux, 'venv/bin/python')).not.toThrow();
+    expect(() => assertRuntimeEntryPoint(PYTHON, linux, 'venv/bin/python3'))
+      .toThrow(/must use entry point venv\/bin\/python/);
+    // A native box that names one is naming a file it never starts, which a reader would believe.
+    expect(() => assertRuntimeEntryPoint('native', linux, 'venv/bin/python'))
+      .toThrow(/no runtime entry point to declare/);
   });
 
   it('reproduces every golden layout and executable-path rule', () => {
@@ -65,6 +91,7 @@ describe('runtime adapters', () => {
       expect([...runtime.executionKinds], fixture.id).toEqual(fixture.executionKinds);
       expect([...runtime.executionEnvironmentVariables], fixture.id)
         .toEqual(fixture.executionEnvironmentVariables);
+      expect([...runtime.selfTestProbeKinds], fixture.id).toEqual(fixture.selfTestProbeKinds);
       for (const platform of fixture.layouts) {
         const target = targetFor(platform.platform);
         expect({ ...runtime.layout(target) }, platform.platform).toEqual(platform.layout);

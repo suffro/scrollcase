@@ -16,22 +16,7 @@ import { runtimeAdapter } from '../../contract/runtimes.mjs';
 import { repairPosixLaunchers } from './launchers.mjs';
 import { STARTER_SCRIPT, STARTER_SELF_TEST, pixiDependency } from './templates/index.mjs';
 
-/**
- * What the builder needs from a runtime, beyond what the contract already states.
- *
- * @typedef {object} RuntimeBuilder
- * @property {string} id
- * @property {import('../../contract/runtimes.mjs').BoxRuntimeAdapter} contract the pure half, so a
- *   caller holding a builder never has to look the same runtime up twice
- * @property {(runtimeVersion: string) => { name: string, spec: string }} pixiDependency the
- *   `[dependencies]` entry a generated pixi manifest declares for this runtime
- * @property {(layout: import('../../contract/runtimes.mjs').BoxRuntimeLayout, payloadDir: string,
- *   forbiddenPaths: readonly string[]) => Promise<void>} repairLaunchers rewrites generated console
- *   scripts so nothing in the box points at the build machine
- * @property {{ script: string, selfTest: string }} templates the source `new scroll` writes
- */
-
-/** @type {RuntimeBuilder} */
+/** @type {import('../index.mjs').RuntimeBuilder} */
 export const pythonRuntimeBuilder = Object.freeze({
   id: 'python',
   contract: runtimeAdapter('python'),
@@ -40,5 +25,8 @@ export const pythonRuntimeBuilder = Object.freeze({
   templates: Object.freeze({
     script: STARTER_SCRIPT,
     selfTest: STARTER_SELF_TEST,
+    scriptFileName: 'entrypoint.py',
+    selfTestFileName: 'self_test.py',
+    starterImport: 'json',
   }),
 });
