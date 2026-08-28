@@ -6,6 +6,42 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — the `node` and `native` runtimes
+
+- **A box can run Node, or run nothing at all.** `runtime.id: "node"` packs `nodejs` from
+  conda-forge and starts `venv/bin/node` (`venv/node.exe` on Windows) on a declared `node-script`.
+  `runtime.id: "native"` packs no interpreter and starts a compiled binary directly: the binary
+  *is* the command line, `runtime.version` and `runtime.entryPoint` are absent, and declaring
+  either is refused rather than ignored, because it would name a file the box never starts.
+
+- **A native box proves itself with `selfTest.commands`.** It has no module system, so
+  `selfTest.imports` means nothing to it and is refused where the scroll is read rather than
+  silently dropped, which would report a pass for a check that never ran. `parity` is refused for
+  the same reason: it runs a source file with the box's own interpreter, and there is not one.
+
+- **`scrollcase new scroll --runtime <python|node|native>`** drives which execution kinds are
+  offered, which starter files are written, and which dependency the generated `pixi.toml`
+  declares — none, for `native`, where only the author knows what their binary needs.
+  **`--python-version` becomes `--runtime-version`**, and is refused for `native`.
+
+- **A Node box carries its own `package.json`** unless the payload already has one. Node decides
+  whether a `.js` file is CommonJS or an ES module from the nearest `package.json` *above* it, so a
+  box without one asks whichever directory it was extracted into — the same box then behaves
+  differently in two places. Found by building one, against this repository's own `package.json`.
+
+- **Whatever a box starts must come out of the archive executable.** Checked before the archive is
+  written, through the runtime's own argv rule rather than by naming an execution kind, so it holds
+  for every runtime. A `native-binary` a scroll brought in therefore needs `"executable": true`.
+
+- **Link repair is not attempted for `native`.** A binary that finds its libraries through an
+  absolute path recorded at compile time will not find them inside a box, and fixing that is
+  per-format work — rpath, `install_name`, the DLL search order — worth its own pass. A native box
+  must ship a binary that already resolves. The self-test catches the rest at build time: the first
+  native example built here failed on conda-forge's own `ncurses`, which carries an unrewritten
+  build-machine path to `libtinfo`.
+
+- **`examples/node-box` and `examples/native-box`**, both built, verified and run for real.
+
 ### Changed — the version 3 box format
 
 This is a **breaking wire change**, and the only one planned. Published v1 and v2 boxes stay
@@ -17,10 +53,10 @@ dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll
   and `pythonEntryPoint` in the scroll, `box.json` and the signed release, and
   `provenance.pythonVersion` becomes `provenance.runtimeVersion`. A version 2 box recorded a Python
   interpreter path and Python execution kinds and nothing that said "Python", so a reader had to
-  infer the runtime from the shape of a path. `id` is one of `python`, `node` or `native`; only
-  `python` can be built or run today, and a box naming another is refused by name rather than
-  misread as the runtime it happens to be shaped like. Fixing the vocabulary now is what makes
-  implementing the other two code rather than a second wire break.
+  infer the runtime from the shape of a path. `id` is one of `python`, `node` or `native` — all three
+  are implemented, and a box naming an id the format does not define is refused by name rather than
+  misread as the runtime it happens to be shaped like. Fixing the vocabulary once is what let the
+  other two arrive as code rather than as a second wire break.
 
 - **`modelId` and `runtimeId` are gone**, replaced by an optional `labels` map that Scrollcase never
   reads. Both were required and neither was ever read by any code path: they were a consumer's
@@ -36,6 +72,16 @@ dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll
   silent-repack bug the flag's own documentation already warned about. `assetArchives` gains no
   `embed` field — an archive is expanded at build time, so deferring one names nothing that could
   happen — which turns version 2's cross-field refusal into a schema-level impossibility.
+
+- **A scroll may declare the licences bundled inside a binary it ships.**
+  `bundledLicenseDeclaration` points at a reviewed JSON array of
+  `{ name, version, declaredLicense, linkedInto }` entries, and the build checks that every path it
+  names is a file the box actually carries before signing the list into the release and `box.json`
+  and writing it beside the derived audit at `THIRD_PARTY_NOTICES/bundled-dependencies.json`.
+  `pixi.lock` declares a licence per conda package, but it cannot see what was linked into a binary
+  before Scrollcase ever saw the file, and reading the binary would be guessing. It travels in the
+  release rather than only in the payload because a licence decision is made before an archive is
+  downloaded. Its absence means the project declared none, never that the box has none.
 
 - **The self-test generalises.** `selfTest.pythonImports` put Python syntax in the wire format and
   gave a runtime with no module system no way to state a check at all. The signed subset becomes

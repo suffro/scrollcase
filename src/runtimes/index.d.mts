@@ -42,6 +42,12 @@ export type RuntimeBuilder = {
      * runtime whose entry point Scrollcase cannot generate
      */
     templates: RuntimeTemplates | null;
+    /**
+     * writes the files
+     * this runtime needs in the payload that nothing declares, returning what it wrote. Optional:
+     * most runtimes need none.
+     */
+    preparePayload?: (payloadDir: string) => Promise<readonly string[]>;
 };
 export type RuntimeTemplates = {
     /**

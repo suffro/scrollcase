@@ -1,0 +1,45 @@
+{
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
+  "boxId": "native-box",
+  "version": "1.0.0",
+  "sourceRevision": "example-native-v1",
+  "target": {
+    "platform": "macos",
+    "arch": "aarch64",
+    "accelerator": "metal"
+  },
+  "compatibility": {
+    "minHostAppVersion": "1.0.0",
+    "minMacosVersion": "13.0"
+  },
+  "runtime": {
+    "id": "native"
+  },
+  "pixiVersion": "0.73.0",
+  "condaDependencyLicenseAudit": "examples/native-box/macos-aarch64-metal/conda-licenses.json",
+  "cacheSubdir": "cache/native-box",
+  "assetBaseUrl": "https://assets.example.org/boxes",
+  "selfTest": {
+    "commands": [
+      {
+        "args": [
+          "--version"
+        ]
+      },
+      {
+        "args": [
+          "--test",
+          "--quiet",
+          "box.json"
+        ],
+        "expectExitCode": 1
+      }
+    ]
+  },
+  "execution": {
+    "kind": "native-binary",
+    "binary": "venv/bin/zstd",
+    "defaultArgs": []
+  }
+}

@@ -97,6 +97,52 @@ declares — the build stops with a mismatch on a checkout that looks perfectly 
 marks the affected paths in [`.gitattributes`](../.gitattributes); a project declaring its own
 `localFiles` needs the same for the files it names.
 
+## `node-box`
+
+The same thing as `hello-box`, one runtime over: a bare Node 22 environment from conda-forge, a
+`node-script` entry point, and nothing to download beyond the runtime itself. One target
+(`macos-aarch64-metal`), because it exists to show the shape rather than to be published.
+
+Two details are the whole point of it. The scroll declares `runtime.id: "node"` and nothing else
+changes shape — the target, the licence audit, the self-test, the signed release are all the same
+fields. And the built archive carries a `package.json` at its root that no scroll declares:
+
+```jsonc
+{ "name": "scrollcase-box", "private": true, "type": "commonjs" }
+```
+
+Node decides whether a `.js` file is CommonJS or an ES module from the nearest `package.json`
+**above** it. A box without one asks whichever directory it was extracted into — this example failed
+its own self-test against *this repository's* `package.json`, which says `"type": "module"`. The
+builder writes one so the walk stops inside the box, and leaves it alone if the payload already has
+one. Ship your own as a `localFile` if you want ESM.
+
+```sh
+node src/cli.mjs build node-box/macos-aarch64-metal --scrolls-dir examples
+```
+
+## `native-box`
+
+A box with **no interpreter at all**. It packs conda-forge's `zstd` and runs `venv/bin/zstd`
+directly: the binary is the command line, `runtime.version` and `runtime.entryPoint` are absent, and
+the self-test is two invocations of the box's own execution — `--version`, and a `--test` that must
+exit 1 on a file that is not a zstd archive.
+
+`zstd` rather than something with a console UI, and that choice is itself the lesson. The first
+version of this example ran `sqlite3`, whose own linkage is entirely `@rpath` and perfectly
+relocatable — but conda-forge's `ncurses`, three dependencies down, ships a `libncurses` that
+re-exports `libtinfo` through an unrewritten path on the machine that *built the package*. The box
+was correct; a package inside it was not, and Scrollcase does not repair a binary's library paths.
+The self-test caught it before anything was signed, which is the arrangement working: a native box
+that cannot start fails the build rather than the user.
+
+The environment is small (`zstd` and `libzlib`) and the licence audit is derived from the lock as
+usual — `native` means "no interpreter", not "no dependencies".
+
+```sh
+node src/cli.mjs build native-box/macos-aarch64-metal --scrolls-dir examples
+```
+
 ## `sentiment-demo`
 
 The same pipeline carrying a real model: DistilBERT SST-2 quantised to INT8 in ONNX form, with the

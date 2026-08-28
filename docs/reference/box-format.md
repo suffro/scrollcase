@@ -131,9 +131,10 @@ written this way exercises the same layout the shipped box has.
 ```
 
 `verify` recursively checks every shared field against the signed release: schema, identity and
-labels, complete target, the runtime block, cache subdirectory, declared environment, consumer
-self-test, the deferred-asset list, and provenance. That agreement binds the archive's contents to
-its signed metadata.
+labels, complete target, the runtime block, cache subdirectory, the bundled licence inventory,
+declared environment, consumer self-test, the deferred-asset list, and provenance. That agreement
+binds the archive's contents to its signed metadata — a licence inventory that could differ between
+the document a reviewer read and the box a user installed would be worth nothing.
 
 ## Provenance
 
@@ -226,8 +227,30 @@ lives and what it hashes to, the consumer import check to repeat, and provenance
 
 `runtime.id` is `python`, `node` or `native`. A consumer that does not recognise it must **refuse
 the box**: the id decides the payload layout and the argv rule, so guessing would mean executing
-something on an assumption. Only `python` can be built today; the other two are named by the format
-so that implementing them is code rather than another format change.
+something on an assumption. All three are implemented — the vocabulary was fixed once, in the
+version 3 break, and `node` and `native` then arrived without another one. The list of ids and the
+list a given consumer implements stay separate for a reason: the Python and Rust consumers version
+independently, so one published before a runtime landed still refuses a box naming it, by name.
+
+| | `python` | `node` | `native` |
+| --- | --- | --- | --- |
+| `runtime.entryPoint` | `venv/bin/python`, `venv/python.exe` | `venv/bin/node`, `venv/node.exe` | **absent** |
+| `runtime.version` | required | required | **absent** |
+| `execution.kind` | `python-script`, `python-module` | `node-script` | `native-binary` |
+| Command line | the entry point, then the declaration | the entry point, then the declaration | the binary itself |
+| `selfTest.probe` | `imports`, `commands` | `imports`, `commands` | `commands` only |
+
+A `native` box carries no interpreter, so it names no entry point and no version. A box that
+declares one anyway is refused rather than ignored: it would name a file the box never starts, and a
+reader would believe it.
+
+`bundledLicenses` is optional and lists dependencies compiled *inside* a binary the box ships — the
+half of the licence picture `pixi.lock` cannot see, declared by the publishing project and signed
+here unchanged. Each entry carries `name`, `version`, `declaredLicense` and `linkedInto` (payload
+files it is compiled into), plus an optional `sourceUrl`. Scrollcase never parses `declaredLicense`:
+what a licence permits is not a question a packaging tool answers. It is carried in the release
+rather than only in the payload so a licence decision can be made before an archive is downloaded.
+Its absence means the project declared none, never that the box has no bundled dependencies.
 
 `environment` is optional. When present it is a signed string map repeated value-for-value in
 `box.json`. A conforming verifier checks the
@@ -375,4 +398,5 @@ payload encoding, signature algorithm, or golden fixture.
 | `weights: embed \| on-demand` | `assets[].embed`, per entry | A box-wide switch could not ship a small entry point and defer a large dataset. `--weights` went with it: a build-time override of a per-asset declaration repacks a box under an identity that no longer describes it |
 | `selfTest.pythonImports` | `selfTest.probe` with `imports` and `commands` | Python syntax in the wire format. A runtime with no module system could not state a check at all |
 | Executable bit from a `venv/bin` heuristic | `assets[].executable`, `localFiles[].executable` | A downloaded file arrives with no permissions, so a box could not ship one that runs |
-| `python-script`, `python-module` | plus `node-script`, `native-binary` | Named now, so implementing them later is code rather than another wire break |
+| `python-script`, `python-module` | plus `node-script`, `native-binary` | Named once, so implementing the runtimes was code rather than another wire break — which is exactly how `node` and `native` arrived |
+| — | `bundledLicenses`, optional | The licences of what was linked *inside* a binary the box ships. `pixi.lock` cannot see them, so they are declared rather than derived, and signed so a licence decision can be made before an archive is downloaded |

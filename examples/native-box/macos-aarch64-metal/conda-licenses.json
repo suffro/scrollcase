@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "kind": "scrollcase.box.dependency-license-audit",
+  "targetId": "macos-aarch64-metal",
+  "dependencyLockSha256": "a8da7e3537873bd508bf5c926dc8c5519d597cfcc147b32b2506be4d3066990c",
+  "packages": [
+    {
+      "name": "libzlib",
+      "version": "1.3.2",
+      "declaredLicense": "Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "zstd",
+      "version": "1.5.7",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    }
+  ]
+}

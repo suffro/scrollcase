@@ -1772,6 +1772,36 @@ deserves its own pass rather than a guess. A native box must ship a binary that 
 statically linked, or built with a relative rpath. This is a stated limitation, not an assumption
 left for someone to discover.
 
+It is not hypothetical, and it is not usually the box author's doing. The first native example built
+for this repository ran `sqlite3`, whose own linkage is entirely `@rpath` and perfectly relocatable —
+but conda-forge's `ncurses`, three dependencies down, ships a `libncurses.6.dylib` that re-exports
+`libtinfo.6.dylib` through an unrewritten *build machine* path. The box was correct; a package inside
+it was not, and no relocation step Scrollcase performs would have fixed it. **The self-test caught it
+before anything was signed**, which is the arrangement working: a native box that cannot start fails
+the build rather than the user.
+
+</div>
+
+<div class="h4-section">
+
+#### The one file a Node box has to carry
+
+Node decides whether a `.js` file is CommonJS or an ES module by walking *up* from the file to the
+nearest `package.json`. Inside a box there usually is none, so the walk **leaves the box** and asks
+whatever directory the box happened to be extracted into. A box extracted under a project whose
+`package.json` says `"type": "module"` runs its own entry point as ESM; the same box one directory
+higher runs it as CommonJS. That is a box whose behaviour depends on where it was put, which is the
+one thing a box exists not to be.
+
+So `src/runtimes/node/payload.mjs` writes the box its own, and the walk stops inside it. The contents
+are fixed, so two builds of one commit still produce the same bytes; it is written only when the
+payload does not already carry one, because a project that ships a `package.json` has said what it
+wants and overwriting that would replace an answer with a default; and it is written after the prunes
+and before the payload is read, so it is archived and digested like every other file.
+
+This too was found by building one: the example Node box failed its self-test against *this
+repository's* `package.json`.
+
 </div>
 
 <div class="h3-section-initial-part">
@@ -6290,6 +6320,7 @@ what a box's runtime is allowed to need that another runtime would not.
 | `src/runtimes/python/dependencies.mjs` | Reading a pip `requirements.txt` into conda-forge terms | 6.16 |
 | `src/runtimes/python/templates/index.mjs` | The Python source `new scroll` writes, and the interpreter constraint a generated manifest declares | 6.16 |
 | `src/runtimes/node/index.mjs` | The Node adapter: `nodejs` from conda-forge, and nothing to repair | 6.6 |
+| `src/runtimes/node/payload.mjs` | The `package.json` a Node box carries so nothing above it decides what its code is | 6.6 |
 | `src/runtimes/node/templates/index.mjs` | The JavaScript source `new scroll` writes, and the Node constraint a generated manifest declares | 6.16 |
 | `src/runtimes/native/index.mjs` | The native adapter: no interpreter, no dependency of its own, nothing to generate | 6.6 |
 

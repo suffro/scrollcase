@@ -1,0 +1,13 @@
+# Minimal Scrollcase example: no interpreter at all. The box runs a compiled program that
+# conda-forge built, and the environment holds exactly what that program needs.
+#
+# `zstd` rather than something with a console UI: a native box ships whatever the packaged binary
+# was linked against, and conda-forge's `ncurses` carries an unrewritten build-machine path to
+# `libtinfo` that no relocation step here fixes. See the native runtime's stated limitation.
+[workspace]
+name = "native-box"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+zstd = "1.5.*"

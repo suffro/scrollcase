@@ -8,19 +8,80 @@ description: Why Scrollcase is shaped the way it is, and which alternatives were
 Each entry records the alternative that was rejected, because a decision without its discarded
 alternative is just an assertion.
 
-## Version 2 is a clean break
+## Version 3 is a clean break
 
-Scrollcase v2 accepts and emits only `schemaVersion: 2`. Published v1 boxes and immutable package
-releases remain usable with the old Scrollcase versions that produced them; the v2 verifier rejects
-them with a clear unsupported-version error. It does not reinterpret them.
+Scrollcase v3 accepts and emits only `schemaVersion: 3`. Published v1 and v2 boxes remain usable
+with the old Scrollcase versions that produced them; the v3 verifier rejects either **by name**,
+saying which version it holds, rather than reinterpreting it.
 
 The declarative source is a **scroll**, stored as `scroll.json` under `scrolls/`. The built artefact
 remains a **box**. This vocabulary applies across schemas, identifiers, paths, CLI arguments,
 fixtures, types, documentation, and errors.
 
-**Rejected:** a v1/v2 union, compatibility aliases, and dual execution paths. They would make every
+**Rejected:** a version union, compatibility aliases, and dual execution paths. They would make every
 security check and every consumer carry two meanings indefinitely, while still being unable to
-change the already-published v1 wire format.
+change the already-published wire formats. There is no migration tool either: a box is rebuilt from
+its scroll, which is the input that was kept for exactly that reason.
+
+## A runtime is an adapter, not a fork
+
+Until version 3 the format never said what ran inside a box. It recorded a Python interpreter path
+and Python execution kinds, and a reader inferred "Python" from the shape of a path. Every target
+adapter was therefore also a statement that a box is a Python box, and adding a second runtime meant
+either a second builder or a branch at every layer.
+
+So version 3 asks the question outright — `runtime: { id, version, entryPoint }` — and fixes the
+vocabulary once: `python`, `node`, `native`. What a runtime *implies* moved into one contract module
+mirrored in all three consumer languages: where the interpreter sits, which execution kinds exist,
+how a declaration becomes a shell-free command line, which inherited variables can change what gets
+loaded, and which self-test shapes it can answer. `node` and `native` then arrived as two entries in
+that table plus their builder-side halves, and the wire did not move.
+
+The vocabulary and the implemented set stay two separate lists even though they now hold the same
+three ids. They answer to different release cycles: the Python and Rust consumers version
+independently of the builder, so one published before a runtime landed must still refuse a box
+naming it by name rather than misread it as the runtime it happens to be shaped like.
+
+**Rejected:** a runtime flag that only selected a template, leaving the layout and argv rules
+branching on `platform` further down. That is the arrangement version 2 already had, and it is what
+made the Python assumptions impossible to find.
+
+### A native box has no interpreter, and says so by omission
+
+`runtime.entryPoint` and `runtime.version` are optional on the wire, and absent for `native`. The
+alternative — a placeholder path, or the binary's own path repeated in a field meaning "the
+runtime's own executable" — would put a value in the record that no reader could act on, and
+provenance must never invent one. A native box that declares either is refused rather than ignored:
+it names a file the box never starts, and a reader would believe it.
+
+The same omission propagates upward. A native box has no module system, so `selfTest.imports` is
+refused where the scroll is read rather than silently dropped — dropping it would report a pass for
+a check that never ran. And `parity` runs a source file with the box's own interpreter, so it is
+refused too.
+
+**Not attempted, and stated rather than assumed:** repairing a binary's library paths. A binary that
+resolves its libraries through an absolute path recorded at compile time will not find them inside a
+box, and fixing that is per-binary-format work — rpath on Linux, `install_name` on macOS, the DLL
+search order on Windows — worth its own pass. A native box must ship a binary that already resolves.
+The self-test is what catches the rest, at build time on the author's machine rather than at run
+time on a user's: the first native example built for this repository failed on conda-forge's own
+`ncurses`, which ships a `libncurses` re-exporting `libtinfo` through an unrewritten build-machine
+path. The box was correct; a package inside it was not.
+
+### A Node box carries its own `package.json`
+
+Node decides whether a `.js` file is CommonJS or an ES module by walking *up* from the file to the
+nearest `package.json`. Inside a box there usually is none, so the walk leaves the box and asks
+whichever directory the box was extracted into: the same box behaves one way under a project whose
+manifest says `"type": "module"` and another way one directory higher. That is a box whose behaviour
+depends on where it was put, which is the one thing a box exists not to be.
+
+So the builder writes one at the payload root, with fixed contents so a rebuild is still
+byte-identical, and only when the payload does not already carry one — a project that ships a
+`package.json` has said what it wants, and overwriting it would replace an answer with a default.
+
+**Rejected:** requiring every Node box to name a `.mjs` or `.cjs` entry point. It would work, and it
+would push the cost onto every author to fix a problem none of them created.
 
 ## Consumers prepare and run local boxes; they do not distribute them
 
@@ -529,13 +590,32 @@ The public-contract audit resolved six implementation choices:
 - Asset resume is limited to retries within one download operation. There is no persistent cache
   and the documentation makes that process boundary explicit.
 
-## The licence audit is derived from the lock
+## The licence audit is derived from the lock — except the half no lock can see
 
 The inventory is a pure function of the committed `pixi.lock`, which carries an SPDX licence per
 package, and `pixi install --frozen` guarantees the installed set equals it. So `audit` runs without
 building anything, and licence review can happen when dependencies change rather than at the end of a
 multi-gigabyte build. A package with no declared licence fails the parse outright: an unlicensed
 dependency is a legal problem, not a reporting gap.
+
+A binary a scroll supplies is the case this cannot reach. Whatever was linked into it was linked
+before Scrollcase saw the file; nothing in the build records it, and reading the binary would be
+guessing — and guessing about a licence is worse than not answering. So that half is **declared**:
+`bundledLicenseDeclaration` names a reviewed file, and the build checks the one thing a tool can
+actually check — that every payload path the declaration claims to be linked into is a file the box
+really carries. A licence file nobody can check is a licence file nobody maintains.
+
+What belongs in the list is the project's judgement, exactly as the reviewed conda audit is.
+Scrollcase transports and signs it, and never parses `declaredLicense`: what a licence permits is
+not a question a packaging tool answers. Its absence means the project declared none, never that the
+box has no bundled dependencies.
+
+It travels in the **release manifest**, not only in the payload. A licence decision is made before
+an archive is downloaded, and a list only a downloaded archive reveals arrives too late to act on.
+
+**Rejected:** inferring the inventory from the binary, and a free-text notices file. The first is a
+guess presented as a fact; the second names nothing that could ever be checked against the box, so
+it would go stale the first time a file was renamed and no one would find out.
 
 ## Deliberately out of scope
 

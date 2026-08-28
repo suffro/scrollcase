@@ -1,0 +1,8 @@
+# Minimal Scrollcase example: a bare Node environment from conda-forge, packed as a box.
+[workspace]
+name = "node-box"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+nodejs = "22.*"

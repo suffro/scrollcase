@@ -133,8 +133,8 @@ afterwards.**
 - **box** — the built artefact. Never "image", never "container", never a consumer's product term.
 - **scroll** — the declarative input (`scroll.json`), the only input a build accepts.
 - **target** — the `(platform, arch, accelerator)` triple, plus `cudaVersion` for CUDA.
-- **runtime** — what runs *inside* the box: `python`, `node` or `native`. The format names all
-  three; only `python` is implemented, and a box naming another is refused by name.
+- **runtime** — what runs *inside* the box: `python`, `node` or `native`. All three are implemented;
+  a box naming an id the format does not define is refused by name.
 - **payload** — the tree assembled before archiving.
 - **release / channel / revocations** — the three signed document types.
 - **self-test** — the import check run with the box's *own* interpreter.
@@ -180,7 +180,8 @@ without reading each hit.
   layout, execution kinds, argv, self-test (`runtimes.mjs`), signed-document envelope and
   namespacing (`documents.mjs`), `schema/`, `fixtures/`, generated `types/`.
 - `src/runtimes/<id>/` — the builder-side half of a runtime: launcher repair, dependency reading,
-  authoring templates, the pixi dependency it contributes. Only `python/` exists.
+  authoring templates, the pixi dependency it contributes, and any payload file the runtime needs
+  that nothing declares. `python/`, `node/` and `native/`, plus the shared `launchers.mjs`.
 - `src/build/` — solving and packing (`pixi.mjs`), toolchain bootstrap (`toolchain.mjs`),
   archive and filesystem primitives, the lock-derived licence audit,
   workspace resolution, scroll authoring (`authoring.mjs`), reading and provenance (`scroll.mjs`),

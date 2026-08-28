@@ -14,6 +14,7 @@
 
 import { runtimeAdapter } from '../../contract/runtimes.mjs';
 import { assertRelocatableLaunchers } from '../launchers.mjs';
+import { writeNodePackageManifest } from './payload.mjs';
 import { STARTER_SCRIPT, STARTER_SELF_TEST, pixiDependency } from './templates/index.mjs';
 
 /** @type {import('../index.mjs').RuntimeBuilder} */
@@ -22,6 +23,7 @@ export const nodeRuntimeBuilder = Object.freeze({
   contract: runtimeAdapter('node'),
   pixiDependency,
   repairLaunchers: assertRelocatableLaunchers,
+  preparePayload: writeNodePackageManifest,
   templates: Object.freeze({
     script: STARTER_SCRIPT,
     selfTest: STARTER_SELF_TEST,

@@ -159,13 +159,14 @@ function fakeToolchain(payloadDir, {
   // What the box starts. A native box starts a file the scroll brought in, and its packed prefix
   // carries no interpreter at all — so both are parameters rather than the Python answer baked in.
   interpreter = true,
+  entrySegments = ENTRY_SEGMENTS,
   selfTestCommand = join(payloadDir, ...ENTRY_SEGMENTS),
 } = {}) {
   const run = function run(command, args = [], options = {}) {
     if (command === 'pixi' && args[0] === 'install') {
       const manifest = args[args.indexOf('--manifest-path') + 1];
       const prefix = join(dirname(manifest), '.pixi', 'envs', 'default');
-      if (interpreter) writeDeep(join(prefix, ...ENTRY_SEGMENTS.slice(1)), '#!/bin/sh\nexit 0\n');
+      if (interpreter) writeDeep(join(prefix, ...entrySegments.slice(1)), '#!/bin/sh\nexit 0\n');
       if (consoleScript) {
         // What conda actually generates: the *build machine's* interpreter, reached through the
         // shell trampoline it falls back to when an absolute shebang would be too long.
@@ -337,6 +338,72 @@ describe('the build pipeline', () => {
       { commit: false },
     );
     await expect(readScroll(SCROLL_REF)).rejects.toThrow(/entry point/);
+  });
+
+  // A Node box, whose layout puts `node` where a Python box puts `python`. The scroll is otherwise
+  // hello-box: what differs is the runtime, and that is the point.
+  const NODE_LAYOUT = runtimeAdapter('node').layout(HOST_ADAPTER);
+  const NODE_ENTRY_SEGMENTS = NODE_LAYOUT.entryPoint.split('/');
+  const NODE_SCROLL = {
+    ...SCROLL,
+    runtime: { id: 'node', version: '22' },
+    localFiles: [{ sourcePath: 'app.js', relativePath: 'app.js' }],
+    execution: { kind: 'node-script', script: 'app.js', defaultArgs: [] },
+    selfTest: { imports: ['fs'], files: ['app.js'] },
+  };
+
+  function nodeToolchain(payloadDir) {
+    return fakeToolchain(payloadDir, {
+      entrySegments: NODE_ENTRY_SEGMENTS,
+      selfTestCommand: join(payloadDir, ...NODE_ENTRY_SEGMENTS),
+    });
+  }
+
+  it('gives a node box its own package.json, so nothing above it decides what its code is', async () => {
+    // Node picks CommonJS or ESM from the nearest package.json *above* the file it is running. With
+    // none in the box, that walk leaves the box and asks whichever directory it was extracted into,
+    // and the same box then behaves differently in two places. Found by building one: the example
+    // box failed its self-test against this repository's own package.json.
+    const { keys, payloadDir } = await makeProject(NODE_SCROLL, {
+      projectFiles: { 'app.js': 'console.log("ready");\n' },
+    });
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...nodeToolchain(payloadDir),
+      log: () => {},
+    });
+    const extracted = join(payloadDir, '..', 'extracted-node');
+    await extractZipArchive(join(dirname(built.releasePath), `${built.archiveSha256}.zip`), extracted);
+    expect(JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8')))
+      .toMatchObject({ type: 'commonjs' });
+    await expect(verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} }))
+      .resolves.toMatchObject({ status: 'passed' });
+  });
+
+  it('leaves a node box that ships its own package.json alone', async () => {
+    // A project that declared one has said what it wants; replacing it with a default would answer
+    // a question the project already answered.
+    const declared = `${JSON.stringify({ name: 'example-app', type: 'module' }, null, 2)}\n`;
+    const { keys, payloadDir } = await makeProject({
+      ...NODE_SCROLL,
+      localFiles: [
+        ...NODE_SCROLL.localFiles,
+        { sourcePath: 'app-package.json', relativePath: 'package.json' },
+      ],
+    }, {
+      projectFiles: {
+        'app.js': 'console.log("ready");\n',
+        'app-package.json': declared,
+      },
+    });
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...nodeToolchain(payloadDir),
+      log: () => {},
+    });
+    const extracted = join(payloadDir, '..', 'extracted-node-own');
+    await extractZipArchive(join(dirname(built.releasePath), `${built.archiveSha256}.zip`), extracted);
+    expect(await readFile(join(extracted, 'package.json'), 'utf8')).toBe(declared);
   });
 
   it('builds, signs and verifies a native box that starts a binary of its own', async () => {

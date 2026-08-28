@@ -32,6 +32,9 @@ import { pythonRuntimeBuilder } from './python/index.mjs';
  *   is understood, and by refusing the box where it is not
  * @property {RuntimeTemplates | null} templates the source `new scroll` writes, or null for a
  *   runtime whose entry point Scrollcase cannot generate
+ * @property {(payloadDir: string) => Promise<readonly string[]>} [preparePayload] writes the files
+ *   this runtime needs in the payload that nothing declares, returning what it wrote. Optional:
+ *   most runtimes need none.
  */
 
 /**

@@ -49,6 +49,7 @@ import {
 } from './licenses.mjs';
 import { checkParity } from './parity.mjs';
 import { findCondaPack, findPixi, installAndPackPixiEnvironment } from './pixi.mjs';
+import { runtimeBuilder } from '../runtimes/index.mjs';
 import { fail, run as runProcess } from './process.mjs';
 import { readScroll, sourceBuildState, sourceBuildTime } from './scroll.mjs';
 import { getWorkspace } from './workspace.mjs';
@@ -264,6 +265,12 @@ export async function buildBox(name, options = {}) {
   // download for an end user, so pruning is a user-facing concern rather than tidiness.
   for (const prunePath of scroll.prunePaths ?? []) {
     await rm(join(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
+  }
+  // Whatever the runtime needs in the payload that nothing declares. It runs after the prunes, so
+  // a project cannot prune a file the runtime is about to write, and before the payload is read,
+  // so what it writes is archived and digested like everything else.
+  for (const written of await runtimeBuilder(scroll.runtime.id).preparePayload?.(payloadDir) ?? []) {
+    log(`Writing ${written}`);
   }
   // Read once, after every staging step and every prune: this is the payload as it will be
   // archived, and both the licence declaration and the execution check are questions about that

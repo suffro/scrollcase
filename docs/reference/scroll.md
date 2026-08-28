@@ -209,13 +209,14 @@ build reads, and provenance records. Nothing downstream can tell which half a va
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `runtime.id` | yes | `python`, `node` or `native`. Only `python` can be built today; the other two are named by the format so implementing them is not another format change |
-| `runtime.version` | for `python` | The runtime version the box carries, recorded into provenance |
+| `runtime.id` | yes | `python`, `node` or `native`. All three are implemented; see [Choosing a runtime](#choosing-a-runtime) |
+| `runtime.version` | for `python` and `node` | The runtime version the box carries, recorded into provenance. A `native` box has no interpreter, so it declares none |
 | `pixiVersion` | yes | The exact pixi release used to solve and install. `lock` and `build` refuse any other version |
-| `runtime.entryPoint` | no | The runtime's own executable relative to the box root. Fixed per (runtime, target): `venv/bin/python` on macOS and Linux, `venv/python.exe` on Windows. Derived when omitted, and a mismatch is still rejected when declared |
+| `runtime.entryPoint` | no | The runtime's own executable relative to the box root. Fixed per (runtime, target): `venv/bin/python` or `venv/bin/node` on macOS and Linux, `venv/python.exe` or `venv/node.exe` on Windows. Derived when omitted, and a mismatch is still rejected when declared. A `native` box has none, and declaring one there is refused |
 | `cacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `cache/<boxId>` |
 | `environment` | no | String environment variables required whenever Scrollcase runs the box interpreter |
 | `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory, written and declared by [`audit --write`](/reference/cli#audit). When declared, the build fails if the lock no longer matches what was reviewed |
+| `bundledLicenseDeclaration` | no | Path (from the project root) to the licences of dependencies compiled *inside* a binary this box ships. See [Bundled licences](#bundled-licences) |
 
 The dependencies themselves live in `pixi.toml`, not here:
 
@@ -234,6 +235,88 @@ or the solve produces an environment that cannot run on the machine the box is f
 
 [`scrollcase add dep <box> <name>`](/reference/cli#add) writes into every target's manifest at once,
 so they cannot drift apart, and `--from-requirements` imports an existing pip file.
+
+### Bundled licences
+
+`condaDependencyLicenseAudit` is **derived**: `pixi.lock` already records an SPDX licence per conda
+package, so Scrollcase computes the inventory and checks it against what you reviewed.
+
+It cannot do that for a binary you supply. Whatever was linked into that binary was linked before
+Scrollcase saw the file, nothing in the build records it, and reading the binary would be guessing —
+which is worse than not answering. So that half is **declared**:
+
+```jsonc
+"bundledLicenseDeclaration": "legal/bundled-dependencies.json"
+```
+
+pointing at a JSON array your project reviews and keeps up to date:
+
+```jsonc
+[
+  {
+    "name": "zlib",
+    "version": "1.3.1",
+    "declaredLicense": "Zlib",
+    "linkedInto": ["bin/my-tool"],
+    "sourceUrl": "https://zlib.net/"
+  }
+]
+```
+
+`name`, `version`, `declaredLicense` and `linkedInto` are required; `sourceUrl` is optional, for a
+licence that requires an offer of source. Scrollcase carries `declaredLicense` through as a string
+and never parses it: what a licence permits is not a question a packaging tool answers.
+
+What it *does* check is that every path in `linkedInto` is a file the built box actually carries —
+deferred assets included, since leaving a large fetched binary out of the inventory would exempt
+exactly the case this exists for. A licence file nobody can check is a licence file nobody
+maintains: a path that stopped being in the box means the entry is stale, and the build says so
+instead of signing a claim about a file that is not there.
+
+The list is signed into the release manifest and `box.json`, and written into the payload beside the
+derived audit at `THIRD_PARTY_NOTICES/bundled-dependencies.json`. It is in the release rather than
+only in the payload because a licence decision is made **before** an archive is downloaded, and a
+list only a downloaded archive reveals arrives too late to act on.
+
+A box that declares none carries no such list. That means the project declared none — never that the
+box has no bundled dependencies, which is not something Scrollcase is in a position to say.
+
+### Choosing a runtime
+
+`runtime.id` says what executes inside the box. It decides the payload layout, the execution kinds
+the scroll may declare, how the box is started, and what its self-test is allowed to ask.
+
+| | `python` | `node` | `native` |
+| --- | --- | --- | --- |
+| `pixi.toml` dependency | `python` | `nodejs` | none — you declare what your binary needs |
+| `runtime.version` | required | required | not applicable |
+| `execution.kind` | `python-script`, `python-module` | `node-script` | `native-binary` |
+| Started by | the box's own `python` | the box's own `node` | the binary itself |
+| `selfTest.imports` | yes | yes | **no** — there is no module system to ask |
+| `selfTest.commands` | yes | yes | yes |
+| `parity` | yes | yes | **no** — there is no interpreter to run a check with |
+| Library-only | yes | yes | **no** |
+| `scrollcase new scroll` starter | `entrypoint.py` | `entrypoint.js` | none — point at the binary you built |
+
+Two things are worth knowing before you pick `native`:
+
+**Scrollcase does not repair a binary's library paths.** A binary that finds its libraries through
+an absolute path recorded when it was compiled will not find them inside a box, and fixing that is
+per-format work — rpath on Linux, `install_name` on macOS, the DLL search order on Windows — that
+this release deliberately does not attempt. A native box must ship a binary that already resolves:
+statically linked, or built with a relative rpath. The self-test catches the rest at build time, on
+your machine, rather than on a user's.
+
+**A native box still has an environment.** `native` means "no interpreter", not "no dependencies":
+it is built from a `pixi.lock` like every other box, its binary links against the shared libraries
+that lock installed, and those libraries get the same derived licence audit. What it does *not*
+declare for you is the dependency list — only you know what your binary needs.
+
+For `node`, one thing happens on your behalf: the box is given its own `package.json` unless the
+payload already carries one. Node decides whether a `.js` file is CommonJS or an ES module by
+looking at the nearest `package.json` **above** it, and without one inside the box that walk leaves
+the box entirely and asks whichever directory the box was extracted into. Ship your own
+`package.json` as a `localFile` if you want ESM or anything else in it.
 
 ### Declared runtime environment
 
@@ -286,9 +369,38 @@ or:
 }
 ```
 
-Omit `execution` for a library-only box. `scrollcase new scroll` presents the three authoring
-choices as `python-script`, `python-module`, and `library-only`; the last one deliberately emits no
-execution object.
+or, for the other two runtimes:
+
+```jsonc
+"execution": {
+  "kind": "node-script",
+  "script": "app/main.js",
+  "defaultArgs": []
+}
+```
+
+```jsonc
+"execution": {
+  "kind": "native-binary",
+  "binary": "bin/my-tool",
+  "defaultArgs": []
+}
+```
+
+Each kind is named `<runtime>-<shape>`, and the runtime half must be the one the box declares: a
+`python-script` in a box whose runtime is `native` describes something that cannot be run, and is
+refused rather than guessed at. `scrollcase new scroll` offers only the kinds the chosen runtime
+defines — see [the CLI reference](/reference/cli#new).
+
+Omit `execution` for a library-only box. A `native` box cannot be library-only: its only self-test
+shape is an invocation of its own binary, so a native box with nothing to invoke could prove nothing
+about itself.
+
+A `native-binary` must additionally be declared `executable: true` on the asset or local file that
+brings it in, unless it comes from the packed environment's own scripts directory. The executable
+bit is synthesised into the archive from what the scroll declared, never read off the build machine,
+so without the declaration the box ships a binary it cannot start — and the build refuses it rather
+than signing one.
 
 Script authoring either hashes an existing regular project file or generates a minimal starter.
 The exact SHA-256 is recorded in `localFiles`, the payload path is traversal-checked, and neither an
