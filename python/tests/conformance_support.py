@@ -245,6 +245,13 @@ def _mutate_fixture(
         fixture.release["environment"] = {"SCROLLCASE_CHANGED_AFTER_BUILD": "1"}
         fixture.sign()
         return
+    if mutation == "alter-release-bundled-licenses":
+        # A licence inventory added to the signed release after the box was built. It is signed, so
+        # the signature still verifies; what refuses it is that box.json says something else, which
+        # is the whole reason the inventory is compared field by field rather than merely carried.
+        fixture.release["bundledLicenses"] = [{"name": "zlib", "version": "1.3.1", "declaredLicense": "Zlib", "linkedInto": ["box.json"]}]
+        fixture.sign()
+        return
     if mutation == "add-unknown-compatibility-constraint":
         # Not a tamper: a signed constraint in a publishing project's own vocabulary, which the
         # schema allows and the builder copies through. The consumer must carry it, not refuse the

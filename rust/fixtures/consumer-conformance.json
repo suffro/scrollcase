@@ -10,6 +10,7 @@
     "asset-size": "asset size mismatch",
     "attach-missing-interpreter": "Attached box is missing venv/",
     "attach-root": "is not an extracted box directory",
+    "bundled-licenses-disagreement": "box.json mismatch: bundledLicenses",
     "encrypted-entry": "Encrypted ZIP entries",
     "entry-collision": "Archive entry collides with another entry",
     "environment-disagreement": "box.json mismatch: environment",
@@ -28,9 +29,9 @@
     "payload-list-missing": "missing its payload digest list",
     "payload-mismatch": "^Payload does not match the signed release:",
     "runtime-disagreement": "box.json mismatch: runtime",
+    "runtime-without-entry-point": "no runtime entry point to declare",
     "spawn-failure": "failed to start|fixture spawn failed",
     "special-entry": "special entries",
-    "unimplemented-runtime": "is not implemented by this version",
     "unsafe-path": "Unsafe relative path|invalid relative path|absolute path",
     "unsupported-schema-version": "Unsupported schemaVersion 1|Unsupported schemaVersion 2"
   },
@@ -580,6 +581,16 @@
       "expected": {
         "outcome": "rejected",
         "error": "environment-disagreement",
+        "destinationExists": false
+      }
+    },
+    {
+      "id": "altered-bundled-licence-inventory",
+      "action": "prepare",
+      "mutation": "alter-release-bundled-licenses",
+      "expected": {
+        "outcome": "rejected",
+        "error": "bundled-licenses-disagreement",
         "destinationExists": false
       }
     },
@@ -1398,12 +1409,12 @@
       }
     },
     {
-      "id": "runtime-this-build-cannot-run",
+      "id": "runtime-relabelled-after-signing",
       "action": "prepare",
       "mutation": "alter-release-runtime-id",
       "expected": {
         "outcome": "rejected",
-        "error": "unimplemented-runtime",
+        "error": "runtime-without-entry-point",
         "destinationExists": false
       }
     },

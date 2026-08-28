@@ -171,9 +171,6 @@ pub enum Execution {
         default_args: Vec<String>,
     },
     /// Run one regular payload file with the box's own Node runtime.
-    ///
-    /// Named by the format so that implementing the runtime is code rather than another wire
-    /// break. No adapter in this crate answers for it yet, so a box declaring it is refused.
     #[serde(rename_all = "camelCase")]
     NodeScript {
         /// Safe path to a regular JavaScript file inside the box.
@@ -275,6 +272,29 @@ pub struct AssetDescriptor {
     pub executable: Option<bool>,
 }
 
+/// One dependency compiled inside a binary the box ships, as the publishing project declared it.
+///
+/// `pixi.lock` declares a licence per conda package, but it cannot see what was linked into a
+/// supplied executable before the build began. That half is declared rather than derived, and
+/// carried here so a licence decision can be made from the signed document alone, before an archive
+/// is downloaded. This crate transports it and attaches no meaning to any field: what a licence
+/// permits is not a question a packaging tool answers.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BundledLicense {
+    /// The dependency as its own project names it.
+    pub name: String,
+    /// Its version.
+    pub version: String,
+    /// The licence the project reviewed, conventionally an SPDX expression.
+    pub declared_license: String,
+    /// Payload files this dependency is compiled into.
+    pub linked_into: Vec<String>,
+    /// Where the source can be obtained, for a licence that requires the offer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+}
+
 /// The immutable description of one built box.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -306,6 +326,10 @@ pub struct ReleaseManifest {
     pub runtime: BoxRuntime,
     /// Where the box's own large files belong inside it.
     pub cache_subdir: String,
+    /// Dependencies compiled inside the binaries this box ships, as the project declared them.
+    /// Absent when the project declared none, which never means the box has no dependencies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundled_licenses: Option<Vec<BundledLicense>>,
     /// Signed environment applied whenever Scrollcase runs the box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<BTreeMap<String, String>>,
@@ -344,6 +368,9 @@ pub struct BoxManifest {
     pub runtime: BoxRuntime,
     /// Where the box's own large files belong inside it.
     pub cache_subdir: String,
+    /// Dependencies compiled inside the binaries this box ships, repeated from the release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundled_licenses: Option<Vec<BundledLicense>>,
     /// Signed environment applied whenever Scrollcase runs the box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<BTreeMap<String, String>>,

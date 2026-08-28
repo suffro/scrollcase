@@ -50,7 +50,7 @@ fn a_genuine_signed_release_is_accepted_and_fully_interpreted() {
     assert!(inspected.release.kind.ends_with(".release"));
     // The adapter is resolved from the signed target, and the entry point agreed with it.
     assert_eq!(
-        inspected.release.runtime.entry_point.as_deref().unwrap(),
+        inspected.release.runtime.entry_point.as_deref(),
         runtime_adapter(&inspected.release.runtime.id)
             .unwrap()
             .layout(inspected.adapter.platform)

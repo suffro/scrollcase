@@ -126,6 +126,10 @@ pub fn assert_box_manifest_agreement(
         Some("runtime")
     } else if box_manifest.cache_subdir != release.cache_subdir {
         Some("cacheSubdir")
+    } else if box_manifest.bundled_licenses != release.bundled_licenses {
+        // Here for the same reason it is signed at all: a licence inventory that could differ
+        // between the document a reviewer read and the box a user installed would be worth nothing.
+        Some("bundledLicenses")
     } else if box_manifest.environment != release.environment {
         Some("environment")
     } else if box_manifest.self_test != release.self_test {

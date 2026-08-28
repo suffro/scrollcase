@@ -13,8 +13,8 @@ use scrollcase_consumer::contract::payload_digest::{
     payload_digest_stream, PayloadDigestEntry, PayloadDigestKind,
 };
 use scrollcase_consumer::contract::runtimes::{
-    is_implemented_runtime, runtime_adapter, runtime_adapters, RuntimeArgument, RuntimeExecution,
-    SelfTestCommand, SelfTestProbe, RUNTIME_IDS,
+    is_implemented_runtime, runtime_adapter, runtime_adapters, unsupported_self_test_probe_message,
+    RuntimeArgument, RuntimeExecution, SelfTestCommand, SelfTestProbe, RUNTIME_IDS,
 };
 use scrollcase_consumer::contract::targets::{box_target_id, BoxTarget};
 
@@ -85,6 +85,16 @@ struct RuntimeContract {
     invalid_runtime_versions: Vec<String>,
     argv: Vec<ArgvCase>,
     self_test: Vec<SelfTestCase>,
+    unsupported_probes: Vec<UnsupportedProbeCase>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsupportedProbeCase {
+    name: String,
+    runtime: String,
+    probe_kind: String,
+    message: String,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +103,7 @@ struct RuntimeCase {
     id: String,
     execution_kinds: Vec<String>,
     execution_environment_variables: Vec<String>,
+    self_test_probe_kinds: Vec<String>,
     layouts: Vec<LayoutCase>,
 }
 
@@ -108,9 +119,9 @@ struct LayoutCase {
 #[serde(rename_all = "camelCase")]
 struct LayoutFields {
     root: String,
-    entry_point: String,
+    entry_point: Option<String>,
     scripts_directory: String,
-    standard_library: String,
+    standard_library: Option<String>,
     executable_suffix: String,
     launcher_kind: String,
 }
@@ -242,6 +253,59 @@ impl ArgumentFields {
 
 /// The Rust half of the shared runtime vectors.
 ///
+/// One runtime's own answers: its kinds, its variables, its probe shapes and its per-platform
+/// layout. Extracted so the case that drives it stays readable at a glance.
+fn assert_runtime_case(case: &RuntimeCase) {
+    let runtime = runtime_adapter(&case.id).unwrap();
+    assert_eq!(runtime.execution_kinds, case.execution_kinds, "{}", case.id);
+    assert_eq!(
+        runtime.execution_environment_variables, case.execution_environment_variables,
+        "{}",
+        case.id
+    );
+    assert_eq!(
+        runtime.self_test_probe_kinds(), case.self_test_probe_kinds,
+        "{}",
+        case.id
+    );
+    for platform in &case.layouts {
+        let layout = runtime.layout(&platform.platform).unwrap();
+        let expected = &platform.layout;
+        assert_eq!(layout.root, expected.root, "{}", platform.platform);
+        assert_eq!(
+            layout.entry_point,
+            expected.entry_point.as_deref(),
+            "{}",
+            platform.platform
+        );
+        assert_eq!(
+            layout.scripts_directory, expected.scripts_directory,
+            "{}",
+            platform.platform
+        );
+        assert_eq!(
+            layout.standard_library,
+            expected.standard_library.as_deref(),
+            "{}",
+            platform.platform
+        );
+        assert_eq!(
+            layout.executable_suffix, expected.executable_suffix,
+            "{}",
+            platform.platform
+        );
+        assert_eq!(layout.launcher_kind, expected.launcher_kind, "{}", platform.platform);
+
+        let rule = runtime.executable_payload_paths(&platform.platform).unwrap();
+        assert_eq!(rule.files, platform.executable_payload_paths.files, "{}", platform.platform);
+        assert_eq!(
+            rule.directories, platform.executable_payload_paths.directories,
+            "{}",
+            platform.platform
+        );
+    }
+}
+
 /// Everything the runtime model states about a box — where the interpreter sits, which paths need
 /// the executable bit, what a declaration could resolve to, and the command line that runs it — is
 /// asserted here against the same file the Node and Python implementations read.
@@ -264,43 +328,16 @@ fn matches_the_shared_runtime_contract() {
     assert_eq!(mirrored, declared);
 
     for case in &contract.runtimes {
-        let runtime = runtime_adapter(&case.id).unwrap();
-        assert_eq!(runtime.execution_kinds, case.execution_kinds, "{}", case.id);
-        assert_eq!(
-            runtime.execution_environment_variables, case.execution_environment_variables,
-            "{}",
-            case.id
-        );
-        for platform in &case.layouts {
-            let layout = runtime.layout(&platform.platform).unwrap();
-            let expected = &platform.layout;
-            assert_eq!(layout.root, expected.root, "{}", platform.platform);
-            assert_eq!(layout.entry_point, expected.entry_point, "{}", platform.platform);
-            assert_eq!(
-                layout.scripts_directory, expected.scripts_directory,
-                "{}",
-                platform.platform
-            );
-            assert_eq!(
-                layout.standard_library, expected.standard_library,
-                "{}",
-                platform.platform
-            );
-            assert_eq!(
-                layout.executable_suffix, expected.executable_suffix,
-                "{}",
-                platform.platform
-            );
-            assert_eq!(layout.launcher_kind, expected.launcher_kind, "{}", platform.platform);
+        assert_runtime_case(case);
+    }
 
-            let rule = runtime.executable_payload_paths(&platform.platform).unwrap();
-            assert_eq!(rule.files, platform.executable_payload_paths.files, "{}", platform.platform);
-            assert_eq!(
-                rule.directories, platform.executable_payload_paths.directories,
-                "{}",
-                platform.platform
-            );
-        }
+    for case in &contract.unsupported_probes {
+        assert_eq!(
+            unsupported_self_test_probe_message(&case.runtime, &case.probe_kind),
+            case.message,
+            "{}",
+            case.name
+        );
     }
 
     for case in &contract.executable_matches {

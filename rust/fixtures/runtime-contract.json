@@ -71,6 +71,147 @@
             ]
           }
         }
+      ],
+      "selfTestProbeKinds": [
+        "imports",
+        "commands"
+      ]
+    },
+    {
+      "id": "node",
+      "executionKinds": [
+        "node-script"
+      ],
+      "executionEnvironmentVariables": [
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "NODE_EXTRA_CA_CERTS"
+      ],
+      "selfTestProbeKinds": [
+        "imports",
+        "commands"
+      ],
+      "layouts": [
+        {
+          "platform": "macos",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/bin/node",
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": "venv/lib",
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": [
+              "venv/bin/node"
+            ],
+            "directories": [
+              "venv/bin"
+            ]
+          }
+        },
+        {
+          "platform": "linux",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/bin/node",
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": "venv/lib",
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": [
+              "venv/bin/node"
+            ],
+            "directories": [
+              "venv/bin"
+            ]
+          }
+        },
+        {
+          "platform": "windows",
+          "layout": {
+            "root": "venv",
+            "entryPoint": "venv/node.exe",
+            "scriptsDirectory": "venv/Scripts",
+            "standardLibrary": "venv/Lib",
+            "executableSuffix": ".exe",
+            "launcherKind": "uv-windows-pe"
+          },
+          "executablePayloadPaths": {
+            "files": [
+              "venv/node.exe"
+            ],
+            "directories": [
+              "venv/Scripts"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "native",
+      "executionKinds": [
+        "native-binary"
+      ],
+      "executionEnvironmentVariables": [],
+      "selfTestProbeKinds": [
+        "commands"
+      ],
+      "layouts": [
+        {
+          "platform": "macos",
+          "layout": {
+            "root": "venv",
+            "entryPoint": null,
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": null,
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": [],
+            "directories": [
+              "venv/bin"
+            ]
+          }
+        },
+        {
+          "platform": "linux",
+          "layout": {
+            "root": "venv",
+            "entryPoint": null,
+            "scriptsDirectory": "venv/bin",
+            "standardLibrary": null,
+            "executableSuffix": "",
+            "launcherKind": "posix-polyglot"
+          },
+          "executablePayloadPaths": {
+            "files": [],
+            "directories": [
+              "venv/bin"
+            ]
+          }
+        },
+        {
+          "platform": "windows",
+          "layout": {
+            "root": "venv",
+            "entryPoint": null,
+            "scriptsDirectory": "venv/Scripts",
+            "standardLibrary": null,
+            "executableSuffix": ".exe",
+            "launcherKind": "uv-windows-pe"
+          },
+          "executablePayloadPaths": {
+            "files": [],
+            "directories": [
+              "venv/Scripts"
+            ]
+          }
+        }
       ]
     }
   ],
@@ -136,6 +277,55 @@
       "runtime": "python",
       "platform": "windows",
       "path": "venv/bin/tqdm",
+      "executable": false
+    },
+    {
+      "name": "the Node interpreter, by exact name",
+      "runtime": "node",
+      "platform": "linux",
+      "path": "venv/bin/node",
+      "executable": true
+    },
+    {
+      "name": "a Node console script the prefix generated",
+      "runtime": "node",
+      "platform": "linux",
+      "path": "venv/bin/npx",
+      "executable": true
+    },
+    {
+      "name": "the application's own script, which the runtime never claims",
+      "runtime": "node",
+      "platform": "linux",
+      "path": "app/main.js",
+      "executable": false
+    },
+    {
+      "name": "the Windows Node interpreter, which sits outside its scripts directory",
+      "runtime": "node",
+      "platform": "windows",
+      "path": "venv/node.exe",
+      "executable": true
+    },
+    {
+      "name": "a prefix tool a native box still carries",
+      "runtime": "native",
+      "platform": "linux",
+      "path": "venv/bin/sqlite3",
+      "executable": true
+    },
+    {
+      "name": "the binary a native box runs, which the runtime never claims because the scroll does",
+      "runtime": "native",
+      "platform": "linux",
+      "path": "bin/tool",
+      "executable": false
+    },
+    {
+      "name": "a shared library a native binary links against",
+      "runtime": "native",
+      "platform": "linux",
+      "path": "venv/lib/libz.so.1",
       "executable": false
     }
   ],
@@ -211,6 +401,34 @@
         "venv/Lib/pkg/__main__.py",
         "venv/Lib/site-packages/pkg.py",
         "venv/Lib/site-packages/pkg/__main__.py"
+      ]
+    },
+    {
+      "name": "a Node script resolves to itself and nowhere else",
+      "runtime": "node",
+      "platform": "linux",
+      "runtimeVersion": "22.11.0",
+      "execution": {
+        "kind": "node-script",
+        "script": "app/main.js",
+        "defaultArgs": []
+      },
+      "candidates": [
+        "app/main.js"
+      ]
+    },
+    {
+      "name": "a native binary resolves to itself and nowhere else",
+      "runtime": "native",
+      "platform": "macos",
+      "runtimeVersion": "",
+      "execution": {
+        "kind": "native-binary",
+        "binary": "bin/tool",
+        "defaultArgs": []
+      },
+      "candidates": [
+        "bin/tool"
       ]
     }
   ],
@@ -299,6 +517,79 @@
         {
           "kind": "payload-path",
           "value": "app/main.py"
+        }
+      ]
+    },
+    {
+      "name": "a Node script runs through the box's own node, with its declared arguments after it",
+      "runtime": "node",
+      "platform": "linux",
+      "execution": {
+        "kind": "node-script",
+        "script": "app/main.js",
+        "defaultArgs": [
+          "--serve"
+        ]
+      },
+      "command": {
+        "kind": "payload-path",
+        "value": "venv/bin/node"
+      },
+      "args": [
+        {
+          "kind": "payload-path",
+          "value": "app/main.js"
+        },
+        {
+          "kind": "literal",
+          "value": "--serve"
+        }
+      ]
+    },
+    {
+      "name": "a Windows Node box runs the same declaration through its own node",
+      "runtime": "node",
+      "platform": "windows",
+      "execution": {
+        "kind": "node-script",
+        "script": "app/main.js",
+        "defaultArgs": []
+      },
+      "command": {
+        "kind": "payload-path",
+        "value": "venv/node.exe"
+      },
+      "args": [
+        {
+          "kind": "payload-path",
+          "value": "app/main.js"
+        }
+      ]
+    },
+    {
+      "name": "a native binary is the command itself, with nothing in front of it",
+      "runtime": "native",
+      "platform": "linux",
+      "execution": {
+        "kind": "native-binary",
+        "binary": "bin/tool",
+        "defaultArgs": [
+          "--serve",
+          "8080"
+        ]
+      },
+      "command": {
+        "kind": "payload-path",
+        "value": "bin/tool"
+      },
+      "args": [
+        {
+          "kind": "literal",
+          "value": "--serve"
+        },
+        {
+          "kind": "literal",
+          "value": "8080"
         }
       ]
     }
@@ -589,11 +880,91 @@
           "expectExitCode": 1
         }
       ]
+    },
+    {
+      "name": "a Node import probe requires each module through the box's own node",
+      "runtime": "node",
+      "platform": "linux",
+      "probe": {
+        "imports": [
+          "fs",
+          "node:path"
+        ]
+      },
+      "execution": null,
+      "invocations": [
+        {
+          "command": {
+            "kind": "payload-path",
+            "value": "venv/bin/node"
+          },
+          "args": [
+            {
+              "kind": "literal",
+              "value": "-e"
+            },
+            {
+              "kind": "literal",
+              "value": "if (process.platform !== 'linux') throw new Error('platform mismatch: ' + process.platform)\nrequire(\"fs\");\nrequire(\"node:path\");"
+            }
+          ],
+          "expectExitCode": 0
+        }
+      ]
+    },
+    {
+      "name": "a native command probe invokes the binary itself",
+      "runtime": "native",
+      "platform": "macos",
+      "probe": {
+        "commands": [
+          {
+            "args": [
+              "--version"
+            ],
+            "expectExitCode": 0
+          }
+        ]
+      },
+      "execution": {
+        "kind": "native-binary",
+        "binary": "bin/tool",
+        "defaultArgs": [
+          "--quiet"
+        ]
+      },
+      "invocations": [
+        {
+          "command": {
+            "kind": "payload-path",
+            "value": "bin/tool"
+          },
+          "args": [
+            {
+              "kind": "literal",
+              "value": "--quiet"
+            },
+            {
+              "kind": "literal",
+              "value": "--version"
+            }
+          ],
+          "expectExitCode": 0
+        }
+      ]
     }
   ],
   "runtimeIds": [
     "python",
     "node",
     "native"
+  ],
+  "unsupportedProbes": [
+    {
+      "name": "a native box has no module system to ask for an import",
+      "runtime": "native",
+      "probeKind": "imports",
+      "message": "The native runtime cannot answer a selfTest.imports probe; it answers selfTest.commands."
+    }
   ]
 }

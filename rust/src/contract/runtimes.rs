@@ -14,16 +14,21 @@
 use crate::error::{fail, Result};
 
 /// Where a runtime lives inside an extracted box.
+///
+/// Two fields are optional, and both mean the same thing: the runtime does not have that. A native
+/// box carries no interpreter to name and no bundled library to search, so both are `None` rather
+/// than a plausible-looking path nothing would find.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeLayout {
     /// Directory the packed prefix was relocated into.
     pub root: &'static str,
-    /// The runtime's own executable, relative to the box root.
-    pub entry_point: &'static str,
+    /// The runtime's own executable relative to the box root, or `None` for a runtime with no
+    /// separate executable to name.
+    pub entry_point: Option<&'static str>,
     /// Directory holding generated console scripts.
     pub scripts_directory: &'static str,
-    /// Directory holding the runtime's bundled library.
-    pub standard_library: &'static str,
+    /// Directory holding the runtime's bundled library, or `None` for a runtime with none.
+    pub standard_library: Option<&'static str>,
     /// Suffix an executable carries on this platform.
     pub executable_suffix: &'static str,
     /// Frozen wire string naming how launchers were repaired.
@@ -32,12 +37,16 @@ pub struct RuntimeLayout {
 
 /// Payload paths a runtime requires the executable bit on, as a rule rather than a list: a conda
 /// prefix carries hundreds of console scripts and no scroll could name them by hand.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Owned rather than borrowed from a static table, because a runtime with no interpreter of its own
+/// contributes no files at all — the one it runs is named by the scroll, and the scroll is what says
+/// the bit belongs on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutablePayloadPaths {
     /// Paths that match exactly.
-    pub files: &'static [&'static str],
+    pub files: Vec<&'static str>,
     /// Directories every path beneath which matches.
-    pub directories: &'static [&'static str],
+    pub directories: Vec<&'static str>,
 }
 
 impl ExecutablePayloadPaths {
@@ -74,9 +83,6 @@ pub enum RuntimeExecution<'a> {
         default_args: &'a [String],
     },
     /// A compiled executable the box carries, run with no interpreter in front of it.
-    ///
-    /// Named by the format so implementing the runtime is code rather than another wire break. No
-    /// adapter answers for it yet, so a box declaring it is refused by name.
     Binary {
         /// Payload-relative path to the executable.
         binary: &'a str,
@@ -187,7 +193,18 @@ pub struct BoxRuntimeAdapter {
     pub execution_environment_variables: &'static [&'static str],
     layouts: &'static [(&'static str, RuntimeLayout)],
     platform_assertions: &'static [(&'static str, &'static str)],
+    /// How an import probe's modules become one line of source in the runtime's own language.
+    import_probe: Option<ImportProbe>,
     resolve: fn(&RuntimeExecution<'_>, &str, &RuntimeLayout, &str) -> Result<ResolvedExecutionFiles>,
+}
+
+/// How a runtime turns a list of module names into the source its interpreter evaluates.
+#[derive(Debug, Clone, Copy)]
+struct ImportProbe {
+    /// The flag that makes the interpreter read source from the next argument.
+    flag: &'static str,
+    /// Renders every declared module into one statement per line.
+    render: fn(&[String]) -> String,
 }
 
 const PYTHON_EXECUTION_ENVIRONMENT: &[&str] = &[
@@ -197,42 +214,206 @@ const PYTHON_EXECUTION_ENVIRONMENT: &[&str] = &[
     "PYTHONBREAKPOINT",
 ];
 
+const NODE_EXECUTION_ENVIRONMENT: &[&str] = &["NODE_OPTIONS", "NODE_PATH", "NODE_EXTRA_CA_CERTS"];
+
+/// Every runtime can answer a command probe: the box says how it is run, and the probe appends
+/// arguments to that. Only a runtime with a module system can answer an import probe, which is why
+/// the two lists differ by exactly that one entry.
+const IMPORTS_AND_COMMANDS: &[&str] = &["imports", "commands"];
+const COMMANDS_ONLY: &[&str] = &["commands"];
+
 const POSIX_PYTHON_LAYOUT: RuntimeLayout = RuntimeLayout {
     root: "venv",
-    entry_point: "venv/bin/python",
+    entry_point: Some("venv/bin/python"),
     scripts_directory: "venv/bin",
-    standard_library: "venv/lib",
+    standard_library: Some("venv/lib"),
     executable_suffix: "",
     launcher_kind: "posix-polyglot",
 };
 
 const WINDOWS_PYTHON_LAYOUT: RuntimeLayout = RuntimeLayout {
     root: "venv",
-    entry_point: "venv/python.exe",
+    entry_point: Some("venv/python.exe"),
     scripts_directory: "venv/Scripts",
-    standard_library: "venv/Lib",
+    standard_library: Some("venv/Lib"),
     executable_suffix: ".exe",
     // Reads like a stale reference to a tool this project does not use. It is a frozen wire string
     // under the published format; it is not a typo and must not be "cleaned".
     launcher_kind: "uv-windows-pe",
 };
 
-const RUNTIME_ADAPTERS: &[BoxRuntimeAdapter] = &[BoxRuntimeAdapter {
-    id: "python",
-    execution_kinds: &["python-script", "python-module"],
-    execution_environment_variables: PYTHON_EXECUTION_ENVIRONMENT,
-    layouts: &[
-        ("macos", POSIX_PYTHON_LAYOUT),
-        ("linux", POSIX_PYTHON_LAYOUT),
-        ("windows", WINDOWS_PYTHON_LAYOUT),
-    ],
-    platform_assertions: &[
-        ("macos", "import sys; assert sys.platform == 'darwin'"),
-        ("linux", "import sys; assert sys.platform.startswith('linux')"),
-        ("windows", "import sys; assert sys.platform == 'win32'"),
-    ],
-    resolve: resolve_python_execution_files,
-}];
+const POSIX_NODE_LAYOUT: RuntimeLayout = RuntimeLayout {
+    root: "venv",
+    entry_point: Some("venv/bin/node"),
+    scripts_directory: "venv/bin",
+    standard_library: Some("venv/lib"),
+    executable_suffix: "",
+    launcher_kind: "posix-polyglot",
+};
+
+const WINDOWS_NODE_LAYOUT: RuntimeLayout = RuntimeLayout {
+    root: "venv",
+    // conda-forge installs a Windows package's own executables at the prefix root and its generated
+    // launchers under `Scripts`, which is why node.exe sits beside python.exe rather than under it.
+    entry_point: Some("venv/node.exe"),
+    scripts_directory: "venv/Scripts",
+    standard_library: Some("venv/Lib"),
+    executable_suffix: ".exe",
+    launcher_kind: "uv-windows-pe",
+};
+
+/// A native box has no interpreter, so its layout names none — and no standard library either,
+/// because there is no loader that would search one. The packed prefix is still there: `native` is
+/// not "no environment", it is "no interpreter".
+const POSIX_NATIVE_LAYOUT: RuntimeLayout = RuntimeLayout {
+    root: "venv",
+    entry_point: None,
+    scripts_directory: "venv/bin",
+    standard_library: None,
+    executable_suffix: "",
+    launcher_kind: "posix-polyglot",
+};
+
+const WINDOWS_NATIVE_LAYOUT: RuntimeLayout = RuntimeLayout {
+    root: "venv",
+    entry_point: None,
+    scripts_directory: "venv/Scripts",
+    standard_library: None,
+    executable_suffix: ".exe",
+    launcher_kind: "uv-windows-pe",
+};
+
+fn python_imports(imports: &[String]) -> String {
+    format!("import {}", imports.join(", "))
+}
+
+/// `require` rather than a dynamic `import()`, because `-e` source is evaluated as `CommonJS` and
+/// Node 22 resolves an ES module through `require` as well.
+fn node_imports(imports: &[String]) -> String {
+    imports
+        .iter()
+        .map(|specifier| format!("require({});", json_string(specifier)))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A JSON string literal, which is also a JavaScript one. Only the escapes JSON defines are
+/// produced, so the result is safe to embed in the source a probe evaluates.
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if (control as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", control as u32);
+            }
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
+}
+
+const RUNTIME_ADAPTERS: &[BoxRuntimeAdapter] = &[
+    BoxRuntimeAdapter {
+        id: "python",
+        execution_kinds: &["python-script", "python-module"],
+        execution_environment_variables: PYTHON_EXECUTION_ENVIRONMENT,
+        layouts: &[
+            ("macos", POSIX_PYTHON_LAYOUT),
+            ("linux", POSIX_PYTHON_LAYOUT),
+            ("windows", WINDOWS_PYTHON_LAYOUT),
+        ],
+        platform_assertions: &[
+            ("macos", "import sys; assert sys.platform == 'darwin'"),
+            ("linux", "import sys; assert sys.platform.startswith('linux')"),
+            ("windows", "import sys; assert sys.platform == 'win32'"),
+        ],
+        import_probe: Some(ImportProbe {
+            flag: "-c",
+            render: python_imports,
+        }),
+        resolve: resolve_python_execution_files,
+    },
+    BoxRuntimeAdapter {
+        id: "node",
+        // One kind, deliberately. Node has no `-m` analogue worth inventing: a package entry point
+        // resolves to a file, and naming that file is what every other declaration in the format
+        // does.
+        execution_kinds: &["node-script"],
+        execution_environment_variables: NODE_EXECUTION_ENVIRONMENT,
+        layouts: &[
+            ("macos", POSIX_NODE_LAYOUT),
+            ("linux", POSIX_NODE_LAYOUT),
+            ("windows", WINDOWS_NODE_LAYOUT),
+        ],
+        platform_assertions: &[
+            (
+                "macos",
+                "if (process.platform !== 'darwin') throw new Error('platform mismatch: ' + process.platform)",
+            ),
+            (
+                "linux",
+                "if (process.platform !== 'linux') throw new Error('platform mismatch: ' + process.platform)",
+            ),
+            (
+                "windows",
+                "if (process.platform !== 'win32') throw new Error('platform mismatch: ' + process.platform)",
+            ),
+        ],
+        import_probe: Some(ImportProbe {
+            flag: "-e",
+            render: node_imports,
+        }),
+        resolve: resolve_named_payload_file,
+    },
+    BoxRuntimeAdapter {
+        id: "native",
+        execution_kinds: &["native-binary"],
+        // Nothing of its own. A compiled binary is loaded by the operating system's dynamic linker,
+        // and the variables that steer it are the target's, which the target adapter contributes.
+        execution_environment_variables: &[],
+        // The one shape a runtime with no module system can answer.
+        layouts: &[
+            ("macos", POSIX_NATIVE_LAYOUT),
+            ("linux", POSIX_NATIVE_LAYOUT),
+            ("windows", WINDOWS_NATIVE_LAYOUT),
+        ],
+        platform_assertions: &[],
+        import_probe: None,
+        resolve: resolve_named_payload_file,
+    },
+];
+
+/// The discovery rule for every declaration that names a payload file outright: it resolves to
+/// itself, or the box does not carry it. Shared by `node` and `native`, whose declarations differ
+/// only in what the file is.
+fn resolve_named_payload_file(
+    execution: &RuntimeExecution<'_>,
+    _platform: &str,
+    _layout: &RuntimeLayout,
+    _runtime_version: &str,
+) -> Result<ResolvedExecutionFiles> {
+    match execution {
+        RuntimeExecution::Script { script, .. } => Ok(ResolvedExecutionFiles {
+            candidates: vec![(*script).to_string()],
+            missing: format!("Execution script is missing from the box: {script}."),
+        }),
+        RuntimeExecution::Binary { binary, .. } => Ok(ResolvedExecutionFiles {
+            candidates: vec![(*binary).to_string()],
+            missing: format!("Execution binary is missing from the box: {binary}."),
+        }),
+        // Unreachable: `resolve_execution_files` refuses a kind that is not this runtime's first,
+        // and neither runtime defines a module shape.
+        RuntimeExecution::Module { .. } => fail!("Unsupported execution kind: {}.", execution.kind("")),
+    }
+}
 
 /// The `major.minor` prefix naming the standard-library directory a packed prefix carries.
 ///
@@ -278,12 +459,14 @@ fn resolve_python_execution_files(
     ];
     // Windows names its standard library once, with no interpreter version in the path; every
     // other platform carries `python<major>.<minor>` under it.
+    let Some(bundled_library) = layout.standard_library else {
+        fail!("The python runtime layout for {platform} names no standard library");
+    };
     let standard_library = if platform == "windows" {
-        layout.standard_library.to_string()
+        bundled_library.to_string()
     } else {
         format!(
-            "{}/python{}",
-            layout.standard_library,
+            "{bundled_library}/python{}",
             python_major_minor(runtime_version)?
         )
     };
@@ -332,10 +515,11 @@ impl BoxRuntimeAdapter {
         let layout = self.layout(platform)?;
         // The interpreter by name, and the console-script directory wholesale. A conda prefix
         // generates that directory's contents at solve time and nothing declares them, so the rule
-        // is the only way they can carry the bit at all.
+        // is the only way they can carry the bit at all. A runtime with no interpreter of its own
+        // contributes only the directory: the file it runs is one the scroll declared.
         Ok(ExecutablePayloadPaths {
-            files: std::slice::from_ref(&layout.entry_point),
-            directories: std::slice::from_ref(&layout.scripts_directory),
+            files: layout.entry_point.into_iter().collect(),
+            directories: vec![layout.scripts_directory],
         })
     }
 
@@ -367,18 +551,25 @@ impl BoxRuntimeAdapter {
         platform: &str,
     ) -> Result<RuntimeInvocation> {
         self.assert_own_kind(execution)?;
-        let layout = self.layout(platform)?;
-        let mut args = match execution {
-            RuntimeExecution::Script { script, .. } => {
-                vec![RuntimeArgument::PayloadPath((*script).to_string())]
-            }
-            RuntimeExecution::Module { module, .. } => vec![
-                RuntimeArgument::Literal("-m".to_string()),
-                RuntimeArgument::Literal((*module).to_string()),
-            ],
-            RuntimeExecution::Binary { binary, .. } => {
-                vec![RuntimeArgument::PayloadPath((*binary).to_string())]
-            }
+        // A binary *is* the command. Every other runtime puts its own entry point first and the
+        // declaration second; here there is nothing to put first, which is the whole of what
+        // `native` means.
+        let (command, mut args) = match execution {
+            RuntimeExecution::Binary { binary, .. } => (
+                RuntimeArgument::PayloadPath((*binary).to_string()),
+                Vec::new(),
+            ),
+            RuntimeExecution::Script { script, .. } => (
+                RuntimeArgument::PayloadPath(self.entry_point(platform)?.to_string()),
+                vec![RuntimeArgument::PayloadPath((*script).to_string())],
+            ),
+            RuntimeExecution::Module { module, .. } => (
+                RuntimeArgument::PayloadPath(self.entry_point(platform)?.to_string()),
+                vec![
+                    RuntimeArgument::Literal("-m".to_string()),
+                    RuntimeArgument::Literal((*module).to_string()),
+                ],
+            ),
         };
         args.extend(
             execution
@@ -386,10 +577,32 @@ impl BoxRuntimeAdapter {
                 .iter()
                 .map(|value| RuntimeArgument::Literal(value.clone())),
         );
-        Ok(RuntimeInvocation {
-            command: RuntimeArgument::PayloadPath(layout.entry_point.to_string()),
-            args,
-        })
+        Ok(RuntimeInvocation { command, args })
+    }
+
+    /// The runtime's own executable for a platform, for the rules that cannot proceed without one.
+    ///
+    /// # Errors
+    ///
+    /// When the platform is unknown, or the runtime has no interpreter to name.
+    fn entry_point(&self, platform: &str) -> Result<&'static str> {
+        let Some(entry_point) = self.layout(platform)?.entry_point else {
+            fail!("The {} runtime has no entry point of its own", self.id);
+        };
+        Ok(entry_point)
+    }
+
+    /// The self-test probe shapes this runtime can answer.
+    ///
+    /// Derived from whether it has an import probe at all rather than declared beside it: two
+    /// statements of one fact are two things that can disagree, and the fixture asserts this one.
+    #[must_use]
+    pub fn self_test_probe_kinds(&self) -> &'static [&'static str] {
+        if self.import_probe.is_some() {
+            IMPORTS_AND_COMMANDS
+        } else {
+            COMMANDS_ONLY
+        }
     }
 
     /// Refuses an execution kind belonging to another runtime.
@@ -415,6 +628,12 @@ impl BoxRuntimeAdapter {
     ) -> Result<Vec<SelfTestInvocation>> {
         let mut invocations = Vec::new();
         if !probe.imports.is_empty() {
+            // An import probe asks a module system a question, and a runtime without one has
+            // nothing to ask. Refused rather than silently dropped, which would report a pass for
+            // a check that never ran.
+            let Some(import_probe) = self.import_probe else {
+                fail!("{}", unsupported_self_test_probe_message(self.id, "imports"));
+            };
             let Some((_, assertion)) = self
                 .platform_assertions
                 .iter()
@@ -425,17 +644,15 @@ impl BoxRuntimeAdapter {
                     self.id
                 );
             };
-            let imports = format!("import {}", probe.imports.join(", "));
+            let imports = (import_probe.render)(probe.imports);
             let code = match probe.code {
                 Some(extra) => format!("{assertion}\n{imports}\n{extra}"),
                 None => format!("{assertion}\n{imports}"),
             };
             invocations.push(SelfTestInvocation {
-                command: RuntimeArgument::PayloadPath(
-                    self.layout(platform)?.entry_point.to_string(),
-                ),
+                command: RuntimeArgument::PayloadPath(self.entry_point(platform)?.to_string()),
                 args: vec![
-                    RuntimeArgument::Literal("-c".to_string()),
+                    RuntimeArgument::Literal(import_probe.flag.to_string()),
                     RuntimeArgument::Literal(code),
                 ],
                 expect_exit_code: 0,
@@ -490,8 +707,10 @@ pub fn runtime_adapters() -> &'static [BoxRuntimeAdapter] {
 /// Every runtime id the box format admits, in the order the schema lists them.
 ///
 /// The wire enum and the implemented set are deliberately two different things: schema version 3
-/// fixes the vocabulary once, so a later release can implement `node` without another wire break.
-/// A box naming a runtime this crate has no adapter for is refused by name, not misread.
+/// fixed the vocabulary once, and `node` and `native` then arrived as adapters without another wire
+/// break. They hold the same three today; the lists stay separate because this crate versions
+/// independently of the builder, so a release published before a runtime landed still has to refuse
+/// a box naming it by name rather than misread it.
 pub const RUNTIME_IDS: &[&str] = &["python", "node", "native"];
 
 /// Whether this build carries an adapter for a runtime id — the question every caller asks before
@@ -556,7 +775,17 @@ pub fn assert_runtime_entry_point(
     entry_point: &str,
 ) -> Result<()> {
     let runtime = runtime_adapter(runtime_id)?;
-    let expected = runtime.layout(adapter.platform)?.entry_point;
+    // A runtime without an interpreter admits no value at all, and a declaration there is refused
+    // rather than ignored: it would name a file the box never starts, and a reader would believe
+    // it. A box that declares nothing is checked against nothing — the caller has already skipped
+    // this, because `runtime.entryPoint` is optional on the wire for exactly that reason.
+    let Some(expected) = runtime.layout(adapter.platform)?.entry_point else {
+        fail!(
+            "{} boxes have no runtime entry point to declare; the executable a {} box runs is named by its execution",
+            runtime.id,
+            runtime.id
+        );
+    };
     if entry_point != expected {
         fail!(
             "{} boxes with the {} runtime must use entry point {expected}",
@@ -567,27 +796,96 @@ pub fn assert_runtime_entry_point(
     Ok(())
 }
 
+/// The message for a self-test probe shape the runtime cannot answer.
+///
+/// Stated here, beside the rule, for the same reason [`ResolvedExecutionFiles::missing`] is: the
+/// wording is part of the contract, and the builder and all three consumers should refuse an
+/// impossible probe identically instead of each inventing a phrasing.
+///
+/// # Panics
+///
+/// Never for a runtime this crate implements; an unknown id has no probe kinds to name.
+#[must_use]
+pub fn unsupported_self_test_probe_message(runtime_id: &str, probe_kind: &str) -> String {
+    let kinds = runtime_adapter(runtime_id).map_or_else(
+        |_| String::new(),
+        |runtime| {
+            runtime
+                .self_test_probe_kinds()
+                .iter()
+                .map(|kind| format!("selfTest.{kind}"))
+                .collect::<Vec<_>>()
+                .join(" and ")
+        },
+    );
+    format!("The {runtime_id} runtime cannot answer a selfTest.{probe_kind} probe; it answers {kinds}.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        is_implemented_runtime, python_major_minor, runtime_adapter, unimplemented_runtime_message,
-        RuntimeArgument, RuntimeExecution, SelfTestCommand, SelfTestProbe, RUNTIME_IDS,
+        assert_runtime_entry_point, is_implemented_runtime, python_major_minor, runtime_adapter,
+        unimplemented_runtime_message, RuntimeArgument, RuntimeExecution, SelfTestCommand,
+        SelfTestProbe, RUNTIME_IDS,
     };
+    use crate::contract::targets::{box_target_adapter, BoxTarget};
 
     const PYTHON: &str = "python";
 
     #[test]
-    fn a_runtime_this_build_has_no_adapter_for_is_refused_by_name() {
-        // The wire vocabulary is wider than the implemented set on purpose, and the two refusals
-        // say which of the two the box fell foul of.
-        assert!(RUNTIME_IDS.contains(&"native"));
-        assert!(runtime_adapter("native").is_err());
-        assert!(!is_implemented_runtime("native"));
-        assert!(unimplemented_runtime_message("native").contains("not implemented by this version"));
+    fn a_runtime_the_format_does_not_define_is_refused_by_name() {
+        // This crate implements every id the format names, so the other branch of the message — a
+        // runtime the format defines that this crate cannot run — is unreachable here. It is not
+        // dead: this crate versions independently of the builder, and a release published before a
+        // runtime landed still has to refuse a box naming it rather than misread it.
+        for id in RUNTIME_IDS {
+            assert!(is_implemented_runtime(id), "{id}");
+            assert!(runtime_adapter(id).is_ok(), "{id}");
+        }
         assert!(unimplemented_runtime_message("ruby").contains("Unknown runtime"));
+        assert!(runtime_adapter("ruby").is_err());
         assert!(runtime_adapter("").is_err());
-        assert!(runtime_adapter(PYTHON).is_ok());
-        assert!(is_implemented_runtime(PYTHON));
+        assert!(!is_implemented_runtime(""));
+    }
+
+    #[test]
+    fn a_native_box_declares_no_runtime_entry_point() {
+        let linux = box_target_adapter(&BoxTarget {
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            accelerator: "cpu".to_string(),
+            cuda_version: None,
+        })
+        .unwrap();
+        assert!(assert_runtime_entry_point(PYTHON, linux, "venv/bin/python").is_ok());
+        assert!(assert_runtime_entry_point(PYTHON, linux, "venv/bin/python3").is_err());
+        // Naming one would name a file the box never starts, and a reader would believe it.
+        let refused = assert_runtime_entry_point("native", linux, "venv/bin/python").unwrap_err();
+        assert!(
+            refused.to_string().contains("no runtime entry point to declare"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn a_probe_shape_the_runtime_cannot_answer_is_refused() {
+        let imports = vec!["json".to_string()];
+        let refused = runtime_adapter("native")
+            .unwrap()
+            .self_test_invocations(
+                &SelfTestProbe {
+                    imports: &imports,
+                    commands: &[],
+                    code: None,
+                },
+                None,
+                "linux",
+            )
+            .unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "The native runtime cannot answer a selfTest.imports probe; it answers selfTest.commands."
+        );
     }
 
     #[test]
