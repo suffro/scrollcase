@@ -132,6 +132,27 @@ jobs:
             console.log(`extracted ${mb(payload.installedSizeBytes)}`);
           ' "$release"
 
+      # The other two runtimes, on the one target their example scrolls declare. They are the only
+      # thing in CI that builds a box with no interpreter, and a box whose interpreter is not
+      # Python — the paths where a Python assumption would hide, and where the unit suite's fake
+      # toolchain cannot follow. Each is built, verified with its own self-test, and run.
+      - name: Build, verify and run the node and native examples
+        if: matrix.target == 'macos-aarch64-metal'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_for() {
+            ls .scrollcase/dist/boxes/"$1"/1.0.0/${{ matrix.target }}/*.release.json
+          }
+
+          node src/cli.mjs build node-box/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for node-box)" --self-test
+          node src/cli.mjs run "$(release_for node-box)"
+
+          node src/cli.mjs build native-box/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for native-box)" --self-test
+          node src/cli.mjs run "$(release_for native-box)" -- --version
+
       # Determinism is a promise the repository makes that nothing else verifies end to end. The
       # archive is named by its own SHA-256, so a rebuild that differs lands beside the first rather
       # than replacing it — the file count is the assertion.
