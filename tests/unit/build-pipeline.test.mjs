@@ -932,6 +932,21 @@ describe('the build pipeline', () => {
       .rejects.toThrow(`Unsupported schemaVersion ${schemaVersion}; rebuild this box with Scrollcase v3.`);
   });
 
+  it.each([1, 2])('rejects a whole v%i envelope by version, not as a shape error', async (schemaVersion) => {
+    // A *published* older box is an older envelope, not an older payload inside a current one —
+    // which is the case the check above covers. The envelope schema pins schemaVersion to a const,
+    // so without this the refusal reads "must equal 3": true, and no use to whoever is holding a
+    // box and needs to know which version it is. Found by feeding this repository's own published
+    // v2 demo box to the v3 verifier.
+    const { root, keys } = await makeProject();
+    const releasePath = join(root, `v${schemaVersion}-envelope.release.json`);
+    const signed = await signDocument({ schemaVersion, kind: documentKinds().release }, keys);
+    await writeFile(releasePath, `${JSON.stringify({ ...signed, schemaVersion }, null, 2)}\n`);
+
+    await expect(verifyBox(releasePath, { publicPath: keys.publicPath, log: () => {} }))
+      .rejects.toThrow(`Unsupported schemaVersion ${schemaVersion}; rebuild this box with Scrollcase v3.`);
+  });
+
   it('does not fall back to the pre-v2 stem-based archive name', async () => {
     const { keys, payloadDir } = await makeProject();
     const built = await buildBox(SCROLL_REF, { ...keys, ...fakeToolchain(payloadDir), log: () => {} });

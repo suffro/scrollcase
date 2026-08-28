@@ -87,7 +87,7 @@ async function loadManifestSchemas() {
  * Performs the half of the trust chain that needs no archive.
  *
  * Everything here answers questions about the signed document alone — is the signature good, is the
- * payload a schema-version-2 release, does it describe a target this build understands. It is split
+ * payload a schema-version-3 release, does it describe a target this build understands. It is split
  * out because a box that is already extracted has no archive to check, and re-deriving these steps
  * beside the ones that do would create the second interpretation of a signed release that
  * `inspectBoxArchive` exists to prevent.
@@ -98,8 +98,12 @@ async function loadManifestSchemas() {
 export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, trustedKeys }) {
   const releasePath = resolve(releaseDocumentPath);
   const signed = JSON.parse(await readFile(releasePath, 'utf8'));
-  if (signed?.schemaVersion === 1) {
-    fail(unsupportedSchemaVersionMessage(1));
+  // Before the envelope schema gets a look at it. The schema pins `schemaVersion` to a const, so a
+  // superseded document would otherwise be refused as a shape error — "must equal 3" — which does
+  // not tell the reader what they are holding. A published box is refused by *name*, saying which
+  // version it is and what to do about it.
+  if (signed?.schemaVersion !== undefined && signed.schemaVersion !== BOX_SCHEMA_VERSION) {
+    fail(unsupportedSchemaVersionMessage(signed.schemaVersion));
   }
   const [releaseSchema, boxSchema, targetSchema, executionSchema, signedSchema] =
     await loadManifestSchemas();
