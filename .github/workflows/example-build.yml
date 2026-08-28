@@ -102,7 +102,7 @@ jobs:
         run: node src/cli.mjs keygen
 
       - name: Build
-        run: node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples --weights embed
+        run: node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples
 
       # The check that matters: extract the box and import with the interpreter inside it.
       - name: Verify with self-test
@@ -144,7 +144,7 @@ jobs:
             echo "Expected exactly one archive after the first build, found $before" >&2
             exit 1
           fi
-          node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples --weights embed
+          node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples
           after=$(ls "$dist"/*.zip | wc -l)
           if [ "$after" -ne 1 ]; then
             echo "Rebuild was not byte-identical: $after distinct archives" >&2
