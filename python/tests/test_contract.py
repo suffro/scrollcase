@@ -19,6 +19,7 @@ from scrollcase_consumer._contract import (
     SCHEMA_FILES,
     PayloadDigestEntry,
     absolute_path,
+    assert_runtime_entry_point,
     execution_affecting_variables,
     execution_from_json,
     parse_payload_digest_stream,
@@ -30,11 +31,13 @@ from scrollcase_consumer._contract import (
     runtime_adapter,
     runtime_adapters,
     unimplemented_runtime_message,
+    unsupported_self_test_probe_message,
     target_adapter,
     target_from_json,
     target_id,
 )
 from scrollcase_consumer.errors import ScrollcaseConsumerError
+from scrollcase_consumer.models import BoxTarget
 from scrollcase_consumer.extract import payload_digest
 
 
@@ -124,15 +127,15 @@ class RuntimeContractTests(unittest.TestCase):
                     is_implemented_runtime(runtime_id), runtime_id in implemented
                 )
 
-    def test_refuses_a_runtime_it_has_no_adapter_for(self) -> None:
-        for runtime_id in ("node", "native"):
+    def test_refuses_a_runtime_the_format_does_not_define(self) -> None:
+        # This package implements every id the format names, so the other branch of the message — a
+        # runtime the format defines that this package cannot run — is unreachable here. It is not
+        # dead: this package versions independently of the builder, and a release published before
+        # a runtime landed still has to refuse a box naming it rather than misread it.
+        for runtime_id in RUNTIME_IDS:
             with self.subTest(runtime_id=runtime_id):
-                with self.assertRaises(ScrollcaseConsumerError):
-                    runtime_adapter(runtime_id)
-                self.assertIn(
-                    "not implemented by this version",
-                    unimplemented_runtime_message(runtime_id),
-                )
+                self.assertTrue(is_implemented_runtime(runtime_id))
+                self.assertIsNotNone(runtime_adapter(runtime_id))
         for runtime_id in ("", "ruby"):
             with self.subTest(runtime_id=runtime_id):
                 with self.assertRaises(ScrollcaseConsumerError):
@@ -140,6 +143,38 @@ class RuntimeContractTests(unittest.TestCase):
                 self.assertIn(
                     "Unknown runtime", unimplemented_runtime_message(runtime_id)
                 )
+
+    def test_admits_an_entry_point_only_where_the_runtime_has_one(self) -> None:
+        linux = target_adapter(
+            BoxTarget(platform="linux", arch="x86_64", accelerator="cpu")
+        )
+        # Optional on the wire, so declaring nothing is fine for either kind of runtime.
+        assert_runtime_entry_point("python", linux, None)
+        assert_runtime_entry_point("native", linux, None)
+        assert_runtime_entry_point("python", linux, "venv/bin/python")
+        with self.assertRaises(ScrollcaseConsumerError):
+            assert_runtime_entry_point("python", linux, "venv/bin/python3")
+        # Naming one would name a file the box never starts, and a reader would believe it.
+        with self.assertRaises(ScrollcaseConsumerError) as refused:
+            assert_runtime_entry_point("native", linux, "venv/bin/python")
+        self.assertIn("no runtime entry point to declare", str(refused.exception))
+
+    def test_refuses_a_probe_shape_the_runtime_cannot_answer(self) -> None:
+        for case in self._load()["unsupportedProbes"]:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(
+                    unsupported_self_test_probe_message(
+                        case["runtime"], case["probeKind"]
+                    ),
+                    case["message"],
+                )
+                with self.assertRaises(ScrollcaseConsumerError) as refused:
+                    runtime_adapter(case["runtime"]).self_test_invocations(
+                        SelfTestProbe(imports=("anything",), commands=()),
+                        None,
+                        "linux",
+                    )
+                self.assertEqual(str(refused.exception), case["message"])
 
     def test_reproduces_every_golden_layout_and_executable_rule(self) -> None:
         for case in self._load()["runtimes"]:
@@ -150,6 +185,9 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertEqual(
                 list(runtime.execution_environment_variables),
                 case["executionEnvironmentVariables"],
+            )
+            self.assertEqual(
+                list(runtime.self_test_probe_kinds), case["selfTestProbeKinds"]
             )
             for platform in case["layouts"]:
                 with self.subTest(runtime=case["id"], platform=platform["platform"]):

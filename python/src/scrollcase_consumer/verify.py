@@ -35,9 +35,9 @@ from ._contract import (
     parse_payload_digest_stream,
     path_under,
     required_assets_from_json,
-    runtime_adapter,
     runtime_from_json,
     unimplemented_runtime_message,
+    assert_runtime_entry_point,
     target_adapter,
     target_from_json,
     target_id,
@@ -63,6 +63,9 @@ _AGREEMENT_FIELDS = (
     "target",
     "runtime",
     "cacheSubdir",
+    # Here for the same reason it is signed at all: a licence inventory that could differ between
+    # the document a reviewer read and the box a user installed would be worth nothing.
+    "bundledLicenses",
     "environment",
     "selfTest",
     "execution",
@@ -322,12 +325,7 @@ def _inspect_release_document(
     # name one there is no adapter for. That is refused by name rather than misread as another.
     if not is_implemented_runtime(runtime.id):
         raise ScrollcaseConsumerError(unimplemented_runtime_message(runtime.id))
-    expected_entry_point = runtime_adapter(runtime.id).layout(adapter.platform).entry_point
-    if runtime.entry_point is not None and runtime.entry_point != expected_entry_point:
-        raise ScrollcaseConsumerError(
-            f"{adapter.platform}-{adapter.arch} boxes with the {runtime.id} runtime must use "
-            f"entry point {expected_entry_point}"
-        )
+    assert_runtime_entry_point(runtime.id, adapter, runtime.entry_point)
     return _InspectedRelease(
         release_path=release_path,
         signed=signed,

@@ -40,6 +40,9 @@
       "type": "string",
       "minLength": 1
     },
+    "bundledLicenses": {
+      "$ref": "https://scrollcase.dev/schema/v3/release-manifest.schema.json#/$defs/bundledLicenses"
+    },
     "environment": {
       "type": "object",
       "description": "Environment variables repeated from the signed release. Scrollcase consumers compare this declaration before execution and apply it over inherited and caller-supplied values.",
