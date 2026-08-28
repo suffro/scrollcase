@@ -153,23 +153,25 @@ jobs:
           node src/cli.mjs verify "$(release_for native-box)" --self-test
           node src/cli.mjs run "$(release_for native-box)" -- --version
 
-      # Determinism is a promise the repository makes that nothing else verifies end to end. The
-      # archive is named by its own SHA-256, so a rebuild that differs lands beside the first rather
-      # than replacing it — the file count is the assertion.
+      # Determinism is a promise the repository makes that nothing else verifies end to end.
+      #
+      # The assertion is the archive's *name*, not the file count. The archive is named by its own
+      # SHA-256, but a build clears its own object directory before writing into it, so a rebuild
+      # replaces the first archive rather than landing beside it — counting the files afterwards
+      # always yields one and could never fail. Measured: changing the scroll's sourceRevision
+      # produced a completely different archive and left the count at one.
       - name: Rebuild and compare
         shell: bash
         run: |
+          set -euo pipefail
           dist=".scrollcase/dist/boxes/hello-box/1.0.0/${{ matrix.target }}"
-          before=$(ls "$dist"/*.zip | wc -l)
-          if [ "$before" -ne 1 ]; then
-            echo "Expected exactly one archive after the first build, found $before" >&2
-            exit 1
-          fi
+          before=$(basename "$(ls "$dist"/*.zip)")
           node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples
-          after=$(ls "$dist"/*.zip | wc -l)
-          if [ "$after" -ne 1 ]; then
-            echo "Rebuild was not byte-identical: $after distinct archives" >&2
-            ls -l "$dist" >&2
+          after=$(basename "$(ls "$dist"/*.zip)")
+          if [ "$before" != "$after" ]; then
+            echo "Rebuild was not byte-identical:" >&2
+            echo "  first  $before" >&2
+            echo "  second $after" >&2
             exit 1
           fi
-          echo "Rebuild produced a byte-identical archive."
+          echo "Rebuild produced a byte-identical archive: $after"
