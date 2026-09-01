@@ -516,8 +516,10 @@ impl Drop for UmaskGuard {
     }
 }
 
+/// No umask on Windows: the platform carries no POSIX modes for one to mask. The stub keeps the
+/// call site free of `cfg` branches, and the cases that actually assert a mode are skipped there.
 #[cfg(not(unix))]
-fn set_umask(_octal: &str) -> () {}
+fn set_umask(_octal: &str) {}
 
 fn receipt_value(prepared: &PreparedBox, expected: &Value, names: &[String]) -> Value {
     let mut receipt = json!({
