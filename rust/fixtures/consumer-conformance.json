@@ -60,6 +60,23 @@
       }
     },
     {
+      "id": "release-with-no-published-location",
+      "action": "prepare",
+      "mutation": "strip-release-archive-url",
+      "expected": {
+        "outcome": "prepared",
+        "receipt": {
+          "status": "prepared",
+          "boxId": "consumer-fixture",
+          "executionKind": "python-script",
+          "requiredAssetCount": 0,
+          "runtimeId": "python",
+          "entryPoint": "$NATIVE_ENTRY_POINT",
+          "targetId": "$NATIVE_TARGET"
+        }
+      }
+    },
+    {
       "id": "trusted-single-key-in-memory",
       "action": "prepare",
       "trust": {

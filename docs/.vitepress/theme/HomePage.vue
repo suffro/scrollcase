@@ -13,7 +13,7 @@ const pillars = [
   {
     icon: 'box',
     title: 'No container runtime',
-    text: 'A box is a single archive that unpacks into a self-contained Python environment. No Docker, no daemon, no dependency resolution at install time.',
+    text: 'A box is a single archive that unpacks into a self-contained environment — Python, Node, or a compiled binary with no interpreter. No Docker, no daemon, no dependency resolution at install time.',
   },
   {
     icon: 'network',
@@ -128,20 +128,27 @@ const capabilities = [
           </div>
           <div class="window-body">
             <div class="code-line"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase init</span></div>
-            <div class="code-line"><span class="c-muted">Which target? ❯ macos-aarch64-metal</span></div>
-            <div class="code-line"><span class="c-success">✓</span> Created <span class="c-muted">scrollcase.config.json</span></div>
-            <div class="code-line"><span class="c-success">✓</span> Installed <span class="c-muted">pixi and conda-pack</span></div>
-            
-            <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase lock example-box</span></div>
-            <div class="code-line"><span class="c-muted">  + C python           3.11.15 h0c9c016_1_cpython</span></div>
-            <div class="code-line"><span class="c-muted">  + C pytorch          2.2.0   h0c9c016_1_cuda</span></div>
+            <div class="code-line"><span class="c-success">✓</span> Workspace initialized</div>
+
+            <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase new scroll</span></div>
+            <div class="code-line"><span class="c-muted">Which target?</span></div>
+            <div class="code-line"><span class="c-muted">❯ your-target-arch</span></div>
+            <div class="code-line"><span class="c-muted">Which runtime?</span></div>
+            <div class="code-line"><span class="c-muted">❯ python</span></div>
+            <div class="code-line"><span class="c-muted"><span class="c-hidden">❯</span> node</span></div>
+            <div class="code-line"><span class="c-muted"><span class="c-hidden">❯</span> native</span></div>
+            <div class="code-line"><span class="c-muted">Box ID?</span></div>
+            <div class="code-line"><span class="c-muted">  ↳ amazing-box</span></div>
+            <div class="code-line"><span class="c-success">✓</span> Created <span class="c-muted">scroll amazing-box/your-target-arch</span></div>
+
+            <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase lock amazing-box</span></div>
             <div class="code-line"><span class="c-success">✓</span> Updated <span class="c-muted">pixi.lock</span></div>
             
             <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase keygen</span></div>
             <div class="code-line"><span class="c-success">✓</span> Created signing key <span class="c-muted">scrollcase-fa120ac69c</span></div>
             
-            <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase build example-box</span></div>
-            <div class="code-line"><span class="c-muted">→ Building example-box/macos-aarch64-metal (beta, embed)</span></div>
+            <div class="code-line mt"><span class="c-prompt">$</span> <span class="c-cmd">scrollcase build amazing-box</span></div>
+            <div class="code-line"><span class="c-muted"><span class="c-info">→</span> Building amazing-box/your-target-arch</span></div>
             <div class="code-line"><span class="c-muted">[########################################] 100%</span></div>
             <div class="code-line"><span class="c-success">✓ Build complete</span> <span class="c-muted">— your box is ready!</span></div>
           </div>
@@ -524,13 +531,23 @@ html.dark .tech-glow {
 .c-cmd { color: var(--vp-c-text-1); font-weight: 600; }
 .c-muted { color: var(--vp-c-text-3); }
 .c-success { color: #27c93f; font-weight: 600; }
-.c-info { color: var(--vp-c-brand-1); }
+.c-info { color: #4a81f8; }
+.c-highlight { color: var(--vp-c-brand-1); }
+.c-collapsed { display: none; }
+.c-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
 
 /* ── Light Mode Terminal Accents ───────────────────── */
 /* Forziamo colori leggibili per il terminale in light mode invece del giallo di default */
 html:not(.dark) .c-prompt,
-html:not(.dark) .c-info {
-  color: #2563eb; /* Azzurro tech molto leggibile */
+html:not(.dark) .c-highlight {
+  color: var(--vp-c-brand-1);
+}
+
+html:not(.dark) .c-highlight {
+  color: #2563eb;
 }
 
 html:not(.dark) .c-success {
@@ -538,7 +555,7 @@ html:not(.dark) .c-success {
 }
 
 html:not(.dark) .c-muted {
-  color: #6b7280; /* Grigio scuro */
+  color: #828792; /* Grigio scuro */
 }
 
 /* ── Section Heads ──────────────────────────────────────── */

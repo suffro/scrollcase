@@ -24,7 +24,7 @@
     "TRANSFORMERS_OFFLINE": "1",
     "TOKENIZERS_PARALLELISM": "false"
   },
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://assets.example.org/boxes",
   "assets": [
     {
       "url": "https://huggingface.co/onnx-community/distilbert-base-uncased-finetuned-sst-2-english-ONNX/resolve/fd49941c1b822846cb14970cdf430a7cfbe0f5b9/onnx/model_int8.onnx",

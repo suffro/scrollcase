@@ -19,6 +19,7 @@ import { promptHeading } from './cli-output.mjs';
  */
 export function selectCliMenu(question, choices, {
   hint = null,
+  docs = null,
   initialIndex = null,
   input = process.stdin,
   output = process.stdout,
@@ -74,7 +75,7 @@ export function selectCliMenu(question, choices, {
     input.on('keypress', onKeypress);
     input.setRawMode(true);
     input.resume();
-    output.write(promptHeading(`Which ${question}?`, { hint, stream: output }));
+    output.write(promptHeading(`Which ${question}?`, { hint, docs, stream: output }));
     output.write('\x1b[?25l');
     render();
   });
@@ -90,6 +91,7 @@ export function selectCliMenu(question, choices, {
  */
 export function selectCliMultiMenu(question, choices, {
   hint = null,
+  docs = null,
   input = process.stdin,
   output = process.stdout,
 } = {}) {
@@ -149,7 +151,7 @@ export function selectCliMultiMenu(question, choices, {
     input.on('keypress', onKeypress);
     input.setRawMode(true);
     input.resume();
-    output.write(promptHeading(question, { hint, stream: output }));
+    output.write(promptHeading(question, { hint, docs, stream: output }));
     output.write('\x1b[?25l');
     render();
   });
@@ -163,6 +165,7 @@ export function selectCliMultiMenu(question, choices, {
 export async function chooseCliValue(question, choices, {
   flag = null,
   hint = null,
+  docs = null,
   open = false,
   terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY),
   menu = selectCliMenu,
@@ -179,7 +182,7 @@ export async function chooseCliValue(question, choices, {
     log(`scrollcase: no terminal to ask which ${question}; using ${fallback}.`);
     return fallback;
   }
-  const selectedIndex = await menu(question, choices, { hint, initialIndex: 0 });
+  const selectedIndex = await menu(question, choices, { hint, docs, initialIndex: 0 });
   if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= choices.length) {
     fail(`${question} menu returned an invalid selection.`);
   }
@@ -196,11 +199,12 @@ export async function chooseCliValue(question, choices, {
  */
 export async function chooseCliValues(question, choices, {
   hint = null,
+  docs = null,
   terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY),
   menu = selectCliMultiMenu,
 } = {}) {
   if (choices.length === 0 || !terminal) return [];
-  const selectedIndices = await menu(question, choices, { hint });
+  const selectedIndices = await menu(question, choices, { hint, docs });
   if (!Array.isArray(selectedIndices)
     || selectedIndices.some((index) => !Number.isInteger(index)
       || index < 0

@@ -47,7 +47,7 @@ const SCROLL = {
   runtime: { id: RUNTIME_ID, version: PYTHON_VERSION, entryPoint: HOST_LAYOUT.entryPoint },
   pixiVersion: '0.73.0',
   cacheSubdir: 'cache/example-model',
-  assetBaseUrl: 'https://assets.example.org/boxes',
+  publishBaseUrl: 'https://assets.example.org/boxes',
   assets: [],
   selfTest: { imports: ['json'], files: [] },
 };
@@ -580,6 +580,57 @@ describe('the build pipeline', () => {
       .rejects.toThrow(/native-binary does not belong to the python runtime/);
   });
 
+  it('builds a box that names no publish location, and signs no link to nowhere', async () => {
+    // The common case, not an edge one: a box built to run where it was built is never published,
+    // so there is nowhere for its documents to point. Every guarantee still holds — the archive is
+    // hashed, the documents are signed, `verify` passes — because none of them was ever the URL.
+    const { keys, payloadDir } = await makeProject({ ...SCROLL, publishBaseUrl: undefined });
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      log: () => {},
+    });
+
+    const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
+    // Absent, not empty and not a placeholder: a false address inside a signed, immutable document
+    // stays false forever, and nothing here would have caught it.
+    expect(release.archive.url).toBeUndefined();
+    expect(release.archive.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(release.archive.sizeBytes).toBeGreaterThan(0);
+
+    const channel = decodeDocumentPayload(JSON.parse(await readFile(built.channelPath, 'utf8')));
+    expect(channel.releases[0].releaseManifestUrl).toBeUndefined();
+    // The channel still says which version is current, which is the half that does not need a URL.
+    expect(channel.releases[0]).toMatchObject({ version: SCROLL.version, rolloutPercentage: 100 });
+
+    await expect(verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} }))
+      .resolves.toMatchObject({ status: 'passed' });
+  });
+
+  it('tells the author a local box points nowhere, rather than leaving it to be discovered', async () => {
+    const { keys, payloadDir } = await makeProject({ ...SCROLL, publishBaseUrl: undefined });
+    const lines = [];
+    await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      log: (message) => lines.push(String(message)),
+    });
+    expect(lines.join('\n')).toMatch(/names no publish location/);
+    expect(lines.join('\n')).toMatch(/--publish-base-url/);
+  });
+
+  it('accepts the same scroll once the URL arrives from the build flag', async () => {
+    const { keys, payloadDir } = await makeProject({ ...SCROLL, publishBaseUrl: undefined });
+    const built = await buildBox(SCROLL_REF, {
+      ...keys,
+      ...fakeToolchain(payloadDir),
+      publishBaseUrl: 'https://assets.example.org/boxes',
+      log: () => {},
+    });
+    const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
+    expect(release.archive.url).toMatch(/^https:\/\/assets\.example\.org\/boxes\//);
+  });
+
   it('refuses a command probe with no execution to invoke', async () => {
     await makeProject({
       ...SCROLL,
@@ -1060,7 +1111,7 @@ describe('the build pipeline', () => {
     // stands puts every object exactly where its own URL already says it is.
     const release = decodeDocumentPayload(JSON.parse(await readFile(built.releasePath, 'utf8')));
     const objectKey = relative(dist, built.archivePath).split(sep).join('/');
-    expect(release.archive.url).toBe(`${SCROLL.assetBaseUrl}/${objectKey}`);
+    expect(release.archive.url).toBe(`${SCROLL.publishBaseUrl}/${objectKey}`);
 
     // And a release verifies where it lands, without being told where its archive is.
     const receipt = await verifyBox(built.releasePath, { publicPath: keys.publicPath, log: () => {} });

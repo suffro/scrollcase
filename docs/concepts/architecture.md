@@ -6,28 +6,31 @@ description: How a scroll becomes a signed box, and how local consumers prepare 
 # Architecture
 
 Scrollcase turns a declarative **scroll** into a **box**: a portable, locked, self-contained
-Python environment for one operating system and accelerator, packed so it runs somewhere other
+environment for one operating system and accelerator, packed so it runs somewhere other
 than where it was built, signed so a consumer can prove what they received, and accompanied by a
-dependency licence inventory.
+dependency licence inventory. What runs inside it is the box's **runtime** — `python`, `node`, or
+`native`, which starts a compiled binary and carries no interpreter at all.
 
 This page explains how, and — more usefully — *why each step is where it is*.
 
-## The v2 consumer boundary
+## The consumer boundary
 
-Scrollcase has one canonical contract and two local consumer implementations: the Node/TypeScript
+Scrollcase has one canonical contract and three local consumer implementations: the Node/TypeScript
 API at `scrollcase/consumer`, the Python package imported as `scrollcase_consumer`, and the Rust
 crate `scrollcase-consumer`.
-`scrollcase run` delegates to the Node API instead of implementing a third path.
+`scrollcase run` delegates to the Node API instead of implementing a fourth path.
 
 ```mermaid
 flowchart LR
-  C["canonical v2 contract<br/>schemas + fixtures"] --> N["Node consumer<br/>scrollcase/consumer"]
+  C["canonical v3 contract<br/>schemas + fixtures"] --> N["Node consumer<br/>scrollcase/consumer"]
   C --> P["Python consumer<br/>scrollcase_consumer"]
   C --> R["Rust consumer<br/>scrollcase-consumer"]
   F["caller-supplied release, archive or root,<br/>trust keys, destination"] --> N
   F --> P
+  F --> R
   N --> L["verified local box<br/>or child process"]
   P --> L
+  R --> L
 ```
 
 Every consumer must agree on verification, safe extraction, attachment across restarts,
@@ -191,8 +194,9 @@ is verified locally before the build continues. See
 ### Verified
 
 `verify` checks signature, archive size and hash, safe entry names, recursive agreement of all
-shared schema-v2 manifest fields, and the declared interpreter. With `--self-test`, it temporarily
-extracts and runs the signed import subset. It does not repeat scroll-only Python or file checks.
+shared schema-v3 manifest fields, and the declared runtime entry point where the runtime has one.
+With `--self-test`, it temporarily extracts and answers the signed probe with the box's own runtime.
+It does not repeat scroll-only file checks.
 
 ### Honest about provenance
 

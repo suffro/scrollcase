@@ -84,7 +84,6 @@
       "additionalProperties": false,
       "required": [
         "format",
-        "url",
         "sha256",
         "sizeBytes"
       ],
@@ -94,7 +93,8 @@
         },
         "url": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Where the archive is published, for the distribution layer that has to fetch it. Absent when the box was built without a publish base URL, which is what a box built to run locally is.\n\nNothing verifies this value and no Scrollcase consumer reads one: an archive is resolved beside its release document and identified by sha256, so a wrong URL here would break a download and no check at all. That is why an absent one is preferred to an invented one \u2014 a false address inside a signed, immutable document stays false forever."
         },
         "sha256": {
           "$ref": "#/$defs/sha256"

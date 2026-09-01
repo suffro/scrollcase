@@ -103,9 +103,16 @@ product flags passed to `init` are rejected with the same remedy instead of bein
 
 ### The toolchain step
 
-With neither flag and a terminal attached, `init` prompts, defaulting to **yes**. Without a
-terminal — CI, a pipe — it never installs and simply reports what is missing: silence is not
-consent.
+`init` looks for pixi and conda-pack on every run and **prompts only when one of them is missing**,
+defaulting to **yes** with a terminal attached. Without a terminal — CI, a pipe — it never installs
+and simply reports what is missing: silence is not consent.
+
+When both are already present there is nothing to ask, and `init` says so rather than passing over
+it: which pixi it found, and — with a terminal, unless `--no-install-toolchain` was passed — whether
+a newer one has been released. That last line matters because of what happens next rather than as
+general news: `new scroll` records the pixi it finds, and `build` refuses any other version for that
+scroll. The lookup is advisory and best-effort, so an offline machine or a rate-limited API simply
+produces no line.
 
 When you agree, `init`:
 
@@ -171,7 +178,7 @@ scrollcase new scroll \
   --target linux-x86_64-cpu \
   --box-id example-model \
   --source-revision upstream-v1 \
-  --asset-base-url https://assets.example.org/boxes \
+  --publish-base-url https://boxes.example.org \
   --execution library-only
 ```
 
@@ -181,7 +188,7 @@ scrollcase new scroll \
 | `--runtime` | `python`, `node` or `native`. Defaults to `python` |
 | `--box-id` | Box identity and parent directory |
 | `--source-revision` | Upstream revision recorded in provenance |
-| `--asset-base-url` | Base URL copied into built release metadata |
+| `--publish-base-url` | Where built boxes will be published, so the signed documents can point at each other. Optional — the wizard lets you press Enter past it, `build` takes it as a flag, and a box you only run locally never needs one |
 | `--labels` | JSON object of free-form annotations carried into the signed release. Scrollcase reads none of them |
 | `--version` | Box version. Defaults to `1.0.0` |
 | `--scroll-version` | Version of the authoring input. Defaults to `1.0.0` |
@@ -193,12 +200,13 @@ scrollcase new scroll \
 | `--min-ram-gb` | Optional positive RAM requirement |
 | `--min-nvidia-driver-version` | Optional NVIDIA driver floor |
 | `--execution` | The runtime's own kinds, plus `library-only` where it applies — see the table below |
+| `--from-environment` | Payload path to an entry point a package already installs into the box, such as `venv/bin/ffmpeg`. Nothing of the project is copied in |
 | `--script` | Existing project-relative file the box runs |
 | `--generate-script` | Generate a minimal starter instead of using an existing file |
 | `--script-destination` | Safe payload path; defaults to the runtime's own starter name |
 | `--generated-script-path` | Project path for the generated source; defaults to `box-entrypoints/<boxId>/<targetId>/<starter>` |
 | `--module` | Strict dotted Python module name |
-| `--default-args` | JSON array of default application arguments |
+| `--default-args` | Arguments the box always passes to its entry point, before any the caller adds. One argument as itself (`--default-args -hide_banner`), several as a JSON array (`--default-args '["-a", "-b"]'`). The quotes are the shell's requirement: `[...]` unquoted is a glob pattern |
 
 The runtime decides what the rest of the session offers:
 
@@ -241,12 +249,13 @@ written by hand.
 ```sh
 scrollcase add asset  <box> <url>        [--to <payload path>] [--on-demand] [--executable]
                                          [--target <targetId>|all]
-scrollcase add file   <box> <path>       [--to <payload path>] [--executable]
+scrollcase add file   <box> <path>       [--to <payload path>] [--executable] [--pin]
                                          [--target <targetId>|all]
 scrollcase add dep    <box> <name>       [--version <spec>] [--target <targetId>|all]
 scrollcase add dep    <box> --from-requirements requirements.txt
 scrollcase add env    <box> NAME=VALUE   [--target <targetId>|all]
 scrollcase add import <box> <module>     [--target <targetId>|all]
+scrollcase add command <box> [--expect-exit-code <n>] [--target <targetId>|all] -- <arguments>
 ```
 
 `add asset` **downloads the URL once** and records the `sizeBytes` and `sha256` it actually found,
@@ -257,8 +266,12 @@ under the box's `cacheSubdir`. `--on-demand` writes `"embed": false`, leaving th
 the archive for your distribution layer to materialize.
 
 `add file` records a file from the project. `--to` defaults to the file's own name at the payload
-root. No `sha256` is written — see [`localFiles`](/reference/scroll#localfiles) — so the first edit
-to a file you just added does not fail your next build.
+root. No `sha256` is written by default — see [`localFiles`](/reference/scroll#localfiles) — so the
+first edit to a file you just added does not fail your next build.
+
+`--pin` records it anyway, which is what reference data wants: a file the box answers questions
+from should stop the build when a byte changes rather than ship a different answer under the same
+signature. It stays opt-in because most added files are about to be edited.
 
 `--executable` marks either kind as a file that needs the executable bit. A download arrives with no
 permissions at all and a copy does not carry the source file's mode, so this declaration is the only
@@ -267,6 +280,17 @@ Assets](/guides/managing-assets#files-that-have-to-run).
 
 Both also add the payload path to `selfTest.files`, so an over-eager `prunePaths` cannot quietly
 drop what you just declared.
+
+`add command` records one invocation of the box's own execution as a self-test probe, and
+`remove command` takes it away again. It is the counterpart of `add import` for a runtime with no
+module system: a [`native`](/reference/scroll#choosing-a-runtime) box proves itself by running what
+it declares, and a command probe is its only shape. `--expect-exit-code` declares the status the
+probe must exit with, for a check whose point is that the box *fails* correctly.
+
+The arguments come after `--` rather than as a quoted list, because they are a command line and the
+parser preserves everything past that boundary byte for byte — and because `-version` would
+otherwise be read as one of Scrollcase's own flags. The first real probe replaces the empty
+placeholder `new scroll` writes.
 
 `add dep` writes into the `[dependencies]` table of the box's `pixi.toml` files, editing the text
 rather than re-emitting the manifest, so comments and spacing survive. The default constraint is
@@ -471,7 +495,7 @@ plus a channel pointer. The full pipeline is narrated in
 ```sh
 scrollcase build [<scroll>] [--target <targetId>]
                  [--channel <name>]
-                 [--asset-base-url <url>] [--namespace <ns>] [--allow-dirty]
+                 [--publish-base-url <url>] [--namespace <ns>] [--allow-dirty]
                  [--pixi <path>] [--conda-pack <path>]
                  [--private-key <path>] [--public-key <path>] [--signer-command <cmd>]
 ```
@@ -483,7 +507,7 @@ menu. CI and other non-interactive callers must always provide it explicitly.
 | --- | --- | --- |
 | `--target` | ask when a box has several scrolls | Canonical target scroll to build |
 | `--channel` | `beta` | Channel the signed pointer names. The vocabulary is closed to `nightly`, `beta`, and `stable` |
-| `--asset-base-url` | scroll's `assetBaseUrl` | Base URL the signed documents point at; one of the two must be set |
+| `--publish-base-url` | scroll's `publishBaseUrl` | Where the signed documents will point. With neither, the release and channel carry no links and the box is local-only — see [the scroll reference](/reference/scroll#publishbaseurl) |
 | `--namespace` | `scrollcase.box` | Document `kind` namespace — a project with boxes already in the field keeps emitting its own |
 | `--allow-dirty` | off | Permit a build from an uncommitted tree; recorded as `sourceTreeDirty: true` in the box |
 | `--signer-command` | none | Sign through an external command instead of the local key — see [Signing & Key Custody](/guides/signing-and-custody#external-signers) |

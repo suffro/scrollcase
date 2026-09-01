@@ -7,9 +7,11 @@ description: What Scrollcase is for, what a box contains, and the shape of the w
 
 ## The main concept
 
-- Scrollcase packs an entire Python environment and the code it runs — like an **LLM** or a **scientific model** — into a single, **self-contained**, **portable** and **signed** archive: a **box**.
+- Scrollcase packs an entire environment and the code it runs — like an **LLM** or a **scientific model** — into a single, **self-contained**, **portable** and **signed** archive: a **box**.
 
-- You give that box to someone else. They unpack it and run it — **that's it!** <spacer /> **Nothing to install**: no Python, no <kbd><small>pip install</small></kbd>, no compiler, no Docker, **no dependencies to maintain**.
+- A box declares one **runtime**, and there are three: **`python`**, **`node`**, and **`native`**, which starts a compiled binary and carries no interpreter at all. All three are built, signed, verified and run the same way — the runtime changes what is inside the box, not how you work with it.
+
+- You give that box to someone else. They unpack it and run it — **that's it!** <spacer /> **Nothing to install**: no interpreter, no <kbd><small>pip install</small></kbd>, no compiler, no Docker, **no dependencies to maintain**.
 
 - Every box is **signed**, so whoever receives it can check that it is exactly the one you built and not something that changed on the way over.
 
@@ -19,33 +21,39 @@ This is the whole idea.
 
 ## The problem it removes
 
-Getting a Python runtime onto someone else's machine normally means asking them to rebuild your
-environment: the right Python, the right libraries, the right native builds for their CPU or GPU,
-the right weights downloaded from the right place. It works until it doesn't — and it breaks on
+Getting a working environment onto someone else's machine normally means asking them to rebuild
+yours: the right interpreter, the right libraries, the right native builds for their CPU or GPU, the
+right model files downloaded from the right place. It works until it doesn't — and it breaks on
 their machine, not yours. Scrollcase moves that work to build time, once, on a machine you control,
 and turns the result into a file.
 
 > <small> The rest of this page is a quick overview of how it works </small>
 
-## Four words
+## Six words
 
 | Word | Meaning |
 | --- | --- |
 | **scroll** | The file you write: dependencies, model files, what to run, how to test it. The only input a build accepts. → [reference](https://scrollcase.dev/reference/scroll) |
 | **box** | What comes out: one archive with the whole environment inside. → [format](https://scrollcase.dev/reference/box-format) |
 | **target** | Which machine it is for: operating system, CPU architecture, accelerator (and CUDA version). One box, one target. |
+| **runtime** | What runs *inside* the box: `python`, `node`, or `native`. One box, one runtime. → [choosing one](https://scrollcase.dev/reference/scroll#choosing-a-runtime) |
+| **execution** | The one thing the box starts, signed so nobody can change it later. Optional: a box with none is a library your own application drives. → [what this is for](https://scrollcase.dev/reference/scroll#why-declare-an-execution) |
 | **release** | The signed document that describes the box, so a consumer can verify it. → [security model](https://scrollcase.dev/concepts/security-and-trust) |
+
+**target** and **runtime** answer two different questions, and a box declares both. The target says
+which machine it runs on; the runtime says what starts when it runs. `macos-aarch64-metal` and
+`node` are one box; the same code for Linux is another.
 
 ## What is inside a box
 
 | Entity | What's inside |
 | --- | --- |
-| **Python interpreter** | The exact version you chose. The host does not need Python at all. |
-| **Every dependency** | Conda and PyPI packages, native libraries included, at the versions your lock file pinned. |
-| **Your code** | Application files, an entry script or module to start. |
+| **The runtime** | A `python` box carries the exact Python you chose, a `node` box the Node it declared, and a `native` box carries no interpreter at all — it starts a compiled binary directly. Either way the host needs none of them installed. |
+| **Every dependency** | conda-forge packages, native libraries included, at the versions your lock file pinned. Even a `native` box is built from a lock: the binary it runs links against what that lock installed. |
+| **Your code** | Application files, and an entry point to start — a script, a module, or the binary itself. |
 | **Model files** | Embedded in the archive, or kept outside it with their size and hash recorded. |
 | **Signed metadata** | What this box is, what it contains, and its digest — so a consumer can reject anything else. |
-| **Licence inventory** | Every dependency's licence, derived from the lock, not guessed. |
+| **Licence inventory** | Every dependency's licence, derived from the lock, not guessed — plus, when you declare it, the licences of what was linked *inside* a binary you supply, which no lock can see. |
 
 A box is built for **one target**: one operating system, one CPU architecture, one accelerator.
 `macos-aarch64-metal` and `linux-x86_64-cuda12` are two boxes, not one box with options. That is
@@ -113,10 +121,13 @@ examples under `consumer-templates/`. Pass `--no-example` for an empty workspace
 scrollcase new scroll
 ```
 
-Asks four questions — target, box id, the upstream revision of what you are packaging, and where
-boxes will be published — and writes one target-specific `scroll.json`, its `pixi.toml`, and a
-starter `self_test.py`. Nothing existing is overwritten. To just look around first, use the example
-`init` created. → [Scroll reference](/reference/scroll)
+Asks for the target, the **runtime**, a box id, the upstream revision of what you are packaging, and
+— optionally, press Enter to decide later — where boxes will be published. Then the execution kind,
+unless the runtime has only one, and writes one target-specific `scroll.json` and its `pixi.toml`.
+The runtime decides the rest: a `python` box gets a starter `self_test.py`, a `node` box a
+`self_test.js`, and a `native` box neither, because only you know what your binary is. Nothing
+existing is overwritten. To just look around first, use the example `init` created.
+→ [Scroll reference](/reference/scroll)
 
 ### 3. Declare what goes in
 
@@ -184,7 +195,7 @@ same verification, safe extraction, execution, receipt, signal, cleanup, and on-
 semantics, and none of them downloads anything.
 
 An application that keeps a box extracted across restarts re-attaches to it rather than unpacking
-again. → [Library APIs](/reference/api) ·
+again. → [Library APIs](/reference/api/) ·
 [Keeping an extracted box](/guides/distributing-boxes#keeping-an-extracted-box-across-restarts)
 
 ## Publishing

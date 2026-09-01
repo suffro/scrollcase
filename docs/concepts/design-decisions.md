@@ -247,11 +247,12 @@ badly and excludes everyone using something else.
 ## Verification is not optional
 
 `verify` checks signature, archive size and hash, safe entry names, recursive agreement of every
-shared schema-v2 field, the declared interpreter, and optional execution prerequisites. Execution is
-a closed script/module union rather than a shell command. The builder and verifier inspect regular
-payload/archive files to prove a script or runnable module exists; module discovery never imports
-the application. With `--self-test` verification extracts temporarily and runs the signed import
-subset. Scroll-only Python and file assertions remain builder checks because they are not part of
+shared schema-v3 field, the declared runtime entry point where the runtime has one, and optional
+execution prerequisites. Execution is a closed union of declared kinds rather than a shell command.
+The builder and verifier inspect regular payload/archive files to prove a script, runnable module or
+binary exists; module discovery never imports the application. With `--self-test` verification
+extracts temporarily and answers the signed probe with the box's own runtime. Scroll-only file
+assertions remain builder checks because they are not part of
 the signed release.
 
 **Rejected:** accepting a shell command or proving a module by importing it. A shell changes
@@ -589,6 +590,30 @@ The public-contract audit resolved six implementation choices:
   validator before tool discovery or build-directory mutation.
 - Asset resume is limited to retries within one download operation. There is no persistent cache
   and the documentation makes that process boundary explicit.
+
+## A URL is routing, not trust — so a box that is not published carries none
+
+The signed release names where the archive is published, and the channel names where the release is
+published. Both are **addresses**, and nothing verifies either: an archive is identified by its
+SHA-256, and all three consumers resolve one beside its release document rather than by following a
+link. A wrong URL there would break a download and no check at all.
+
+For a long time a build refused to proceed without one. That put the cost on exactly the wrong
+person: someone packaging a program to run on their own machine, who has no publication to name, was
+made to invent an address — while the tool declined to invent one itself, on the grounds that a
+placeholder inside a signed document is a false statement that stays false forever. Both positions
+cannot be right, and the tool's was the correct one.
+
+So the URL is optional everywhere, and a build without one omits both links rather than filling them
+in. The box is complete: hashed, signed, self-tested, verifiable, runnable. The one thing it cannot
+do is tell a stranger where to find itself, which is the one thing an unpublished box never needed.
+
+The field is named for what it does, too. `assetBaseUrl` said "asset" and meant nothing of the kind
+— a scroll's assets carry a URL each, and this value never touched them. It is `publishBaseUrl`.
+
+**Rejected:** keeping the refusal and documenting the placeholder; and defaulting to something like
+`https://example.invalid`. Both put an untrue statement inside a document whose whole value is that
+it is true.
 
 ## The licence audit is derived from the lock — except the half no lock can see
 

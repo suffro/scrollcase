@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Scrollcase — signed, self-contained Python environment boxes
+title: Scrollcase — signed, self-contained environment boxes
 titleTemplate: false
 sidebar: false
 ---

@@ -145,13 +145,35 @@ jobs:
             ls .scrollcase/dist/boxes/"$1"/1.0.0/${{ matrix.target }}/*.release.json
           }
 
-          node src/cli.mjs build node-box/${{ matrix.target }} --scrolls-dir examples
-          node src/cli.mjs verify "$(release_for node-box)" --self-test
-          node src/cli.mjs run "$(release_for node-box)"
+          node src/cli.mjs build hello-box-node/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for hello-box-node)" --self-test
+          node src/cli.mjs run "$(release_for hello-box-node)"
 
-          node src/cli.mjs build native-box/${{ matrix.target }} --scrolls-dir examples
-          node src/cli.mjs verify "$(release_for native-box)" --self-test
-          node src/cli.mjs run "$(release_for native-box)" -- --version
+          node src/cli.mjs build hello-box-native/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for hello-box-native)" --self-test
+          node src/cli.mjs run "$(release_for hello-box-native)" -- --version
+
+          # A node box doing real work rather than proving it starts: reference data pinned by hash,
+          # queried through `node:sqlite`. It is the one example whose payload carries data the box
+          # is expected to answer questions about, so a wrong answer here is a build failure.
+          node src/cli.mjs build codon-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for codon-demo)" --self-test
+          node src/cli.mjs run "$(release_for codon-demo)" -- Leucine
+
+          # The native counterpart: a large compiled program with a long tail of codec libraries,
+          # whose self-test runs a real encode rather than a version check. Slower than the rest of
+          # this job put together, and the only thing here that would catch a break in the one case
+          # `native` exists for.
+          node src/cli.mjs build transcode-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for transcode-demo)" --self-test
+          node src/cli.mjs run "$(release_for transcode-demo)" -- -version
+
+          # The other native shape: small compiled tools reading a data file the box ships, rather
+          # than one large program driven by flags. Its self-test reads the shipped dataset both
+          # ways — structure and values — so a box whose data or reader stopped agreeing fails here.
+          node src/cli.mjs build dataset-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for dataset-demo)" --self-test
+          node src/cli.mjs run "$(release_for dataset-demo)" -- -H readings.h5
 
       # Determinism is a promise the repository makes that nothing else verifies end to end.
       #

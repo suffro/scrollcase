@@ -34,7 +34,8 @@ const PROJECT_GUIDE = `[Scrollcase documentation](https://scrollcase.dev/)
 # Scrollcase in this project
 
 Scrollcase turns a declarative [scroll](https://scrollcase.dev/reference/scroll) into a signed,
-portable [box](https://scrollcase.dev/reference/box-format) for one [target](https://scrollcase.dev/reference/box-format#targets).
+portable [box](https://scrollcase.dev/reference/box-format) for one [target](https://scrollcase.dev/reference/box-format#targets) and one
+[runtime](https://scrollcase.dev/reference/scroll#choosing-a-runtime) — \`python\`, \`node\`, or \`native\`, which carries no interpreter. A workspace holds many boxes; \`new scroll\` asks per box.
 
 ## Usual workflow
 
@@ -50,7 +51,7 @@ Run \`npm install scrollcase\` to install Scrollcase CLI. Then:
 
 See the [CLI reference](https://scrollcase.dev/reference/cli) and
 [signing guidance](https://scrollcase.dev/guides/signing-and-custody). The \`consumer-templates/\`
-files demonstrate the [consumer APIs](https://scrollcase.dev/reference/api) against local releases.
+files demonstrate the [consumer APIs](https://scrollcase.dev/reference/api) — your application's language, not your box's runtime.
 
 ## Node consumer
 
@@ -130,6 +131,20 @@ export async function initProject({
   };
 }
 
+/**
+ * The newest published pixi, or null when it cannot be found out.
+ *
+ * Advisory only, so every failure — offline, a rate limit, a changed feed — is swallowed rather than
+ * turned into an error. Nothing downstream depends on the answer.
+ */
+async function newestPixiVersion({ fetchImpl }) {
+  try {
+    return await latestPixiVersion({ fetchImpl });
+  } catch {
+    return null;
+  }
+}
+
 /** Reads the project config back, so a toolchain pin is added to it rather than replacing it. */
 async function readConfig(configPath) {
   if (!await fileExists(configPath)) return { version: 1, paths: { ...DEFAULT_WORKSPACE_PATHS } };
@@ -155,6 +170,9 @@ async function readConfig(configPath) {
 export async function ensureToolchain({
   workspace,
   pixiVersion = null,
+  // Whether this run may ask the network which pixi is newest. Off by default: the caller decides,
+  // and a scaffold that reached out on its own would be doing something nobody asked for.
+  checkLatest = false,
   confirm,
   host = process,
   fetchImpl = fetch,
@@ -175,6 +193,11 @@ export async function ensureToolchain({
       installed: [],
       missing: [],
       pixiVersion: pixi.version,
+      // Only when the caller says the network is fair game. The lookup is one request to a
+      // rate-limited public API — it answers 403 on an unauthenticated CI runner — and it is
+      // advisory, so any failure means the line is simply not printed. `init` still installs
+      // nothing without consent; this only decides whether it can say a newer pixi exists.
+      newestPixiVersion: checkLatest ? await newestPixiVersion({ fetchImpl }) : null,
       condaPackVersion: CONDA_PACK_VERSION,
       declined: false,
     };

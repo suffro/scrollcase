@@ -6,10 +6,12 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyVerifiedLocalFile } from '../../src/build/assets.mjs';
 import {
+  BOX_ID_SHAPE,
   DEFAULT_NODE_VERSION,
   DEFAULT_PYTHON_VERSION,
   LATEST_NODE_VERSION,
   LATEST_PYTHON_VERSION,
+  boxIdProblem,
   createScroll,
   ensureConsumerTemplates,
   ensureExampleScroll,
@@ -22,6 +24,8 @@ import { configureWorkspace, getWorkspace, resetWorkspace } from '../../src/buil
 import { collectNewScrollOptions, promptText } from '../../src/cli-authoring.mjs';
 
 const TARGET = { platform: 'macos', arch: 'aarch64', accelerator: 'metal' };
+// Every runtime that offers a choice offers `library-only` last, so the hint's list ends on it.
+const EXECUTION_KIND_TAIL = 'being imported by another application as a library';
 const BASE = {
   boxId: 'example-model',
   target: TARGET,
@@ -32,7 +36,7 @@ const BASE = {
   runtimeVersion: '3.11.15',
   pixiVersion: '0.73.0',
   compatibility: { minHostAppVersion: '1.0.0' },
-  assetBaseUrl: 'https://assets.example.org',
+  publishBaseUrl: 'https://assets.example.org',
 };
 
 describe('scroll authoring', () => {
@@ -156,7 +160,7 @@ describe('scroll authoring', () => {
     const answers = new Map([
       ['Box ID', BASE.boxId],
       ['Upstream revision', BASE.sourceRevision],
-      ['Asset base URL', BASE.assetBaseUrl],
+      ['Publish base URL', BASE.publishBaseUrl],
       ['Python module', 'example_model.main'],
     ]);
     const asked = [];
@@ -169,7 +173,7 @@ describe('scroll authoring', () => {
           throw new Error(`unexpected question: ${question}`);
         }
         // Every question carries one line saying what the field is: a label alone does not explain
-        // `sourceRevision` or `assetBaseUrl` to someone meeting the tool for the first time.
+        // `sourceRevision` or `publishBaseUrl` to someone meeting the tool for the first time.
         expect(promptOptions.hint).toEqual(expect.any(String));
         return answers.get(question);
       },
@@ -210,12 +214,243 @@ describe('scroll authoring', () => {
   it('pins the pixi that is installed, since a build refuses any other', async () => {
     const options = await collectNewScrollOptions(
       new Map([['box-id', 'example-model'], ['source-revision', 'upstream-v1'],
-        ['asset-base-url', 'https://assets.example.org'],
+        ['publish-base-url', 'https://assets.example.org'],
         ['execution', 'library-only'], ['target', 'macos-aarch64-metal']]),
       { terminal: false, probe: () => ({ path: 'pixi', version: '9.9.9' }) },
     );
 
     expect(options.pixiVersion).toBe('9.9.9');
+  });
+
+  it('points a native box at a binary the environment provides, staging nothing', async () => {
+    const current = await workspace();
+    const result = await createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'native',
+      runtimeVersion: undefined,
+      executionKind: 'native-binary',
+      environmentPath: 'venv/bin/ffmpeg',
+      defaultArgs: ['-hide_banner'],
+    });
+
+    expect(result.scroll.execution).toEqual({
+      kind: 'native-binary',
+      binary: 'venv/bin/ffmpeg',
+      defaultArgs: ['-hide_banner'],
+    });
+    // Nothing of the project is copied in, so there is no `localFiles` entry to invent. Claiming one
+    // would say the project ships a file it does not have.
+    expect(result.scroll.localFiles).toBeUndefined();
+    await expect(readScroll(result.scrollRef)).resolves.toBeTruthy();
+  });
+
+  it('refuses a binary that is both in the environment and in the project', async () => {
+    const current = await workspace();
+    await expect(createScroll({
+      workspace: current,
+      ...BASE,
+      runtimeId: 'native',
+      runtimeVersion: undefined,
+      executionKind: 'native-binary',
+      environmentPath: 'venv/bin/ffmpeg',
+      scriptSourcePath: 'tool',
+    })).rejects.toThrow(/either a file from the environment or one from this project/);
+  });
+
+  it('collects --from-environment without asking for a project file', async () => {
+    const options = await collectNewScrollOptions(
+      new Map([['target', 'macos-aarch64-metal'], ['runtime', 'native'],
+        ['box-id', 'transcode-demo'], ['source-revision', 'ffmpeg-9'],
+        ['from-environment', 'venv/bin/ffmpeg']]),
+      { terminal: false, probe: () => ({ path: 'pixi', version: BASE.pixiVersion }) },
+    );
+
+    expect(options.environmentPath).toBe('venv/bin/ffmpeg');
+    expect(options.scriptSourcePath).toBeUndefined();
+    expect(options.generateScript).toBeUndefined();
+  });
+
+  it('asks a native box where its binary comes from, the environment first', async () => {
+    let offered = null;
+    const asked = [];
+    const options = await collectNewScrollOptions(
+      new Map([['target', 'macos-aarch64-metal'], ['runtime', 'native'],
+        ['box-id', 'transcode-demo'], ['source-revision', 'ffmpeg-9']]),
+      {
+        terminal: true,
+        ask: async (question) => { asked.push(question); return 'venv/bin/ffmpeg'; },
+        choose: async (question, choices) => {
+          if (question === 'binary source') offered = choices;
+          return question === 'runtime' ? 'native' : choices[0];
+        },
+        chooseTargetValue: async () => ({ target: TARGET, targetId: 'macos-aarch64-metal' }),
+        probe: () => ({ path: 'pixi', version: BASE.pixiVersion }),
+      },
+    );
+
+    // Most native boxes package a program conda-forge installs, and that answer needs nothing to
+    // exist yet — so it is the preselected one, as the menu's first entry.
+    expect(offered).toEqual(['a program the environment provides', 'a compiled binary in this project']);
+    expect(options.environmentPath).toBe('venv/bin/ffmpeg');
+    expect(options.scriptSourcePath).toBeUndefined();
+    expect(asked).toContain('Path inside the box');
+    expect(asked).not.toContain('Binary path');
+  });
+
+  it('offers each runtime only the execution kinds it has, and explains those and no others', async () => {
+    const seen = new Map();
+    const collect = async (runtimeId) => collectNewScrollOptions(
+      new Map([['runtime', runtimeId], ['box-id', 'example-model'],
+        ['source-revision', 'upstream-v1'], ['publish-base-url', 'https://assets.example.org'],
+        ['script', 'app/entrypoint'], ['target', 'macos-aarch64-metal']]),
+      {
+        terminal: true,
+        ask: async () => 'example_model.main',
+        choose: async (question, choices, options = {}) => {
+          if (question === 'execution kind') seen.set(runtimeId, { choices, hint: options.hint });
+          return question === 'runtime' ? runtimeId : choices[0];
+        },
+        chooseTargetValue: async () => ({ target: TARGET, targetId: 'macos-aarch64-metal' }),
+        probe: () => ({ path: 'pixi', version: BASE.pixiVersion }),
+      },
+    );
+
+    await collect('python');
+    await collect('node');
+    // A module is a Python idea. Offering a node author "an importable module" describes a choice
+    // that is not on their menu, which is how the shared sentence read before it was derived from
+    // the kinds actually offered.
+    expect(seen.get('python').hint).toContain('an importable module');
+    expect(seen.get('node').hint).not.toContain('an importable module');
+    for (const [runtimeId, { choices, hint }] of seen) {
+      expect(choices.length, runtimeId).toBeGreaterThan(1);
+      // `promptHeading` renders a hint as one lead-in line, stripping a trailing period and adding
+      // a colon of its own. So: no second sentence, because it has nowhere to go; no colon inside,
+      // because two in one line read as two questions; and the line ends where the list ends,
+      // because an explanation hung off the last item hides the list's boundary — which is exactly
+      // how "or nothing at all, for a box other code imports rather than runs" became unreadable.
+      expect(hint, runtimeId).not.toMatch(/\.\s/);
+      expect(hint, runtimeId).not.toContain(':');
+      expect(hint.endsWith(EXECUTION_KIND_TAIL), `${runtimeId}: ${hint}`).toBe(true);
+      // No option may be described as an absence. `library-only` under a "what does run start"
+      // framing can only be "nothing at all", which tells the reader what they would not get
+      // instead of what the choice is for, and reads as an option that does nothing. Every entry
+      // has to answer why someone would pick it.
+      expect(hint, runtimeId).not.toMatch(/\bnothing\b|\bnone\b|\bno entry point\b/);
+    }
+
+    // native defines one authored kind, so there is nothing to choose between and no menu is shown.
+    const native = await collect('native');
+    expect(seen.has('native')).toBe(false);
+    expect(native.executionKind).toBe('native-binary');
+  });
+
+  it('preselects the generated starter, which is the one that works with nothing else in place', async () => {
+    let offered = null;
+    const options = await collectNewScrollOptions(
+      new Map([['box-id', 'example-model'], ['source-revision', 'upstream-v1'],
+        ['publish-base-url', 'https://assets.example.org'], ['target', 'macos-aarch64-metal']]),
+      {
+        terminal: true,
+        ask: async () => 'entrypoint.py',
+        choose: async (question, choices) => {
+          if (question === 'script source') offered = choices;
+          if (question === 'runtime') return 'python';
+          if (question === 'execution kind') return 'python-script';
+          // The menu's first entry is what a preselected answer takes, so the order is the default.
+          return choices[0];
+        },
+        chooseTargetValue: async () => ({ target: TARGET, targetId: 'macos-aarch64-metal' }),
+        probe: () => ({ path: 'pixi', version: BASE.pixiVersion }),
+      },
+    );
+
+    expect(offered[0]).toBe('generate starter script');
+    expect(options.generateScript).toBe(true);
+    expect(options.scriptSourcePath).toBeUndefined();
+  });
+
+  it('refuses a malformed box ID at the prompt, naming the shape, and asks again', { timeout: 5000 }, async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let rendered = '';
+    let asked = 0;
+    output.on('data', (chunk) => {
+      rendered += String(chunk);
+      if (!String(chunk).endsWith('↳ ')) return;
+      asked += 1;
+      input.write(asked === 1 ? 'Example Model\n' : 'example-model\n');
+    });
+
+    const answer = await promptText('Box ID', {
+      hint: `Name of the box. ${BOX_ID_SHAPE}.`,
+      validate: boxIdProblem,
+      input,
+      output,
+    });
+
+    expect(answer).toBe('example-model');
+    // The value that was refused, and the shape it needed — not "does not match the required
+    // pattern", and not after every other question in the session had been answered.
+    expect(rendered).toContain('Example Model is not a usable box ID');
+    expect(rendered).toContain('lower-case letters and digits');
+  });
+
+  it('refuses a malformed --box-id before asking anything else', async () => {
+    const asked = [];
+    await expect(collectNewScrollOptions(
+      new Map([['box-id', 'Example Model'], ['target', 'macos-aarch64-metal']]),
+      {
+        terminal: true,
+        ask: async (question) => { asked.push(question); return 'x'; },
+        choose: async (question, choices) => (question === 'runtime' ? 'python' : choices[0]),
+        chooseTargetValue: async () => ({ target: TARGET, targetId: 'macos-aarch64-metal' }),
+        probe: () => ({ path: 'pixi', version: BASE.pixiVersion }),
+      },
+    )).rejects.toThrow(/Example Model is not a usable box ID/);
+    expect(asked).toEqual([]);
+  });
+
+  it('writes a scroll with no publishBaseUrl when the author skips it, rather than inventing one', async () => {
+    const current = await workspace();
+    const { publishBaseUrl: _skipped, ...withoutUrl } = BASE;
+    const result = await createScroll({
+      workspace: current,
+      ...withoutUrl,
+      executionKind: 'library-only',
+    });
+
+    // Absent, not a placeholder: a made-up URL in a signed release is a false statement about where
+    // the box is published, and the scroll schema does not require the field either.
+    expect(result.scroll.publishBaseUrl).toBeUndefined();
+    expect(JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8')))
+      .not.toHaveProperty('publishBaseUrl');
+    // Still a valid scroll a build can read; `build` is what refuses, by name, and says how to
+    // supply the URL it needs.
+    await expect(readScroll(result.scrollRef)).resolves.toBeTruthy();
+  });
+
+  it('lets the wizard skip the publish base URL instead of blocking the session on it', async () => {
+    let optionalAsk = null;
+    const options = await collectNewScrollOptions(
+      new Map([['box-id', 'example-model'], ['source-revision', 'upstream-v1'],
+        ['target', 'macos-aarch64-metal']]),
+      {
+        terminal: true,
+        ask: async (question, promptOptions = {}) => {
+          if (question !== 'Publish base URL') return 'value';
+          optionalAsk = promptOptions.optional;
+          return null;
+        },
+        choose: async (question) => (question === 'runtime' ? 'python' : 'library-only'),
+        chooseTargetValue: async () => ({ target: TARGET, targetId: 'macos-aarch64-metal' }),
+        probe: () => ({ path: 'pixi', version: BASE.pixiVersion }),
+      },
+    );
+
+    expect(optionalAsk).toBe(true);
+    expect(options.publishBaseUrl).toBeNull();
   });
 
   // Short timeout on purpose: an abort on the first blank answer leaves the prompt waiting for input
@@ -502,5 +737,22 @@ describe('scroll authoring', () => {
       join(current.root, '.scrollcase', 'payload'),
       current.root,
     )).rejects.toThrow(/SHA-256 mismatch/);
+  });
+
+  it('takes default arguments as one argument or as a JSON array', async () => {
+    const collect = async (value) => (await collectNewScrollOptions(
+      new Map([['target', 'macos-aarch64-metal'], ['runtime', 'native'],
+        ['box-id', 'transcode-demo'], ['source-revision', 'ffmpeg-9'],
+        ['from-environment', 'venv/bin/ffmpeg'], ['default-args', value]]),
+      { terminal: false, probe: () => ({ path: 'pixi', version: BASE.pixiVersion }) },
+    )).defaultArgs;
+
+    // The common case is one argument, and quoting a one-element JSON array to say it is a tax.
+    expect(await collect('-hide_banner')).toEqual(['-hide_banner']);
+    expect(await collect('["-hide_banner", "-nostats"]')).toEqual(['-hide_banner', '-nostats']);
+    // A value that opens like an array is held to being one: falling back to a literal would turn a
+    // malformed array into a single argument that looks almost right.
+    await expect(collect('["-a"')).rejects.toThrow(/not valid JSON/);
+    await expect(collect('[1, 2]')).rejects.toThrow(/JSON array of strings, or a single argument/);
   });
 });

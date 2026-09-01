@@ -15,7 +15,7 @@
   "pixiVersion": "0.73.0",
   "cacheSubdir": "cache/hello",
   "environment": {},
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://assets.example.org/boxes",
   "assets": [],
   "selfTest": {
     "imports": [

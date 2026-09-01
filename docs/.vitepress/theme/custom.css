@@ -284,3 +284,14 @@ body:has(.cookie-backdrop) {
     display: none;
   }
 }
+/* The theme's own locale dropdown, hidden.
+ *
+ * `/v2/` is a VitePress locale for what it gives a path prefix — its own nav, sidebar and search
+ * index — not because anything is translated, so the globe that comes with it would offer "v3 / v2"
+ * a second time. `VersionSwitch.vue` is the control for this, and unlike the dropdown it checks
+ * that the other version has the page before offering to go there.
+ */
+.VPNavBarTranslations,
+.VPNavScreenTranslations {
+  display: none !important;
+}

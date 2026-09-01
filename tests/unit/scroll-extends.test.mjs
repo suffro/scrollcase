@@ -27,7 +27,7 @@ const BASE = {
   sourceRevision: 'upstream-v1',
   runtime: { id: 'python', version: '3.14' },
   pixiVersion: '0.73.0',
-  assetBaseUrl: 'https://assets.example.org/boxes',
+  publishBaseUrl: 'https://assets.example.org/boxes',
   selfTest: { imports: ['json'] },
 };
 

@@ -75,8 +75,20 @@ Never hand-edit `src/contract/types/index.d.ts`; the drift test checks the gener
 
 ## Compatibility
 
-All active schemas describe `schemaVersion: 2`. A v2 verifier rejects v1 rather than interpreting
-it through the new contract; historical v1 boxes remain usable with the immutable Scrollcase
-versions that produced them. Target IDs, document-kind strings, payload encoding, signature
-algorithm, and golden fixtures do not change silently at an existing `$id`. A future breaking
-change requires another schema version.
+All active schemas describe `schemaVersion: 3`, and are published under `/schema/v3/`. A v3 verifier
+refuses a v1 or a v2 document **by name** rather than reinterpreting it: they are different
+artefacts with different rebuilds ahead of them. Target IDs, document-kind strings, payload
+encoding, signature algorithm and golden fixtures never change silently at an existing `$id`; a
+breaking change gets a new schema version instead.
+
+### Version 2 is still readable
+
+The version 2 schemas remain served, verbatim, at
+[`/schema/v2/`](https://scrollcase.dev/schema/v2/scroll.schema.json). Every scroll, release and box
+built under version 2 carries one of those URLs in its own `$schema`, and an `$id` that stopped
+resolving would break editor validation and any tool that dereferences it. "Immutable" is a promise
+about the artefacts as much as about the format.
+
+They are frozen: nothing generates or checks them, because there is nothing left to keep them in
+step with. They are not an alternative to build against — a version 2 box is rebuilt from its scroll
+under version 3 — and for that reason `/.well-known/api-catalog` lists version 3 only.

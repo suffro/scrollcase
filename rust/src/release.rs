@@ -78,8 +78,12 @@ pub struct Compatibility {
 pub struct Archive {
     /// Always `zip`.
     pub format: String,
-    /// Where the archive was published. This crate never fetches it.
-    pub url: String,
+    /// Where the archive was published, for the distribution layer that has to fetch it. Absent
+    /// when the box was built without a publish base URL, which is what a box built to run locally
+    /// is. This crate never reads it: an archive is resolved beside its release document and
+    /// identified by [`Self::sha256`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// Lowercase hex SHA-256 of the archive bytes.
     pub sha256: String,
     /// Exact archive size.
@@ -525,14 +529,15 @@ impl ReleaseManifest {
             }
         }
         self.runtime.validate()?;
-        for (label, value) in [
-            ("version", &self.version),
-            ("cacheSubdir", &self.cache_subdir),
-            ("archive.url", &self.archive.url),
-        ] {
+        for (label, value) in [("version", &self.version), ("cacheSubdir", &self.cache_subdir)] {
             if value.is_empty() {
                 fail!("Invalid release manifest: {label} must not be empty.");
             }
+        }
+        // Optional, but an empty string is not the way to say "absent": that is a field the
+        // publisher filled in with nothing, which no reader can act on.
+        if self.archive.url.as_ref().is_some_and(String::is_empty) {
+            fail!("Invalid release manifest: archive.url must not be empty.");
         }
         if self.archive.format != "zip" {
             fail!("Invalid release manifest: archive format must be zip.");

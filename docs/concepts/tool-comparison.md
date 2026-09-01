@@ -214,7 +214,7 @@ Scrollcase is not an application freezer like PyInstaller. PyInstaller analyzes 
 
 That is often the most direct way to ship a Python desktop application.
 
-Scrollcase does not attempt to turn the model runtime into a native-looking executable. It preserves a real Python environment and exposes declared Python scripts or modules through a verified consumer.
+Scrollcase does not attempt to turn the model runtime into a native-looking executable. It preserves a real environment and exposes what the box declared — a Python script or module, a Node script, or a compiled binary — through a verified consumer.
 
 This is useful when the Python runtime is one component inside a larger product rather than the product's top-level executable.
 

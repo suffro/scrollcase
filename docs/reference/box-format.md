@@ -69,14 +69,25 @@ A box ships as a ZIP (ZIP64-capable) whose bytes depend only on its contents:
 example-model-1.0.0-macos-aarch64-metal.zip
 ├── box.json                                 # the self-describing manifest
 ├── payload-digest.v1                        # canonical hashes of every original payload entry
+├── package.json                             # node boxes only, unless the payload ships its own
 ├── venv/                                    # the packed, relocated conda-forge environment
-│   ├── bin/python                           # (venv/python.exe on Windows)
+│   ├── bin/python                           # the runtime's entry point: venv/bin/node for a node
+│   │                                        #   box, none at all for a native one
+│   │                                        #   (venv/python.exe, venv/node.exe on Windows)
 │   ├── lib/…
 │   └── conda-meta/…
 ├── cache/…                            # the box's own large files, when embedded
 └── THIRD_PARTY_NOTICES/
-    └── conda-distributions.json             # the dependency licence inventory
+    ├── conda-distributions.json             # the lock-derived dependency licence inventory
+    └── bundled-dependencies.json            # what was linked inside a binary the box ships,
+                                             #   when the scroll declared it
 ```
+
+The runtime decides two of those entries. A `node` box is given its own `package.json` unless the
+payload already carries one, because Node picks CommonJS or ESM from the nearest `package.json`
+*above* the file it runs and a box without one asks whichever directory it was extracted into. A
+`native` box has no interpreter under `venv/` to name at all: the binary it runs is one the scroll
+brought in, and `venv/` holds only the shared libraries that binary links against.
 
 Guarantees the archive layer enforces:
 
@@ -323,11 +334,11 @@ so promoting a build never requires re-signing it.
 ```
 
 Channels are `nightly`, `beta`, and `stable`, and a fresh build emits one release at 100%.
-Schema version 2 carries `cohortSalt` and rollout percentages but intentionally lacks a normative
+Schema version 3 carries `cohortSalt` and rollout percentages but intentionally lacks a normative
 cohort algorithm and golden fixtures. It does not specify identity normalisation, byte framing,
 hashing, integer extraction, percentage mapping, ordering, or boundary behavior. A project can
 define those rules for its own clients, but cross-implementation rollout interoperability is not a
-schema-v2 guarantee.
+schema-v3 guarantee.
 
 ### Revocations manifest
 

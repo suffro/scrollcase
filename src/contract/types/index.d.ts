@@ -176,9 +176,11 @@ export interface BoxScroll {
     [k: string]: string;
   };
   /**
-   * Base URL of the mirror the built archive and its objects are published under.
+   * Base URL the built archive and its signed documents will be published under, so each can point at the next: the channel names the release document, and the release names the archive. It says nothing about the box's own assets — those carry a URL each — and nothing about what the box does at run time.
+   *
+   * Optional, and genuinely so. A box you build to run locally is never published, so there is nowhere for these documents to point and no value here would be true; the build omits both links rather than inventing an address. Nothing verifies this URL and no Scrollcase consumer reads one: an archive is found beside its release document and identified by its SHA-256.
    */
-  assetBaseUrl?: string;
+  publishBaseUrl?: string;
   /**
    * Files fetched during the build. Every entry is size- and hash-checked before use, so a moved or replaced upstream file fails the build instead of silently changing the box. May be empty, and defaults to empty.
    */
@@ -479,7 +481,12 @@ export interface BoxReleaseManifest {
   };
   archive: {
     format: 'zip';
-    url: string;
+    /**
+     * Where the archive is published, for the distribution layer that has to fetch it. Absent when the box was built without a publish base URL, which is what a box built to run locally is.
+     *
+     * Nothing verifies this value and no Scrollcase consumer reads one: an archive is resolved beside its release document and identified by sha256, so a wrong URL here would break a download and no check at all. That is why an absent one is preferred to an invented one — a false address inside a signed, immutable document stays false forever.
+     */
+    url?: string;
     sha256: Sha256;
     sizeBytes: number;
   };
@@ -536,12 +543,18 @@ export interface BoxChannelManifest {
   releases: [
     {
       version: string;
-      releaseManifestUrl: string;
+      /**
+       * Where the signed release document is published. Absent when the box was built without a publish base URL: there is then nothing for this pointer to point at, and a channel that still says which version is current is more use than one carrying an address that does not resolve.
+       */
+      releaseManifestUrl?: string;
       rolloutPercentage: number;
     },
     ...{
       version: string;
-      releaseManifestUrl: string;
+      /**
+       * Where the signed release document is published. Absent when the box was built without a publish base URL: there is then nothing for this pointer to point at, and a channel that still says which version is current is more use than one carrying an address that does not resolve.
+       */
+      releaseManifestUrl?: string;
       rolloutPercentage: number;
     }[]
   ];

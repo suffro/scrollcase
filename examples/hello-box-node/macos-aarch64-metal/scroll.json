@@ -1,7 +1,7 @@
 {
   "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
   "schemaVersion": 3,
-  "boxId": "node-box",
+  "boxId": "hello-box-node",
   "version": "1.0.0",
   "sourceRevision": "example-node-v1",
   "target": {
@@ -18,9 +18,9 @@
     "version": "22"
   },
   "pixiVersion": "0.73.0",
-  "condaDependencyLicenseAudit": "examples/node-box/macos-aarch64-metal/conda-licenses.json",
-  "cacheSubdir": "cache/node-box",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "condaDependencyLicenseAudit": "examples/hello-box-node/macos-aarch64-metal/conda-licenses.json",
+  "cacheSubdir": "cache/hello-box-node",
+  "publishBaseUrl": "https://assets.example.org/boxes",
   "selfTest": {
     "imports": [
       "node:fs",
@@ -37,7 +37,7 @@
   },
   "localFiles": [
     {
-      "sourcePath": "examples/node-box/macos-aarch64-metal/entrypoint.js",
+      "sourcePath": "examples/hello-box-node/macos-aarch64-metal/entrypoint.js",
       "relativePath": "entrypoint.js"
     }
   ],

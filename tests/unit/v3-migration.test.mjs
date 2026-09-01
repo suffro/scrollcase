@@ -53,13 +53,32 @@ describe('canonical scroll workspace names', () => {
     expect(workspace).not.toHaveProperty(legacyField);
   });
 
-  it('keeps retired product terminology out of tracked content and paths', () => {
-    const retired = ['re', 'cipe'].join('');
+  /**
+   * Two words, forbidden for two different reasons.
+   *
+   * The first is the name of the project Scrollcase was extracted from. Hard rule 1 says it appears
+   * nowhere — not in identifiers, error messages, environment variables, default paths, wire strings
+   * or examples — because the tool must stay usable by projects that have nothing to do with the one
+   * that first needed it. It has come back twice already, both times inside files moved after a
+   * clean grep, so the grep is a test rather than a habit. The second is a retired product term from
+   * before the rename.
+   *
+   * Each is assembled from fragments so that this file does not contain the word it forbids. That is
+   * not cleverness for its own sake: a guard that trips on itself gets weakened, and a weakened guard
+   * is how the name comes back.
+   */
+  it.each([
+    ['the name of the project this tool was extracted from', ['lia', 'tir']],
+    ['retired product terminology', ['re', 'cipe']],
+  ])('keeps %s out of tracked content and paths', (_reason, fragments) => {
+    const forbidden = fragments.join('');
     const contentSearch = spawnSync(
       'git',
-      ['grep', '-I', '-i', '--name-only', retired, '--', '.'],
+      ['grep', '-I', '-i', '--name-only', forbidden, '--', '.'],
       { cwd: root, encoding: 'utf8' },
     );
+    // `git grep` exits 1 for "found nothing", which is the only acceptable answer. Anything else is
+    // either a hit or a broken invocation, and both must fail rather than pass quietly.
     expect(contentSearch.status, contentSearch.stderr).toBe(1);
     expect(contentSearch.stdout).toBe('');
 
@@ -67,6 +86,6 @@ describe('canonical scroll workspace names', () => {
       cwd: root,
       encoding: 'utf8',
     }).split('\0').filter(Boolean);
-    expect(trackedPaths.filter((path) => path.toLowerCase().includes(retired))).toEqual([]);
+    expect(trackedPaths.filter((path) => path.toLowerCase().includes(forbidden))).toEqual([]);
   });
 });

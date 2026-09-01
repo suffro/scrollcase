@@ -56,7 +56,6 @@
         "additionalProperties": false,
         "required": [
           "version",
-          "releaseManifestUrl",
           "rolloutPercentage"
         ],
         "properties": {
@@ -66,7 +65,8 @@
           },
           "releaseManifestUrl": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Where the signed release document is published. Absent when the box was built without a publish base URL: there is then nothing for this pointer to point at, and a channel that still says which version is current is more use than one carrying an address that does not resolve."
           },
           "rolloutPercentage": {
             "type": "integer",

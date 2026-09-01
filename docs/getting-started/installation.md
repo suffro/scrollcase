@@ -117,7 +117,7 @@ keeps the template, skips the question, and prints the command to run later inst
 </Tab>
 </Tabs>
 
-> Checkout the [Library APIs](/reference/api.md) section for more details.
+> Checkout the [Library APIs](/reference/api/) section for more details.
 
 ## Let Scrollcase install the toolchain
 

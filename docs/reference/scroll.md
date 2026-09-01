@@ -19,15 +19,15 @@ scrolls/
 
 The parent directory is the scroll's declared `boxId`; the child is the canonical ID computed from
 its declared `target`. Scrollcase checks both, so the path cannot mislabel the scroll, but neither
-value is written twice inside `scroll.json`. Flat source directories are not accepted in v2.
+value is written twice inside `scroll.json`. Flat source directories are not accepted.
 
 The machine-readable definition is [`scroll.schema.json`](/schema/v3/scroll.schema.json), also shipped
 through the package export. See [JSON Schemas](/reference/schemas).
 
-Create a new target-specific input with `scrollcase new scroll`. Interactively it asks four
-things — the target, the box id, the upstream revision, and where boxes will be published — and
-derives everything else, generating the matching `pixi.toml` and a starter `self_test.py`. It
-refuses to overwrite an existing scroll.
+Create a new target-specific input with `scrollcase new scroll`. Interactively it asks for the
+target, the [runtime](#choosing-a-runtime), the box id, the upstream revision, and — optionally —
+where boxes will be published, then derives everything else and generates the matching `pixi.toml`
+plus a starter self-test where the runtime has one. It refuses to overwrite an existing scroll.
 
 ## The shortest scroll that builds
 
@@ -44,7 +44,7 @@ scroll is read. Write the decisions, not the restatements:
   "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
   "runtime": { "id": "python", "version": "3.14" },
   "pixiVersion": "0.73.0",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://boxes.example.org",
   "selfTest": { "imports": ["json", "sqlite3"] }
 }
 ```
@@ -68,7 +68,7 @@ derived field is never wrong; `runtime.entryPoint` is still checked against the 
   "pixiVersion": "0.73.0",
   "cacheSubdir": "cache/hello-box",
   "environment": { "MODEL_ROOT": "cache/hello-box", "HF_HUB_OFFLINE": "1" },
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://boxes.example.org",
   "assets": [],
   "selfTest": { "imports": ["json", "sqlite3"], "files": [] }
 }
@@ -344,10 +344,58 @@ library ships anyway — `"GGML_METAL_DEVICES": "0"` for llama.cpp on macOS. See
 
 This does **not** replace or filter the host environment. A box inherits it exactly as before.
 Scrollcase reports the resulting provenance through its CLI and Node/Python consumer APIs; see
-[Environment reports](/reference/api#environment-reports). Names must be non-empty and contain
+[Environment reports](/reference/api/node#environment-reports). Names must be non-empty and contain
 neither `=` nor NUL; values are strings and may be empty but cannot contain NUL.
 
 ## Execution intent
+
+### Why declare an execution
+
+A box is an environment plus files. Nothing in it says which of those files is *the* thing to start
+— so by default, whoever receives the box has to already know. `execution` is the box answering that
+question about itself, and the answer is **signed into the release** along with everything else.
+
+That is the whole difference. With it, `scrollcase run <release.json>` starts the box, and so does
+any of the three consumers, without the caller knowing what is inside or deciding what to launch.
+Without it, the caller extracts the box and drives it themselves.
+
+It is a trust property before it is a convenience one. Because the command line is fixed at build
+time and signed, nobody holding the box afterwards can change what it runs. A consumer that took a
+path from its own configuration would be running whatever that configuration said; a consumer
+reading a signed `execution` is running what the publisher built and proved.
+
+### Which kind to declare
+
+Each kind is a different way of naming the one thing to start, and each produces a shell-free command
+line. These are the real ones:
+
+| Kind | You declare | The command line becomes |
+| --- | --- | --- |
+| `python-script` | `script`, a file path inside the box | `venv/bin/python app/main.py --serve` |
+| `python-module` | `module`, a dotted importable name | `venv/bin/python -m example_model.main --serve` |
+| `node-script` | `script`, a file path inside the box | `venv/bin/node app.js` |
+| `native-binary` | `binary`, a file path inside the box | `bin/tool --quiet` |
+| *(omitted)* | nothing | there is none — the box is library-only |
+
+**Script or module** is a question about how your code got into the box, not about style. A file you
+shipped with [`localFiles`](#localfiles) sits at a path you chose, so name that path. A package that
+was *installed* by the dependency solve lands in `site-packages` under a directory whose name
+includes the interpreter version — a path you would not want to write down, and one that changes
+when the interpreter does. Name it as a module and the box's own import system finds it. The builder
+proves the module resolves by inspecting files, never by importing your application.
+
+**Library-only** — omitting `execution` — is not "the box does nothing". It is a box whose purpose is
+to be imported: your application prepares it with a consumer, then imports from the environment
+inside it and calls whatever it likes. Pick it when there is no single entry point that would mean
+anything, which is the normal case for a box that exists to provide a model and its dependencies to
+an application that already knows how to use them. `scrollcase run` refuses such a box by name,
+because there is nothing it could honestly start.
+
+A `native` box cannot be library-only, for a reason worth stating: its only self-test shape is an
+invocation of its own binary, so a native box with nothing to invoke could prove nothing about
+itself at build time.
+
+### The declarations
 
 `execution` records how a consumer may start the box:
 
@@ -392,9 +440,21 @@ Each kind is named `<runtime>-<shape>`, and the runtime half must be the one the
 refused rather than guessed at. `scrollcase new scroll` offers only the kinds the chosen runtime
 defines — see [the CLI reference](/reference/cli#new).
 
-Omit `execution` for a library-only box. A `native` box cannot be library-only: its only self-test
-shape is an invocation of its own binary, so a native box with nothing to invoke could prove nothing
-about itself.
+### Where the entry point comes from
+
+A file-naming execution has two possible origins, and `scrollcase new scroll` asks which:
+
+- **The environment provides it.** A package the dependency solve installs already puts the program
+  in the payload — conda-forge's `venv/bin/ffmpeg`, a console script the solve generated. The scroll
+  names that path and nothing of the project is copied in, so there is no `localFiles` entry. Pass
+  `--from-environment <payload path>` to say so without a terminal.
+- **The project provides it.** A script you wrote or a binary you compiled, living in your
+  repository. `--script <path>` records it in `localFiles`, and the build copies it into the box at
+  the payload path you chose. For a `python` or `node` box, `--generate-script` writes a starter
+  instead.
+
+The distinction matters most for `native`, where both are common: packaging an existing program and
+shipping one you built are different jobs, and only the second involves a file of yours.
 
 A `native-binary` must additionally be declared `executable: true` on the asset or local file that
 brings it in, unless it comes from the packed environment's own scripts directory. The executable
@@ -567,15 +627,44 @@ Every path inside the payload (`relativePath`, `destination`, `prunePaths`, `unc
 and drive letters are rejected.
 :::
 
-### `assetBaseUrl`
+### `publishBaseUrl`
 
-Base URL the built archive and its objects are published under. It is what the signed release and
-channel documents point at. Required unless passed per build with `--asset-base-url`.
+Base URL the built archive and its signed documents will be published under, so each can point at
+the next: the channel names the release document, and the release names the archive.
+
+It says nothing about the box's own assets — those carry a URL each — and nothing about what the box
+does when it runs. A box that transcodes video on your laptop touches no network and needs no URL
+anywhere.
+
+**Optional, and genuinely so.** A box you build to run where you built it is never published, so
+there is nowhere for its documents to point and no value here would be true. Omit it and the build
+simply leaves both links out:
+
+```jsonc
+// with a publish base URL
+"archive": { "format": "zip", "url": "https://boxes.example.org/…", "sha256": "…", "sizeBytes": 1234 }
+
+// without one
+"archive": { "format": "zip", "sha256": "…", "sizeBytes": 1234 }
+```
+
+**Nothing is lost but the address.** No guarantee depends on this URL: the archive is verified by
+`sha256` and size, the documents are signed, `box.json` still has to agree with the release, and
+`verify` passes either way. No Scrollcase consumer even reads it — all three find the archive beside
+its release document and identify it by hash. It exists for the distribution layer that has to fetch
+the bytes, and for nothing else.
+
+That is also why an absent URL beats an invented one. Since nothing checks it, a wrong address is a
+false statement inside a signed, immutable document, and it stays false forever. `new scroll` lets
+you press Enter past it for the same reason.
+
+Supply it later with [`edit scroll`](/reference/cli#edit-scroll), or per build with
+`--publish-base-url`.
 
 ## Self-test
 
-Builder checks run with the payload's **own interpreter** before the box is archived. Schema
-version 2 signs the import subset for a consumer to repeat; it does not carry the richer file or
+Builder checks run with the payload's **own runtime** before the box is archived. Schema
+version 3 signs the probe for a consumer to repeat; it does not carry the richer file or
 `code` assertions.
 
 ```jsonc

@@ -707,6 +707,17 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
         // A licence inventory added to the signed release after the box was built. It is signed,
         // so the signature still verifies; what refuses it is that box.json says something else,
         // which is the whole reason the inventory is compared field by field rather than carried.
+        // A box built without a publish base URL: it was never published, so its release names no
+        // address for the archive. Every consumer must prepare it exactly as it prepares any other, because
+        // the URL was never part of the trust chain — the archive is found beside the release document and
+        // identified by its sha256.
+        "strip-release-archive-url" => {
+            fixture.release["archive"]
+                .as_object_mut()
+                .expect("archive is an object")
+                .remove("url");
+            fixture.sign();
+        }
         "alter-release-bundled-licenses" => {
             fixture.release["bundledLicenses"] = json!([{"name": "zlib", "version": "1.3.1", "declaredLicense": "Zlib", "linkedInto": ["box.json"]}]);
             fixture.sign();
@@ -1269,7 +1280,7 @@ fn the_shared_consumer_conformance_suite_passes() {
     let suite: Value = serde_json::from_str(SUITE).unwrap();
     let patterns = suite["errorPatterns"].as_object().unwrap();
     let cases = suite["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 85, "the suite changed size");
+    assert_eq!(cases.len(), 86, "the suite changed size");
 
     let mut failures: Vec<String> = Vec::new();
     let mut ran = 0usize;

@@ -278,7 +278,7 @@ export async function addAsset({
  * @param {{ boxId: string, target: string, sourcePath: string, to?: string | null,
  *   executable?: boolean }} options
  */
-export async function addFile({ boxId, target, sourcePath, to = null, executable = false }) {
+export async function addFile({ boxId, target, sourcePath, to = null, executable = false, pin = false }) {
   const source = safeRelativePath(sourcePath);
   const absolute = join(getWorkspace().root, ...source.split('/'));
   let details;
@@ -293,7 +293,16 @@ export async function addFile({ boxId, target, sourcePath, to = null, executable
   const relativePath = safeRelativePath(to ?? basename(source));
   // The source file's own mode is deliberately not read: it varies with the umask of whoever
   // checked the project out, and a build that copied it would not rebuild byte-identically.
-  const entry = { sourcePath: source, relativePath, ...(executable ? { executable: true } : {}) };
+  // Pinning is opt-in because most added files are about to be edited, and a hash recorded now would
+  // fail the next build. Reference data is the other case: a file the box answers from, where a
+  // changed byte should stop the build rather than ship a different answer under the same signature.
+  const sha256 = pin ? await sha256File(absolute) : null;
+  const entry = {
+    sourcePath: source,
+    relativePath,
+    ...(executable ? { executable: true } : {}),
+    ...(sha256 ? { sha256 } : {}),
+  };
   const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
     ...scroll,
     localFiles: [...(scroll.localFiles ?? []), entry],
@@ -449,6 +458,64 @@ export async function removeSelfTestImport({ boxId, target, module }) {
   });
   if (removed === 0) fail(`${boxId} does not import ${module} in its self-test.`);
   return { written, module };
+}
+
+/**
+ * `add command` — records one invocation of the box's own execution as a self-test probe.
+ *
+ * The counterpart of `add import` for a runtime with no module system. A `native` box can only
+ * prove itself by running what it declares, so without this its probes could not be authored at
+ * all — the scroll had to be edited by hand, which is exactly what every other declaration here
+ * exists to avoid.
+ *
+ * Argument lists are compared as lists, so the same flags in a different order are a different
+ * probe. `new scroll` writes an empty one as a placeholder; adding a real probe replaces it, since
+ * "run it with no arguments" stops being a claim anyone made once a real one exists.
+ *
+ * @param {{ boxId: string, target: string, args: string[], expectExitCode?: number }} options
+ */
+export async function addSelfTestCommand({ boxId, target, args, expectExitCode = 0 }) {
+  if (!Array.isArray(args) || args.some((value) => typeof value !== 'string')) {
+    fail('A self-test command is a list of arguments.');
+  }
+  if (!Number.isInteger(expectExitCode) || expectExitCode < 0 || expectExitCode > 255) {
+    fail('--expect-exit-code must be a whole number between 0 and 255.');
+  }
+  const probe = { args: [...args], ...(expectExitCode === 0 ? {} : { expectExitCode }) };
+  const same = (candidate) =>
+    JSON.stringify(candidate.args ?? []) === JSON.stringify(probe.args)
+    && (candidate.expectExitCode ?? 0) === expectExitCode;
+  let added = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const commands = scroll.selfTest?.commands ?? [];
+    if (commands.some(same)) return null;
+    added += 1;
+    // The placeholder `new scroll` leaves behind: an empty argument list, asserting only that the
+    // box starts. A real probe supersedes it rather than sitting beside it.
+    const kept = commands.filter((candidate) => (candidate.args ?? []).length > 0);
+    return { ...scroll, selfTest: { ...scroll.selfTest, commands: [...kept, probe] } };
+  });
+  if (added === 0) fail(`${boxId} already runs that self-test command.`);
+  return { written, probe };
+}
+
+/**
+ * `remove command` — drops one self-test probe, matched on its exact argument list.
+ *
+ * @param {{ boxId: string, target: string, args: string[] }} options
+ */
+export async function removeSelfTestCommand({ boxId, target, args }) {
+  const wanted = JSON.stringify(args);
+  let removed = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const commands = scroll.selfTest?.commands ?? [];
+    const kept = commands.filter((candidate) => JSON.stringify(candidate.args ?? []) !== wanted);
+    if (kept.length === commands.length) return null;
+    removed += 1;
+    return { ...scroll, selfTest: { ...scroll.selfTest, commands: kept } };
+  });
+  if (removed === 0) fail(`${boxId} does not run that self-test command.`);
+  return { written, args };
 }
 
 /**

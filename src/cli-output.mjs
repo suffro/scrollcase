@@ -71,11 +71,17 @@ export function statusLine(kind, message, {
  */
 export function promptHeading(title, {
   hint = null,
+  docs = null,
   stream = process.stdout,
   env = process.env,
 } = {}) {
   const heading = paint(hint ? title : asLead(title), promptStyles.title, stream, env);
-  return hint ? `\n${heading}\n${asLead(hint)}\n` : `\n${heading}\n`;
+  const lines = hint ? `\n${heading}\n${asLead(hint)}\n` : `\n${heading}\n`;
+  // Its own line, below the lead-in, and muted. A URL inside the explanation would sit between the
+  // reader and the answer they are being asked for, and the lead-in ends in the colon the answer
+  // replies to — there is nowhere in it for a link to go. Bright black is the same weight as the
+  // answer marker: present for whoever wants it, invisible to whoever already knows the field.
+  return docs ? `${lines}${paint(`  ${styles.step.symbol} ${docs}`, promptStyles.marker, stream, env)}\n` : lines;
 }
 
 /** The soft marker an answer is typed after, so the answer reads as the reply to the line above. */
@@ -97,9 +103,18 @@ export function commandTip(command, placeholder, {
     + `${paint(placeholder, tipStyles.placeholder, stream, env)}`;
 }
 
-/** Builds the concise, relative distribution instruction printed after a successful build. */
-export function buildDistributionSummary({ archivePath, channelPath }, distDir) {
+/**
+ * The concise, relative closing line printed after a successful build.
+ *
+ * Two wordings, because there are two outcomes. A box built with a publish location has documents
+ * that point at each other and is ready to upload. One built without has neither, and telling its
+ * author to "distribute" it would send them to publish files whose URLs are missing — the build
+ * already said so above, and this line must not contradict it.
+ */
+export function buildDistributionSummary({ archivePath, channelPath, published }, distDir) {
   const displayPath = (path) => relative(distDir, path).split(sep).join('/');
-  return `Build complete — you can distribute the 2 files under ${displayPath(dirname(archivePath))}/ `
-    + `and ${displayPath(channelPath)}`;
+  const files = `${displayPath(dirname(archivePath))}/ and ${displayPath(channelPath)}`;
+  return published
+    ? `Build complete — you can distribute the 2 files under ${files}`
+    : `Build complete — the box and its documents are under ${files}`;
 }

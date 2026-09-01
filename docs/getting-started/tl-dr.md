@@ -15,6 +15,10 @@ define and lock dependencies
 build the box
 ```
 
+A scroll names one **target** — the machine the box is for — and one **runtime**, which is what
+starts inside it: `python`, `node`, or `native`, which runs a compiled binary and carries no
+interpreter. The three steps above are the same whichever you pick.
+
 ```mermaid
 flowchart TB
     subgraph Dev ["1. Developer Workspace"]
@@ -50,7 +54,7 @@ flowchart TB
 ## Initial setup
 
 1. run `npm install -g scrollcase` to install the [CLI](/reference/cli)
-2. run `scrollcase init` to create the workspace and runnable native example
+2. run `scrollcase init` to create the workspace and a runnable example for your own machine
 3. optionally run `scrollcase new scroll` for real project metadata
 4. review the selected [scroll](/reference/scroll)
 5. define the **dependencies** with `scrollcase add dep <box> <name>`, and declare the model files
@@ -61,7 +65,7 @@ flowchart TB
 
 ## Normal update
 
-1. update code, version, weights, or dependencies
+1. update code, version, model files, or dependencies
 2. re-run `scrollcase lock <boxId>/<targetId>` only when required
 3. run `scrollcase build <boxId>/<targetId>`
 
@@ -102,7 +106,7 @@ Conceptually, Scrollcase is therefore fairly linear: the developer declares the 
 
 ## What Scrollcase simplifies
 
-Scrollcase removes much of the repetitive work required to turn a Python environment into a distributable product.
+Scrollcase removes much of the repetitive work required to turn an environment — Python, Node, or a compiled binary with no interpreter at all — into a distributable product.
 
 Without a tool like this, the developer would have to manage:
 

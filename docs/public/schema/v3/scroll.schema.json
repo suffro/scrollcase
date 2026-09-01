@@ -127,10 +127,13 @@
         "pattern": "^[^\\u0000]*$"
       }
     },
-    "assetBaseUrl": {
+    "publishBaseUrl": {
       "type": "string",
       "minLength": 1,
-      "description": "Base URL of the mirror the built archive and its objects are published under."
+      "description": "Base URL the built archive and its signed documents will be published under, so each can point at the next: the channel names the release document, and the release names the archive. It says nothing about the box's own assets \u2014 those carry a URL each \u2014 and nothing about what the box does at run time.\n\nOptional, and genuinely so. A box you build to run locally is never published, so there is nowhere for these documents to point and no value here would be true; the build omits both links rather than inventing an address. Nothing verifies this URL and no Scrollcase consumer reads one: an archive is found beside its release document and identified by its SHA-256.",
+      "examples": [
+        "https://boxes.example.org"
+      ]
     },
     "assets": {
       "type": "array",

@@ -245,6 +245,16 @@ def _mutate_fixture(
         fixture.release["environment"] = {"SCROLLCASE_CHANGED_AFTER_BUILD": "1"}
         fixture.sign()
         return
+    if mutation == "strip-release-archive-url":
+        # A box built without a publish base URL: it was never published, so its release names no
+        # address for the archive. Every consumer must prepare it exactly as it prepares any other, because
+        # the URL was never part of the trust chain — the archive is found beside the release document and
+        # identified by its sha256.
+        archive = dict(fixture.release["archive"])
+        archive.pop("url", None)
+        fixture.release["archive"] = archive
+        fixture.sign()
+        return
     if mutation == "alter-release-bundled-licenses":
         # A licence inventory added to the signed release after the box was built. It is signed, so
         # the signature still verifies; what refuses it is that box.json says something else, which

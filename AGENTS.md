@@ -12,9 +12,10 @@ Before planning a multi-step or expensive task, and before delegating to subagen
 ## Project context
 
 **Scrollcase** turns a declarative **scroll** into a **box**: a portable, locked, self-contained
-Python environment for one operating system and accelerator, packed so it runs somewhere other than
+environment for one operating system and accelerator, packed so it runs somewhere other than
 where it was built, signed so a consumer can prove what they received, and accompanied by a
-dependency licence inventory.
+dependency licence inventory. What runs inside is the box's **runtime** — `python`, `node`, or
+`native`, which starts a compiled binary and carries no interpreter at all.
 
 The substrate is **pixi + conda-pack + conda-forge**, and only that. `pixi` solves a committed
 `pixi.lock`, `conda-pack` relocates the resulting prefix, and the tree is extracted into the box's

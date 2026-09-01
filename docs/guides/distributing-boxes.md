@@ -56,8 +56,9 @@ The chain is content-addressed end to end: **channel → release document (by it
 - **An object can never be replaced with different bytes under the same URL.** New bytes means a
   new hash means a new key. Serve `boxes/` as immutable and cache it aggressively.
 
-The URLs inside the signed documents are `<assetBaseUrl>/<object key>`, so pointing
-`assetBaseUrl` at wherever you serve `dist/boxes/` from is all the coordination needed.
+The URLs inside the signed documents are `<publishBaseUrl>/<object key>`, so pointing
+`publishBaseUrl` at wherever you serve `dist/boxes/` from is all the coordination needed. A box
+built without one carries no such URLs at all — see [the scroll reference](/reference/scroll#publishbaseurl).
 
 ## Publishing
 

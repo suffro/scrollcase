@@ -56,7 +56,11 @@ describe('setting a project up', () => {
     expect(lines.length).toBeLessThan(50);
     expect(lines[0]).toBe('[Scrollcase documentation](https://scrollcase.dev/)');
     expect(lines.at(-1)).toBe('[Scrollcase documentation](https://scrollcase.dev/)');
-    expect(guide.match(/https:\/\/scrollcase\.dev\//g)).toHaveLength(8);
+    // Nine, not eight: the runtime reference joined them. A workspace holds many boxes and each
+    // picks its own runtime, which nothing else in this file said — and the guide is the only
+    // documentation a scaffolded project starts with.
+    expect(guide.match(/https:\/\/scrollcase\.dev\//g)).toHaveLength(9);
+    expect(guide).toContain('https://scrollcase.dev/reference/scroll#choosing-a-runtime');
     expect(guide).toContain('https://scrollcase.dev/reference/scroll');
     expect(guide).toContain('https://scrollcase.dev/reference/box-format');
     expect(guide).toContain('https://scrollcase.dev/reference/box-format#targets');

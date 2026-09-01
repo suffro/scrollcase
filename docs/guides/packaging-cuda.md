@@ -43,7 +43,7 @@ only CUDA ABI the contract accepts.
   },
   "runtime": { "id": "python", "version": "3.14" },
   "pixiVersion": "0.73.0",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://boxes.example.org",
   "selfTest": {
     "imports": ["torch"],
     "script": "scrolls/my-model/linux-x86_64-cuda12.4/self_test.py"

@@ -51,8 +51,8 @@ declares, and embeds them. Most of the archive is that one file.
 **The whole model is one asset.** A GGUF holds the weights, the tokenizer *and* the chat template in
 a single container, so this scroll declares one file where `sentiment-demo` declares three — and
 there is no tokenizer that can drift out of step with the weights it belongs to. It is pinned to an
-immutable upstream revision with its size and SHA-256, and `weights: embed` puts it in the archive,
-so the box installs and runs air-gapped.
+immutable upstream revision with its size and SHA-256, and it carries no `embed: false`, so the
+default applies and the file is packed into the archive — the box installs and runs air-gapped.
 
 **The environment declares no offline flag.** `sentiment-demo` sets
 `HF_HUB_OFFLINE=1` and two siblings because its stack really does contain a Hugging Face client.
@@ -79,7 +79,7 @@ it would win over the value the person debugging supplies, and weld the switch s
 
 **The self-test has to generate, not just import.** `selfTest.imports` is the part the signed
 release carries, which is why `verify --self-test` can repeat it later with the box's own
-interpreter. `files` and `pythonFile` stay builder-only: `shared/self_test.py` loads the gigabyte and
+interpreter. `files` and `script` stay builder-only: `shared/self_test.py` loads the gigabyte and
 asserts that the answer to *What is the capital of Italy?* contains `rome`, so a box that cannot
 generate is never signed. It asserts a substring rather than a sentence — greedy decoding is
 reproducible, but a llama.cpp point release may reword prose without anything being wrong.

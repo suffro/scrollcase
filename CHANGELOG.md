@@ -6,6 +6,18 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed — the Python package declares `referencing`
+
+- `scrollcase_consumer` imports `referencing` directly, to build the schema `Registry` that resolves
+  the `$ref`s between the bundled canonical schemas, but declared only `cryptography` and
+  `jsonschema`. It worked because `jsonschema` depends on `referencing` itself — that is, the package
+  was relying on another project's dependency list staying what it is today. It is now a declared
+  dependency at the floor `jsonschema` already requires, `>=0.28.4,<1`, so nothing new is installed;
+  what was already installed and already imported is simply named. Reported in review of the
+  conda-forge submission, where the declared run requirements are what the solver builds an
+  environment from. `tests/test_dependencies.py` now walks the shipped source and fails on any
+  third-party import the package does not declare.
+
 ### Added — the `node` and `native` runtimes
 
 - **A box can run Node, or run nothing at all.** `runtime.id: "node"` packs `nodejs` from
@@ -40,7 +52,25 @@ All notable changes to Scrollcase are documented here. The format follows
   native example built here failed on conda-forge's own `ncurses`, which carries an unrewritten
   build-machine path to `libtinfo`.
 
-- **`examples/node-box` and `examples/native-box`**, both built, verified and run for real.
+- **`examples/hello-box-node` and `examples/hello-box-native`**, both built, verified and run for real.
+
+### Changed — publishing is optional, and the field says so
+
+- **`assetBaseUrl` becomes `publishBaseUrl`; `--asset-base-url` becomes `--publish-base-url`.** The
+  old name said "asset" and meant nothing of the kind: a scroll's assets carry a URL each, and this
+  value was only ever used to build two links — the release naming the archive, and the channel
+  naming the release. It is about publishing, so it says publishing.
+
+- **A box no longer needs a URL at all.** `archive.url` and a channel entry's `releaseManifestUrl`
+  are now optional, and a build given no publish location simply omits both instead of refusing.
+  That refusal forced every author who only wanted to run a box on their own machine to invent an
+  address — while Scrollcase declined to invent one itself, on the grounds that a placeholder in a
+  signed release is a false statement. Both cannot be right.
+
+  Nothing is lost but the address. No guarantee ever rested on that URL: an archive is verified by
+  `sha256` and size, and all three consumers find it beside its release document rather than by
+  following a link. A `strip-release-archive-url` conformance case now pins that in every language.
+  What an unpublished box gives up is the chain a downloader follows — which it has no use for.
 
 ### Changed — the version 3 box format
 
@@ -148,6 +178,327 @@ dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll
   message share one `unsupportedSchemaVersionMessage()` in `src/contract/document-shape.mjs`. The
   wording is unchanged; the next format version now has one sentence to edit per language rather
   than four.
+
+### Added — `codon-demo`, and the two smoke tests renamed
+
+- **`examples/codon-demo` is a `node` box doing real work**: it ships the standard genetic code and
+  the tool that queries it, so the recipient needs neither Node, nor npm, nor a database. `run` with
+  no arguments prints what the box carries, `run -- ATG` answers forward, `run -- Leucine` answers
+  backwards, and an unknown term exits 1. Built, verified, run and rebuilt byte-identically on
+  macOS; wired into `example-build.yml` beside the other two.
+
+  It exists because the existing `node` and `native` examples prove a box *starts* and nothing more.
+  This one proves a box can carry data and be trusted to answer from it: `codons.csv` is pinned by
+  SHA-256 in `localFiles`, so appending one fabricated row is refused — `Local box file SHA-256
+  mismatch` — before anything is packed or signed.
+
+  Two constraints it documents by example. A `node` box cannot declare an npm dependency, because
+  Scrollcase solves from conda-forge and nothing else — the tool uses `node:sqlite`, which is part
+  of Node, and the JavaScript enters through `localFiles`. And it pins Node 26, because
+  `node:sqlite` needs a recent Node to work without a flag and `execution.defaultArgs` land *after*
+  the script path, so a box could not pass `--experimental-sqlite` even if it wanted to.
+
+- **`examples/transcode-demo` is a `native` box doing real work**: ffmpeg, pinned, with the 90
+  packages it links against, signed. 121 MB archived, 391 MB extracted — the honest cost of "just
+  install ffmpeg", made visible. Its self-test runs a real encode rather than a version check: a
+  test pattern synthesised through `lavfi`, encoded with `libx264` and discarded, so a box whose
+  codecs did not load fails the build. No sample media ships to make that possible.
+
+  Its third probe declares `expectExitCode: 254`, which is the point rather than a curiosity: ffmpeg
+  reports the negative C error number for a missing input, `ENOENT` is 2, and an exit status is one
+  byte. The value was measured against the built payload after the first build failed expecting 1 —
+  a self-test asserts the binary's real contract, not a convention.
+
+  It is also the example where the licence inventory earns its keep: 21 of the 90 packages are
+  GPL-family, including ffmpeg, `x264` and `x265` at GPL-2.0-or-later. Anyone redistributing the box
+  needs that before shipping, and `audit` derives it from the lock.
+
+- **`examples/dataset-demo` is the second `native` box**, and a different shape from the first: the
+  HDF5 command-line tools reading a dataset the box ships, rather than one large program driven by
+  flags. 36 MB. The case it answers is not "I cannot install this" but "we must all read this file
+  the same way" — a signed box fixes the reader, so a published inspection is a repeatable one. Its
+  `readings.h5` is pinned by hash and regenerable: the text it came from and the `h5import` config
+  ship beside it.
+
+  It was meant to be a bioinformatics tool, and conda-forge is why it is not. `samtools`, `bwa`,
+  `seqkit`, `minimap2`, `hmmer`, `diamond`, `blast`, `muscle` and `fasttree` are all on **bioconda**,
+  a second channel that an example has no business introducing.
+
+  `mafft`, the one that is on conda-forge, **fails as a `native` box** — and the failure is now
+  documented in `examples/README.md`, because it is the second instance of the limitation
+  `hello-box-native` exists to show. Its `venv/bin/mafft` is a shell wrapper carrying the path of
+  the machine that built the conda package, and its `MAFFT_BINARIES` override must be absolute,
+  which a box extracted to a fresh temporary directory cannot supply through a fixed signed
+  `environment`. The self-test caught it before anything was signed. The lesson added: check what a
+  program *is* before packing it — a wrapper script does not relocate, a compiled binary does.
+
+- **`node-box` and `native-box` are now `hello-box-node` and `hello-box-native`.** They are
+  `hello-box` in another runtime — smoke tests, not demos — and the old names claimed more.
+
+### Added — every question says where it is explained
+
+- **Each interactive prompt prints the documentation section that covers it**, on its own muted line
+  under the explanation: `new scroll`'s target, runtime, box id, upstream revision, asset base URL,
+  execution kind, script source and paths; `init`'s example, template, dependency, Python-source and
+  toolchain questions; and `build`'s channel. A prompt has room for one lead-in line, which is enough
+  to say what a field is and never enough to say why it exists — so it names the page that does.
+  `scrollcase help` ends with the site itself.
+
+- The links live in one module, `src/cli-docs.mjs`, and **every one of them is asserted against the
+  pages in this repository**: the route must be a real file and the fragment a real heading on it.
+  A dead link in a browser shows a 404; a dead link in a terminal shows nothing, because whoever
+  followed it is somewhere else by the time it fails.
+
+### Added — `add command` and `add file --pin`
+
+- **`scrollcase add command <box> -- <arguments>`** records one invocation of the box's own execution
+  as a self-test probe, with `--expect-exit-code` for a probe that must fail. It is the counterpart
+  of `add import` for a runtime with no module system: a `native` box can only prove itself by
+  running what it declares, and until now that probe could not be authored at all — the scroll had
+  to be edited by hand. `remove command <box> -- <arguments>` is its inverse.
+
+  The arguments come after `--` rather than as a quoted list, because they *are* a command line and
+  the parser already preserves everything past that boundary byte for byte. It is also the only
+  shape that survives arguments of their own: `-version` would otherwise be read as Scrollcase's.
+
+  The first real probe replaces the empty placeholder `new scroll` writes — "run it with no
+  arguments" stops being a claim anyone made once a real one exists.
+
+- **`scrollcase add file <box> <path> --pin`** records the file's SHA-256, so a changed byte fails
+  the build instead of shipping different data under the same signature. Opt-in, because most added
+  files are about to be edited and a hash recorded then would fail the very next build; reference
+  data the box answers from is the case that wants it.
+
+  Together these remove the last hand edits from the end-to-end demo walkthroughs, which are
+  published as their own `scrollcase-e2e-demo-*` repositories: none of them now asks a reader to
+  open `scroll.json`.
+
+### Changed — `--default-args` takes one argument as itself
+
+- **`--default-args -hide_banner` now works**, alongside the JSON array for several
+  (`--default-args '["-a", "-b"]'`). Quoting a one-element JSON array to pass one flag was a tax on
+  the common case, and it read as noise in a walkthrough. A value opening with `[` is still held to
+  being a valid JSON array of strings rather than falling back to a literal, because a malformed
+  array silently becoming one argument that looks almost right is the worse failure.
+
+  The quotes around the array are the shell's, not Scrollcase's: `[...]` unquoted is a glob pattern
+  and never reaches the process.
+
+### Added — the version 2 documentation stays readable at `/v2/`
+
+- **`docs/v2/` carries the version 2 documentation as it was published.** Thirty-four pages copied
+  from the last version 2 commit, plus an index that says what they are. The site's own pages were
+  rewritten for version 3, so without this the only account of what a version 2 box's documents mean
+  disappeared with the rewrite — while the boxes themselves stay in the field, and the schemas
+  describing them stay served at `/schema/v2/`.
+
+- **Every internal link in the copies was moved under the prefix**, including the three written as
+  full `https://scrollcase.dev/…` URLs, which would otherwise have walked a reader out of the version
+  they were reading without the dead-link check ever seeing it. Links to `/schema/v2/` were left
+  alone: those still resolve, and they are the point.
+
+- **Every page under `/v2/` carries a standing deprecation notice**, above the content rather than
+  floating in a corner. The reader it exists for did not come through the landing page: they arrived
+  from a search result or an old link, onto a mid-level page they have no reason to doubt. The
+  navbar switch is too quiet to catch them, and a floating badge lives in the corner people learned
+  to ignore when it held cookie banners — so the notice sits where reaching the first heading means
+  passing it. It links to the same page in the current version, falling back to the landing page
+  and saying so where version 3 has no counterpart. Not dismissible: the whole point is preventing
+  one mistake, and a dismiss button removes the warning on exactly the page where it was working.
+
+  It is one component registered in the theme, not a block written into thirty-five files: it cannot
+  be forgotten on a page added later, and the copied pages stay byte-identical to what version 2
+  published.
+
+- **Their Markdown twins say it too**, since that banner is a Vue component and never reaches the
+  generated `.md` files — leaving the audience most likely to read a superseded manual as current as
+  the only one told nothing. Each deprecated twin now opens with a `> **DEPRECATED.**` paragraph and
+  carries `deprecated: true` in its frontmatter: said twice because a consumer that parses
+  frontmatter can act on the field, and everything else reads the prose. Both name the URL that
+  supersedes the page — `current:` is emitted **only** where version 3 really has that page, since a
+  field naming the home page reads to a machine as "your replacement is here", a claim it cannot
+  check and would be wrong to act on. Where there is none, the prose says where the current
+  documentation starts instead.
+
+  Both also carry `schema-version: 2` and `current-schema-version: 3`, which is the fact a consumer
+  can actually act on: it holds a box whose documents carry `schemaVersion`, and comparing that
+  number is how it works out which of the two manuals describes what it has. Integers, not `v2`
+  strings, because that is how the format spells them — `"schemaVersion": 2` in every document
+  version 2 ever signed — and a reader comparing this against a box in hand should not have to strip
+  a prefix off one side first. The current number is read from `package.json`, and
+  `verify-built-docs.mjs` fails if a twin disagrees with it: the day schema version 4 ships, a
+  `current-schema-version: 3` left behind is a lie told to every machine that reads it, and nothing
+  else in the build would notice.
+
+- **`/v2/` is served `X-Robots-Tag: noindex, follow`.** Being absent from `sitemap.xml` was never
+  enough: the version switch links each deprecated page from its current counterpart, and internal
+  links are how most pages get crawled in the first place. So the whole archive would have been
+  indexed and would have competed for the same queries, with the obsolete page often winning on age.
+  `follow`, because the links inside are worth following — not least the one back out.
+
+  Set in `functions/_middleware.js` rather than as a `<meta>` tag, because the Markdown twins are
+  indexable files too and no meta tag reaches them. It is the one place that covers both
+  representations. Not `Disallow: /v2/` in robots.txt: that blocks the crawl rather than the index,
+  so the URLs can still surface bare while the crawler is prevented from ever reading the very
+  notice telling it not to index them. And the pages keep their self-canonical — pointing it at the
+  version 3 page would claim these are the same document, when the whole point is that they are not.
+
+- **The same responses carry `Link: <…/v2/>; rel="deprecation"`** (RFC 9745), pointing at the page
+  that explains the deprecation. Deliberately not `successor-version`: which page supersedes this
+  one differs per URL, and a header that guessed would send readers to pages that do not exist. That
+  answer is already per page, in the twin's `current:` field and the page's own banner. No `Sunset`
+  either — that promises when a resource stops being served, and these stay readable for as long as
+  there are version 2 boxes in the field.
+
+  The `Deprecation` field itself is **not** emitted yet. It is a Date and nothing else, and the
+  release that makes version 3 current has not shipped, so there is no date that is a fact rather
+  than a guess. `DEPRECATED_SINCE` is the one line to set when it does; a test asserts the field
+  appears once it is, and stays absent while it is not.
+
+- **`llms.txt` stops hard-coding the schema version too.** Its header line and its schema links both
+  had `3` typed into `llms.mjs`. Same defect as the site footer, which said `2` for the whole of the
+  version 3 work; both now come from `package.json`.
+
+- **The route mapping is now one module** (`versions.mjs`), used by the sitemap filter, the llms
+  files, the switch and the notice. It resolves a candidate to the spelling the build serves rather
+  than answering yes or no, which is what found the bug below.
+
+### Fixed — the version switch stranded readers of the API reference
+
+- **`/v2/reference/api` offered the home page instead of `/reference/api/`.** Version 3 turned that
+  single page into a section, so its route grew a trailing slash, and the switch was asking whether
+  the exact string `/reference/api` existed. It did not, so the fallback fired and a reader looking
+  for the current API reference was dropped on the landing page. The generated twin, computing the
+  same answer from a route table that normalises the slash away, advertised `/reference/api` — so
+  the two halves disagreed about the same page. Found by the check on the twins, not by reading.
+
+- **The deprecated set has its own sidebar**, so navigation inside it stays inside it, and a
+  **`v3` / `v2` switch in the navbar** moves between the two. The switch is a theme component rather
+  than a nav entry because both versions ship in one build: which one you are reading is a property
+  of the route, so a fixed label would be wrong on half the pages. It keeps your place where it can —
+  `/v2/reference/cli` switches to `/reference/cli` — and falls back to the other version's landing
+  page where the page does not exist, which it sometimes does not: version 3 split the API reference
+  into a section and renamed the weights guide. It is in the mobile navbar too, since a control that
+  vanishes below 768px is how a reader gets stranded in the deprecated documentation.
+
+- **`/v2/` is declared as a VitePress locale**, which is what gives it its own navbar menu, its own
+  sidebar, and — the part worth the mechanism — **its own search index**. Nothing is translated;
+  both locales are `lang: 'en'`. A locale is simply the one thing VitePress has that scopes all
+  three to a path prefix.
+
+  Without it the navbar was the leak: the sidebar was already prefixed, but `Reference` in the top
+  menu still went to the current version, changing the version under a reader without saying so.
+  Search was the same leak in a worse place — `VPLocalSearchBox` loads `searchIndexData[localeIndex]`,
+  so with one locale a search made from a deprecated page answered with current-version pages.
+  It now searches version 2 and finds version 2. The theme's own locale dropdown is hidden: the
+  version switch is the control for this, and unlike the dropdown it checks that the other version
+  has the page before offering to go there.
+
+- **`verify-built-docs.mjs` checks the switch and the menu**, on every built page rather than on the
+  sitemap's. Both are generated per page — the switch from the route, the menu from the locale — so
+  neither is written down where VitePress's dead-link pass could read it, and both fail silently:
+  a switch link to a route the build never emitted looks entirely normal and 404s only for whoever
+  used it, and a menu from the wrong locale renders perfectly while walking the reader into the
+  other version. The menu half was itself written against the wrong attribute order first, passed
+  against markup it had never matched, and now fails when it finds no menu to read.
+
+- **It is deliberately absent from `sitemap.xml`, `llms.txt` and `llms-full.txt`.** A sitemap is a
+  submission rather than an inventory, and two documentation sets describing incompatible formats
+  would compete for the same queries with the obsolete one often winning on age; the two llms files
+  exist to say what Scrollcase is *now*, and a second contradictory manual makes them worse than not
+  existing. The pages stay served, linkable and indexable — they are simply not put forward. They
+  keep their Markdown twins, because `functions/_middleware.js` advertises one for every page and an
+  advertised 404 is worse than no offer.
+
+### Fixed — the version 2 schema URLs resolve again
+
+- **`docs/public/schema/v2/` is served again.** Rewriting the documentation for version 3 removed it,
+  but every scroll, release and box already in the field carries
+  `"$schema": "https://scrollcase.dev/schema/v2/…"` — the `$id` those documents were published with.
+  Dropping the directory turned each of those URLs into a 404, breaking editor validation for anyone
+  holding a version 2 scroll and any tooling that dereferences `$schema`.
+
+  Published v1 and v2 are immutable, which is a promise about the artefacts as much as the format:
+  a v2 box is refused by a v3 verifier *by name*, and its schema stays readable. The eight files are
+  restored verbatim from `v0.12.0` and are frozen — nothing generates or checks them, because there
+  is nothing left to keep them in step with.
+
+  The `/.well-known/api-catalog` still lists version 3 only. A catalogue is read by software
+  choosing what to use, and version 2 is not a choice anyone should make now.
+
+### Fixed — `init` no longer goes quiet about the toolchain
+
+- **When pixi and conda-pack are already installed, `init` says so.** It looks for them on every run
+  and asks only when one is missing, so on a machine that had both, the question a reader had been
+  told to expect never appeared and nothing explained why — silence indistinguishable from never
+  having looked. Every other outcome reported; this one now does too.
+
+- **It also names a newer pixi when there is one**, with a terminal and unless
+  `--no-install-toolchain` was passed. Not general news: `new scroll` records the pixi it finds and
+  `build` refuses any other version for that scroll, so being behind decides what every scroll
+  written next pins. The lookup is advisory and best-effort — an offline machine or the public API's
+  rate limit simply produces no line.
+
+- The four outcomes moved out of `cli.mjs` into `toolchainReportLines` so they can be asserted
+  without a host that happens to have the tools installed, which is why the silent one went
+  unnoticed.
+
+### Added — a `native` box can name a binary the environment provides
+
+- **`new scroll` asks a `native` box where its binary comes from**, and `--from-environment <payload
+  path>` answers it without a terminal. A program the dependency solve installs — conda-forge's
+  `venv/bin/ffmpeg`, a generated console script — is named where it lands, and nothing of the project
+  is copied in, so no `localFiles` entry appears.
+
+  This shape was always in the format: every `native` example in this repository uses it. It was not
+  in the authoring surface, which assumed a file-naming execution always pointed at a project file to
+  stage — so writing one meant editing `scroll.json` by hand, and `edit scroll` does not accept
+  `execution.binary` either. Both `native` end-to-end demo walkthroughs carried that hand-edit as a
+  step until this closed it.
+
+  The menu offers the environment first: it is the common case for `native`, and the only one that
+  works before anything has been compiled.
+
+### Changed — `new scroll` asks better questions
+
+- **The execution-kind menu explains the kinds it is actually offering.** The line above it was one
+  fixed sentence for every runtime, so a `node` author was told they could pick "an importable
+  module" — a Python idea that has never been on their menu. It is now assembled from the kinds the
+  chosen runtime defines. And a runtime with a single authored kind is no longer asked at all:
+  `native` defines only `native-binary`, and a menu of one reads as though an option were missing.
+
+- **The generated starter is the preselected script source**, ahead of pointing at an existing file.
+  It is the answer that works with nothing else in place — a first scroll builds and runs
+  immediately, and the stub is a file to edit rather than a file to go and find.
+
+- **A malformed box id is refused at the prompt that produced it**, naming the value and the shape it
+  needed. It used to be accepted, and then refused by schema validation after the revision, the URL
+  and the execution kind had all been answered, as `$.boxId does not match the required pattern` —
+  which named neither what was wrong nor what to type. The rule is read from the schema, so the early
+  check and the late one cannot disagree.
+
+- **`assetBaseUrl` is optional when authoring.** It is the one field a project often does not know on
+  its first day, the scroll schema never required it, and forcing an answer invited a placeholder URL
+  into a document whose whole value is that it is true. Press Enter to skip; supply it later with
+  `edit scroll`, or per build with `--asset-base-url`.
+
+### Fixed
+
+- **A build with no asset base URL is refused before it solves anything.** The URL is needed only
+  when the release document is written, which is after the environment solve, the self-test and the
+  archive — so a scroll that never named one paid for the entire build before being told. It is now
+  checked with the other early refusals.
+
+- **`llms.txt` lists the published JSON Schemas again.** The generator read them from
+  `schema/v2/`, a directory the site stopped emitting, and its `catch` turned the resulting
+  `ENOENT` into an empty list — so the schema section had been silently absent rather than wrong.
+  It reads `schema/v3/` now, and the eight schemas are back. The header also said "box format
+  schema version 2".
+
+- **Hard rule 1 — no consuming project's name anywhere in the tool — has the mechanical guard the
+  white paper already claimed it had.** `v3-migration.test.mjs` greps every tracked file and every
+  tracked path for it, alongside the retired product term it was already checking. The tree was
+  clean; nothing was keeping it that way.
 
 ## [0.12.0] — 2026-08-22
 

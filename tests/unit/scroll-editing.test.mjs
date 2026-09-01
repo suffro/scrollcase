@@ -19,6 +19,8 @@ import {
   ALL_TARGETS,
   addAsset,
   addFile,
+  addSelfTestCommand,
+  removeSelfTestCommand,
   addSelfTestImport,
   editableScrollFields,
   refreshScroll,
@@ -46,7 +48,7 @@ const SHARED = {
   sourceRevision: 'upstream-v1',
   runtime: { id: 'python', version: '3.14' },
   pixiVersion: '0.73.0',
-  assetBaseUrl: 'https://assets.example.org/boxes',
+  publishBaseUrl: 'https://assets.example.org/boxes',
   selfTest: { imports: ['json'] },
 };
 
@@ -280,7 +282,7 @@ describe('editing an existing scroll', () => {
     const names = (await editableScrollFields()).map(({ name }) => name);
 
     expect(names).toContain('version');
-    expect(names).toContain('assetBaseUrl');
+    expect(names).toContain('publishBaseUrl');
     for (const excluded of ['boxId', 'target', 'runtime', 'schemaVersion', 'extends', 'assets']) {
       expect(names, excluded).not.toContain(excluded);
     }
@@ -368,6 +370,67 @@ describe('editing an existing scroll', () => {
 
     expect(await chooseEditTarget({ boxId: 'example-model', terminal: false })).toBe(TARGET_ID);
   });
+
+  /**
+   * A `native` box's only probe shape is a command, so without these its self-test could not be
+   * authored at all — the scroll had to be edited by hand, which every other command here exists to
+   * avoid. `pin` closes the last hand edit: recording a hash used to mean opening the file.
+   */
+  it('authors a native self-test without touching the scroll by hand', async () => {
+    const { boxDir } = await splitBox({
+      base: {
+        ...SHARED,
+        runtime: { id: 'native' },
+        execution: { kind: 'native-binary', binary: 'venv/bin/ffmpeg', defaultArgs: [] },
+        selfTest: { commands: [{ args: [] }] },
+      },
+    });
+    const read = async () => JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
+
+    await addSelfTestCommand({ boxId: 'example-model', target: ALL_TARGETS, args: ['-version'] });
+    await addSelfTestCommand({
+      boxId: 'example-model', target: ALL_TARGETS, args: ['-i', 'missing.mp4'], expectExitCode: 254,
+    });
+
+    // The placeholder `new scroll` leaves — "run it with no arguments" — stops being a claim anyone
+    // made once a real probe exists, so it is replaced rather than kept beside them.
+    expect((await read()).selfTest.commands).toEqual([
+      { args: ['-version'] },
+      { args: ['-i', 'missing.mp4'], expectExitCode: 254 },
+    ]);
+
+    await expect(addSelfTestCommand({
+      boxId: 'example-model', target: ALL_TARGETS, args: ['-version'],
+    })).rejects.toThrow(/already runs that self-test command/);
+    await expect(addSelfTestCommand({
+      boxId: 'example-model', target: ALL_TARGETS, args: ['-x'], expectExitCode: 999,
+    })).rejects.toThrow(/between 0 and 255/);
+
+    await removeSelfTestCommand({ boxId: 'example-model', target: ALL_TARGETS, args: ['-version'] });
+    expect((await read()).selfTest.commands).toEqual([
+      { args: ['-i', 'missing.mp4'], expectExitCode: 254 },
+    ]);
+    await expect(removeSelfTestCommand({
+      boxId: 'example-model', target: ALL_TARGETS, args: ['-nope'],
+    })).rejects.toThrow(/does not run that self-test command/);
+  });
+
+  it('records a file hash only when asked to pin it', async () => {
+    const { root, boxDir } = await splitBox();
+    await writeFile(join(root, 'data.csv'), 'a,b\n1,2\n');
+    const read = async () => JSON.parse(await readFile(join(boxDir, 'scroll.json'), 'utf8'));
+
+    await addFile({ boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'data.csv' });
+    expect((await read()).localFiles.at(-1).sha256).toBeUndefined();
+
+    await addFile({
+      boxId: 'example-model', target: ALL_TARGETS, sourcePath: 'data.csv', to: 'pinned.csv', pin: true,
+    });
+    // Opt-in on purpose: most added files are about to be edited, and a hash recorded then would
+    // fail the very next build. Reference data is the case that wants it.
+    expect((await read()).localFiles.at(-1).sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
 });
 
 describe('a box pixi manifest', () => {

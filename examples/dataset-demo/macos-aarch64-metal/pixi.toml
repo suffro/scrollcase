@@ -1,0 +1,16 @@
+# A second `native` box, and a different kind of program from `transcode-demo`.
+#
+# The HDF5 command-line tools: small compiled binaries that read the format most scientific
+# instrument data and model weights are stored in. The case this answers is not "I cannot install
+# it" but "we must all read this file the same way" — a signed box fixes the reader, so an
+# inspection somebody publishes is one anybody can repeat byte for byte.
+#
+# conda-forge, like every other example. Most bioinformatics tooling lives on bioconda instead, and
+# an example reaching for a second channel would demonstrate something this project does not claim.
+[workspace]
+name = "dataset-demo"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+hdf5 = "2.*"

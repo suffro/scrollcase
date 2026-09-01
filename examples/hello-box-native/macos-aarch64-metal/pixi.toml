@@ -5,7 +5,7 @@
 # was linked against, and conda-forge's `ncurses` carries an unrewritten build-machine path to
 # `libtinfo` that no relocation step here fixes. See the native runtime's stated limitation.
 [workspace]
-name = "native-box"
+name = "hello-box-native"
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 

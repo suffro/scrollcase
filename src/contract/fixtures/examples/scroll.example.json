@@ -26,7 +26,7 @@
     "entryPoint": "venv/bin/python"
   },
   "cacheSubdir": "cache/example-model",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://assets.example.org/boxes",
   "assets": [
     {
       "url": "https://assets.example.org/example-model/weights.safetensors",

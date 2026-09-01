@@ -119,4 +119,4 @@ them side by side so `verify`, `run`, or a consumer API can resolve the archive 
 - `doctor` and `audit` are intentionally outside this short demo; see the complete
   [Quickstart](/getting-started/quickstart) and [CLI reference](/reference/cli).
 - To run the result from an application, start with the generated templates and the
-  [Library APIs reference](/reference/api).
+  [Library APIs reference](/reference/api/).

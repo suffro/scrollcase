@@ -1,0 +1,239 @@
+---
+title: Distributing Boxes
+description: What a build hands you, how it is laid out, and where Scrollcase deliberately stops.
+---
+
+# Distributing Boxes
+
+Scrollcase stops at a signed, verified box on disk. Uploading it, serving a registry, promoting a
+channel, revoking a release — all of that belongs to whoever consumes Scrollcase. This page
+explains what the build hands you, why it is shaped that way, and how to build distribution on
+top of it without fighting the format.
+
+::: info Why the boundary
+A packaging tool that also serves a registry has to keep proving both sets of guarantees; one
+that stops at a file on disk composes with any distribution mechanism you already have. Every one
+of these features was left out deliberately, not overlooked. The reasoning is recorded in [Design Decisions](/v2/concepts/design-decisions).
+:::
+
+## What a build produces
+
+```text
+.scrollcase/dist/
+├── boxes/my-model/1.0.0/macos-aarch64-metal/
+│   ├── 7d2c9a41e8b350f6c174a9de20358bf41c6e97d05a8b3f2619e4c7081da5b3f2.zip
+│   └── 4e81f0c93ab27d5e6081cf24b9a7d3e05f18c6b24a90d7e3518fc0a29b46d7e1.release.json
+└── channels/my-model/beta/macos-aarch64-metal.json
+```
+
+Two directories, because there are exactly two things to do with a build. **`boxes/` is uploaded
+verbatim**: it is laid out as the bucket already is, under the same keys the signed documents point
+to, so publishing is a copy rather than a mapping. **`channels/` is separate** because a channel
+belongs to a box rather than to any one version — the next release moves the pointer instead of
+adding a second one beside it, which is why filing it under `1.0.0/` would leave a stale copy
+claiming to be current.
+
+Nothing is written twice. What is on disk is what gets published, under the name it is published
+under.
+
+## Content addressing
+
+Names derive from identity alone, so the archive, its release document and the staged objects
+agree without any of them recording the others' paths:
+
+| Thing | Name |
+| --- | --- |
+| Object prefix | `boxes/<boxId>/<version>/<targetId>` |
+| Archive object | `<prefix>/<archive sha256>.zip` |
+| Release object | `<prefix>/<release document sha256>.release.json` |
+| Channel pointer | `channels/<boxId>/<channel>/<targetId>.json` |
+
+The chain is content-addressed end to end: **channel → release document (by its hash) → archive
+(by its hash)**. Two consequences worth designing around:
+
+- **Publishing is idempotent.** Re-uploading the same build writes the same keys with the same
+  bytes. Combined with deterministic archives, a rebuild of the same commit is a no-op.
+- **An object can never be replaced with different bytes under the same URL.** New bytes means a
+  new hash means a new key. Serve `boxes/` as immutable and cache it aggressively.
+
+The URLs inside the signed documents are `<assetBaseUrl>/<object key>`, so pointing
+`assetBaseUrl` at wherever you serve `dist/boxes/` from is all the coordination needed.
+
+## Publishing
+
+Any object store or static host will do. The shape of the operation is:
+
+```sh
+# Immutable objects — safe to cache forever.
+aws s3 sync .scrollcase/dist/boxes/ s3://my-bucket/boxes/ \
+  --cache-control "public, max-age=31536000, immutable"
+
+# The mutable pointer — short cache, uploaded last.
+aws s3 sync .scrollcase/dist/channels/ s3://my-bucket/channels/ \
+  --cache-control "public, max-age=60"
+```
+
+Two rules:
+
+1. **Objects first, pointer last.** The channel names a release document by hash; publishing the
+   pointer before the object it names gives clients a dangling reference.
+2. **The channel key is yours to choose.** The build does not dictate where the channel document
+   lives — only the release document's URL, which it embeds. Pick a stable route your clients
+   already know how to reach.
+
+## Channels and rollout
+
+The channel document is a small mutable pointer, signed independently from the release. That
+separation is the point: **promoting a build never requires re-signing it**.
+
+```jsonc
+{
+  "schemaVersion": 2,
+  "kind": "scrollcase.box.channel",
+  "channel": "beta",
+  "boxId": "my-model",
+  "target": { "platform": "macos", "arch": "aarch64", "accelerator": "metal" },
+  "updatedAt": "2026-07-25T10:14:03+02:00",
+  "cohortSalt": "9f2b7c1e04a83d5641b0e7c28a3d95f7",
+  "releases": [
+    { "version": "1.0.0", "releaseManifestUrl": "https://…/4e81….release.json", "rolloutPercentage": 100 }
+  ]
+}
+```
+
+A freshly built channel goes out at 100%. The schema can represent multiple release percentages,
+but schema version 2 does **not** specify an interoperable cohort algorithm: it defines no identity
+normalisation, byte framing, hash algorithm, integer extraction, percentage mapping, ordering, or
+boundary fixtures. A consuming project may define and test those rules for its own clients, but
+must not claim that unrelated implementations derive the same cohort from this format alone.
+
+`cohortSalt` is deterministic builder output derived from `boxId` and `version`; the format does
+not define how a client combines it with an identity. Until a future version supplies normative
+fixtures, the only cross-client behavior documented here is a 100% release.
+
+Promotion between channels (`nightly` → `beta` → `stable`) is publishing a channel document
+naming the release you already built. Build once per channel name with `--channel`, or write the
+promoted document yourself and sign it with the same key.
+
+## Revocation
+
+A published release is immutable, so withdrawing one is an explicit statement rather than a
+deletion: clients keep honouring a revocations list even when the archive is still reachable.
+
+The format defines the [revocations manifest](/v2/reference/box-format#revocations-manifest) and the
+`<namespace>.revocations` kind; Scrollcase does not emit it. Publish and sign it yourself, with
+the same envelope and the same key, and have clients fetch it before installing or activating.
+
+An empty `revocations` array is meaningful — it is a positive, signed statement that nothing is
+revoked, which a client can distinguish from a missing or withheld document.
+
+## The client's side
+
+```mermaid
+flowchart TD
+  C["fetch channel document"] --> CV{"signature valid?"}
+  CV -->|no| X["refuse"]
+  CV -->|yes| P["apply the consuming project's release policy"]
+  P --> R["fetch release document by URL"]
+  R --> RV{"signature valid?"}
+  RV -->|no| X
+  RV -->|yes| CO{"compatibility satisfied?<br/>space available?"}
+  CO -->|no| X
+  CO -->|yes| D["download archive"]
+  D --> H{"size + sha256 match?"}
+  H -->|no| X
+  H -->|yes| E["validate entry names, extract"]
+  E --> M{"box.json agrees with release?"}
+  M -->|no| X
+  M -->|yes| T["run the self-test with the box's own Python"]
+  T --> OK["installed"]
+```
+
+Whatever installs your boxes should do exactly what `scrollcase verify` does, in the same order:
+
+1. Fetch the channel document, verify its signature, and apply the consuming project's release
+   policy. Schema version 2 guarantees interoperability only for the 100% case.
+2. Fetch the release document by the URL the channel names; verify its signature.
+3. Check `compatibility` against the host — and **refuse a constraint it cannot evaluate** rather
+   than assuming it passes.
+4. Treat `installedSizeBytes` as a logical extracted-size lower bound. Require headroom for the
+   archive, extracted files, temporary copies, and filesystem overhead.
+5. Download the archive; check size and SHA-256 against the release.
+6. Validate every entry name before final extraction.
+7. Compare all shared `box.json` fields recursively against the release.
+8. Run the self-test: `selfTest.pythonImports` with `pythonEntryPoint`, bounded by
+   `selfTest.timeoutSeconds`.
+9. With on-demand weights, fetch each asset and check its size and SHA-256 before first use.
+
+Running `scrollcase verify --self-test` on the build machine covers the archive and temporary
+extraction checks, not final installation, compatibility policy, rollout, or activation.
+
+## Keeping an extracted box across restarts
+
+The archive proves the payload while it exists. A persistent installation usually discards that
+archive, and a `PreparedBox` receipt cannot be serialised across process restarts: doing so would
+turn a writable file into a forgeable execution capability. A new process earns a fresh receipt by
+re-checking the signed release and the directory's execution prerequisites:
+
+```js
+import {
+  attachExtractedBox,
+  runExtractedBox,
+  verifyExtractedPayload,
+} from 'scrollcase/consumer';
+
+// Optional and potentially expensive: proves the installed bytes at this moment.
+await verifyExtractedPayload('release.json', {
+  publicPath: 'trusted-key.json',
+  root: '/srv/boxes/my-model/1.0.0/macos-aarch64-metal',
+});
+
+// Does not re-read original payload bytes; on-demand assets are hashed separately.
+const attached = await attachExtractedBox('release.json', {
+  publicPath: 'trusted-key.json',
+  root: '/srv/boxes/my-model/1.0.0/macos-aarch64-metal',
+});
+await runExtractedBox(attached);
+```
+
+Python exposes the same sequence as `verify_extracted_payload`, `attach_extracted_box`, and
+`run_extracted_box`. Attachment deliberately does not verify every payload byte: it enumerates the
+tree and measures metadata, but the full content read is a separate decision so launch does not
+silently become a multi-gigabyte integrity scan.
+
+For a manual or maintenance check, the CLI reaches the same Node consumer operation:
+
+```sh
+scrollcase verify release.json \
+  --extracted /srv/boxes/my-model/1.0.0/macos-aarch64-metal \
+  --public-key trusted-key.json
+```
+
+`--extracted` needs no archive and cannot be combined with `--archive` or `--self-test`. It checks
+the signed `payload-digest.v1` entry list rather than walking the directory, so unrelated files that
+appeared after installation do not fail an honest box. Embedded assets are original entries and are
+read in full; on-demand assets are later extras, ignored by this digest and checked separately by
+their signed descriptors during attachment and execution.
+
+::: warning Integrity is a point-in-time result
+Payload verification detects ordinary corruption and identifies a directory against a signed
+release. It does not stop the directory changing after the check. Protect persistent installations
+with operating-system permissions and the embedding application's ownership policy.
+
+`__pycache__` directories and `*.pyc` files are excluded when the build collects payload entries,
+so the digest can never see them. Do not treat the check as proof about compiled Python caches.
+:::
+
+## Namespaces for existing publishers
+
+If you already have boxes installed in the field under your own document kinds, keep emitting
+them:
+
+```sh
+scrollcase build my-model/macos-aarch64-metal --namespace acme.model-pack
+# → kinds: acme.model-pack.release, acme.model-pack.channel, acme.model-pack.revocations
+```
+
+The namespace belongs to the publishing project precisely so that adopting Scrollcase does not
+rename documents underneath clients that already recognise them. New projects can leave the
+default, `scrollcase.box`.

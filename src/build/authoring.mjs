@@ -325,6 +325,39 @@ async function validateScroll(scroll) {
 }
 
 /**
+ * What a box id may look like, in words rather than as a regular expression.
+ *
+ * Shown in the prompt and repeated when an answer is refused. A user meeting the tool does not read
+ * `^[a-z0-9]+(?:[-.][a-z0-9]+)*$` and know what to type.
+ */
+export const BOX_ID_SHAPE =
+  'lower-case letters and digits, separated by single hyphens or dots — for example my-model or acme.my-model';
+
+let identifierPattern;
+
+/**
+ * Why a box id is unacceptable, or null when it is fine.
+ *
+ * The rule comes out of the schema rather than being restated here: two statements of one pattern
+ * are two things that can disagree, and the whole point of checking early is that the early answer
+ * matches the late one. `validateScroll` still has the last word — this only moves the *first* word
+ * to the prompt that produced the value, because the schema's own report arrives after every other
+ * question has been answered and says only that the value "does not match the required pattern".
+ *
+ * @param {unknown} value
+ * @returns {Promise<string | null>}
+ */
+export async function boxIdProblem(value) {
+  identifierPattern ??= readFile(scrollSchemaUrl, 'utf8')
+    .then((text) => JSON.parse(text).$defs.identifier.pattern);
+  const source = await identifierPattern;
+  if (typeof value !== 'string' || value.trim() === '') return 'Box ID is required.';
+  const trimmed = value.trim();
+  if (new RegExp(source).test(trimmed)) return null;
+  return `${trimmed} is not a usable box ID. Use ${BOX_ID_SHAPE}.`;
+}
+
+/**
  * Creates one nested `<boxId>/<targetId>` scroll without overwriting any authored file.
  *
  * @param {object} options
@@ -343,9 +376,12 @@ export async function createScroll({
   runtimeVersion,
   pixiVersion,
   compatibility = {},
-  assetBaseUrl,
+  publishBaseUrl,
   executionKind,
   scriptSourcePath = null,
+  // A payload-relative path to an entry point the dependency solve already provides, instead of a
+  // project file to copy in. Mutually exclusive with the two above.
+  environmentPath = null,
   generateScript = false,
   generatedScriptSourcePath = null,
   scriptRelativePath = null,
@@ -371,9 +407,15 @@ export async function createScroll({
       ? null
       : requiredText(resolvedRuntimeVersion, 'runtimeVersion'),
     pixiVersion: requiredText(pixiVersion, 'pixiVersion'),
-    // Required whether or not any asset is deferred: the release manifest names the archive's own
-    // published URL, not just the assets'.
-    assetBaseUrl: requiredText(assetBaseUrl, 'assetBaseUrl'),
+    // Optional, exactly as the schema has it. A build does need one — the release manifest names the
+    // archive's own published URL, not just the assets' — but it may arrive later, from `edit scroll`
+    // or from `build --publish-base-url`, and a box that never gets one is simply local: its release
+    // and channel carry no links. Demanding it here instead made the one field nobody knows on day
+    // one block writing a scroll at all, and invited a placeholder URL into a document whose whole
+    // value is that it is true.
+    publishBaseUrl: publishBaseUrl === undefined || publishBaseUrl === null || String(publishBaseUrl).trim() === ''
+      ? null
+      : String(publishBaseUrl).trim(),
   };
   if (!compatibility || typeof compatibility !== 'object' || Array.isArray(compatibility)) {
     fail('compatibility must be an object.');
@@ -414,7 +456,24 @@ export async function createScroll({
   let generatedScriptPath = null;
   let generatedSource = null;
   const fileKind = FILE_KINDS[executionKind];
-  if (fileKind) {
+  if (fileKind && environmentPath) {
+    // The entry point is already in the payload because a package put it there — conda-forge's
+    // `venv/bin/ffmpeg`, a console script the solve generated. Nothing is staged and no `localFiles`
+    // entry appears: there is no file of the author's to copy, and inventing one would claim the
+    // project ships something it does not.
+    //
+    // This case existed in the format from the start — every `native` example in this repository
+    // uses it — but not in the authoring surface, which assumed a file-naming execution always
+    // pointed at a project file. Writing one meant editing `scroll.json` by hand.
+    if (scriptSourcePath || generateScript) {
+      fail('Choose either a file from the environment or one from this project, not both.');
+    }
+    execution = {
+      kind: executionKind,
+      [fileKind.field]: safeRelativePath(environmentPath),
+      defaultArgs: [...defaultArgs],
+    };
+  } else if (fileKind) {
     if (generateScript && scriptSourcePath) {
       fail('Choose either an existing file or --generate-script, not both.');
     }
@@ -463,7 +522,7 @@ export async function createScroll({
       module: requiredText(module, 'module'),
       defaultArgs: [...defaultArgs],
     };
-  } else if (module || scriptSourcePath || generateScript || defaultArgs.length > 0) {
+  } else if (module || scriptSourcePath || environmentPath || generateScript || defaultArgs.length > 0) {
     fail('library-only execution cannot declare a script, module, or default arguments.');
   }
 
@@ -497,7 +556,7 @@ export async function createScroll({
       ...(identity.runtimeVersion === null ? {} : { version: identity.runtimeVersion }),
     },
     pixiVersion: identity.pixiVersion,
-    assetBaseUrl: identity.assetBaseUrl,
+    ...(identity.publishBaseUrl === null ? {} : { publishBaseUrl: identity.publishBaseUrl }),
     selfTest: {
       ...probe,
       ...(localFile ? { files: [localFile.relativePath] } : {}),
@@ -579,7 +638,7 @@ export async function ensureExampleScroll({
       sourceRevision: 'example-source-1.0.0',
       pixiVersion,
       compatibility: { minHostAppVersion: '1.0.0' },
-      assetBaseUrl: 'https://example.org/boxes',
+      publishBaseUrl: 'https://example.org/boxes',
       executionKind: 'python-script',
       generateScript: true,
     }),

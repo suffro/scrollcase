@@ -46,8 +46,8 @@ declares, and embeds them. Most of the archive is those weights and onnxruntime.
 ## What is worth reading in the scroll
 
 **The model is three pinned assets, not a download.** Each declares a URL at an immutable upstream
-revision, its size and its SHA-256; the build fails if a byte moved. `weights: embed` puts them in
-the archive, so the box installs and runs air-gapped.
+revision, its size and its SHA-256; the build fails if a byte moved. None declares `embed: false`,
+so all three are packed into the archive and the box installs and runs air-gapped.
 
 **The environment is signed, not merely set.** `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` and
 `TOKENIZERS_PARALLELISM=false` are carried in the release and override the host. This is defence in

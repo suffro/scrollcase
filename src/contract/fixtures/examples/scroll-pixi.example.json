@@ -28,7 +28,7 @@
   },
   "condaDependencyLicenseAudit": "legal/audits/example-model-linux-x86_64-cuda12.9.json",
   "cacheSubdir": "cache/example-model",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://assets.example.org/boxes",
   "assets": [
     {
       "url": "https://assets.example.org/example-model/weights.safetensors",

@@ -205,6 +205,16 @@ async function mutateFixture(fixture, mutation, destination) {
     await writeSignedRelease(fixture, fixture.release);
     return;
   }
+  if (mutation === 'strip-release-archive-url') {
+    // A box built without a publish base URL: it was never published, so its release names no
+    // address for the archive. Every consumer must prepare it exactly as it prepares any other, because
+    // the URL was never part of the trust chain — the archive is found beside the release document and
+    // identified by its sha256.
+    const { url: _unpublished, ...archive } = fixture.release.archive;
+    fixture.release.archive = archive;
+    await writeSignedRelease(fixture, fixture.release);
+    return;
+  }
   if (mutation === 'alter-release-bundled-licenses') {
     // A licence inventory added to the signed release after the box was built. It is signed, so the
     // signature still verifies; what refuses it is that box.json says something else, which is the

@@ -385,7 +385,7 @@ concerns as the other two consumers: `contract`, `trust`, `release`, `archive`, 
 
 ## `scrollcase/contract`
 
-The single source of truth for what a box is. See [The Box Format](/reference/box-format).
+The single source of truth for what a box is. See [The Box Format](/v2/reference/box-format).
 
 ### Targets
 
@@ -397,15 +397,7 @@ The single source of truth for what a box is. See [The Box Format](/reference/bo
 | `condaSubdir` | `(target) => string` | The conda platform subdir (`osx-arm64`, `linux-64`, `win-64`) |
 | `pixiAccelerator` | `(scroll) => { accelerator, cudaVersion }` | The conda accelerator descriptor a scroll selects, rejecting target drift |
 | `assertNativeHost` | `(adapter, host = process) => void` | Throws unless the current host matches the adapter's OS and architecture |
-| `assertRuntimeEntryPoint` | `(runtimeId, adapter, entryPoint) => void` | Throws unless the entry point matches that runtime's layout for the target |
-| `RUNTIME_IDS` | `readonly string[]` | Every runtime id the format defines: `python`, `node`, `native`. A separate list from what a given build implements, on purpose — the consumers version independently |
-| `runtimeAdapter` | `(runtimeId) => BoxRuntimeAdapter` | The runtime's layout, execution kinds, argv rule and self-test rule. Throws for a runtime with no adapter |
-| `runtimeAdapters` | `() => BoxRuntimeAdapter[]` | Every runtime this build implements |
-| `isImplementedRuntime` | `(runtimeId) => boolean` | Whether an adapter exists — the question to ask before `runtimeAdapter` |
-| `unimplementedRuntimeMessage` | `(runtimeId) => string` | One wording for a box naming a runtime this build cannot run, so the builder and all three consumers report it identically |
-| `unsupportedSelfTestProbeMessage` | `(runtimeId, probeKind) => string` | One wording for a probe shape the runtime cannot answer — `selfTest.imports` in a `native` box, which has no module system |
-| `executionAffectingVariables` | `(runtimeId, adapter) => readonly string[]` | Inherited variables that can change what a box executes: the runtime's loader controls, then the OS's |
-| `isExecutablePayloadPath` | `(rule, relativePath) => boolean` | Whether a payload path is one the runtime requires the executable bit on |
+| `assertPythonEntryPoint` | `(adapter, entryPoint) => void` | Throws unless the entry point matches the adapter's layout |
 
 ```js
 import { boxTargetId } from 'scrollcase/contract';
@@ -490,7 +482,7 @@ The trusted key file is either a single key object or a `{ "keys": [...] }` bund
 accepted when any one of its signatures verifies. Every consumer operation that verifies a signed
 release takes `publicPath` **or** `trustedKeys`, exactly one: an application holding its keys in a
 keyring, an environment variable or a secrets manager should not have to write them to disk to
-verify a signature. See [Signing & Key Custody](/guides/signing-and-custody).
+verify a signature. See [Signing & Key Custody](/v2/guides/signing-and-custody).
 
 ## `scrollcase/build`
 
@@ -515,7 +507,7 @@ const workspace = resolveWorkspace({ cwd: '/work/my-project/scrolls/my-model/mac
 // → { root, configPath, scrollsDir, buildDir, distDir, keysDir, toolchainDir }
 ```
 
-Details in [Workspace Configuration](/reference/configuration).
+Details in [Workspace Configuration](/v2/reference/configuration).
 
 ### Archives and filesystem
 

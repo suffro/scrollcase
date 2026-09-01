@@ -157,7 +157,7 @@ export async function buildBox(name, options = {}) {
   const {
     allowDirty = false,
     channel = 'beta',
-    assetBaseUrl: assetBaseUrlOverride = null,
+    publishBaseUrl: publishBaseUrlOverride = null,
     namespace,
     signerCommand = null,
     privatePath,
@@ -181,6 +181,12 @@ export async function buildBox(name, options = {}) {
   // nothing to ask and nothing to override: a build-time override would silently repack a box under
   // an identity that no longer describes it. What the scroll decided is reported, not negotiated.
   const deferred = scroll.assets.filter((asset) => asset.embed === false);
+  // Where this box will be published, if it will be. Absent is a legitimate answer and the common
+  // one: a box built to run on the machine that built it is never published, so there is nowhere
+  // for its documents to point and no value here would be true. The build then omits the two links
+  // rather than inventing an address — nothing verifies them, and a false address inside a signed,
+  // immutable document stays false forever.
+  const publishBaseUrl = String(publishBaseUrlOverride || scroll.publishBaseUrl || '').replace(/\/$/, '');
   log(`Runtime: ${scroll.runtime.id}${scroll.runtime.version ? ` ${scroll.runtime.version}` : ''}`);
   log(`Assets:  ${scroll.assets.length - deferred.length} embedded, ${deferred.length} on demand`);
   // Wheels, native libraries, and the interpreter are proven on the exact OS/architecture they ship for.
@@ -453,8 +459,6 @@ export async function buildBox(name, options = {}) {
   // Content-addressed: the object is named after its own hash, so publishing is idempotent and an
   // object can never be replaced with different bytes under the same URL.
   const archiveObject = `${objectPrefix}/${archiveSha}.zip`;
-  const assetBaseUrl = String(assetBaseUrlOverride || scroll.assetBaseUrl || '').replace(/\/$/, '');
-  if (!assetBaseUrl) fail('No asset base URL: declare assetBaseUrl in the scroll or pass --asset-base-url.');
   const kinds = documentKinds(namespace);
   const signing = { signerCommand, privatePath, publicPath };
   log('Signing release and channel');
@@ -465,7 +469,12 @@ export async function buildBox(name, options = {}) {
     ...identity,
     target: scroll.target,
     compatibility: scroll.compatibility,
-    archive: { format: 'zip', url: `${assetBaseUrl}/${archiveObject}`, sha256: archiveSha, sizeBytes: archiveSize },
+    archive: {
+      format: 'zip',
+      ...(publishBaseUrl ? { url: `${publishBaseUrl}/${archiveObject}` } : {}),
+      sha256: archiveSha,
+      sizeBytes: archiveSize,
+    },
     installedSizeBytes,
     payloadDigest: payloadDigestValue,
     runtime: scroll.runtime,
@@ -482,7 +491,9 @@ export async function buildBox(name, options = {}) {
   await writeFile(stagedReleasePath, `${JSON.stringify(await signDocument(release, signing), null, 2)}\n`);
 
   // The channel points at the release document by *its* hash too, so the whole chain is
-  // content-addressed: channel -> release document -> archive.
+  // content-addressed: channel -> release document -> archive. An unpublished box has no chain to
+  // build, and a channel that still says which version is current is more use than one carrying an
+  // address that resolves nowhere.
   const releaseDocumentSha = await sha256File(stagedReleasePath);
   const channelDocument = {
     schemaVersion: BOX_SCHEMA_VERSION,
@@ -498,7 +509,9 @@ export async function buildBox(name, options = {}) {
     // rather than by the builder.
     releases: [{
       version: scroll.version,
-      releaseManifestUrl: `${assetBaseUrl}/${objectPrefix}/${releaseDocumentSha}.release.json`,
+      ...(publishBaseUrl
+        ? { releaseManifestUrl: `${publishBaseUrl}/${objectPrefix}/${releaseDocumentSha}.release.json` }
+        : {}),
       rolloutPercentage: 100,
     }],
   };
@@ -520,11 +533,21 @@ export async function buildBox(name, options = {}) {
   log(`Release: ${publishedRelease}`);
   log(`Channel: ${channelPath}`);
   log('');
-  log(`Publish: upload ${join(workspace.distDir, 'boxes')} under ${assetBaseUrl}, keeping its paths,`);
-  log('         then publish the channel document where your clients look for it.');
+  if (publishBaseUrl) {
+    log(`Publish: upload ${join(workspace.distDir, 'boxes')} under ${publishBaseUrl}, keeping its paths,`);
+    log('         then publish the channel document where your clients look for it.');
+  } else {
+    // Said plainly rather than left to be discovered from a missing field: this box is complete and
+    // runnable, and the one thing it cannot do is tell a downloader where to find itself.
+    log('Local:   this box names no publish location, so its documents point nowhere.');
+    log(`         Run it from here, or rebuild with --publish-base-url to publish it.`);
+  }
   return {
     archivePath: publishedArchive,
     releasePath: publishedRelease,
+    // Whether this box has a publish location, so the CLI's closing line does not tell the author
+    // to distribute documents that point nowhere.
+    published: Boolean(publishBaseUrl),
     channelPath,
     archiveSha256: archiveSha,
     installedSizeBytes,
