@@ -14,6 +14,7 @@ from .conformance_support import (
 # one cannot run on this host. Skipped rather than weakened: the rule it proves is real on the two
 # platforms that carry links.
 SYMLINKS_SUPPORTED = sys.platform != "win32"
+POSIX_MODES_SUPPORTED = sys.platform != "win32"
 
 
 class SharedConsumerConformanceTests(unittest.TestCase):
@@ -21,6 +22,10 @@ class SharedConsumerConformanceTests(unittest.TestCase):
         suite = load_consumer_conformance_suite()
         for test_case in suite["cases"]:
             if test_case.get("requiresSymlinks") and not SYMLINKS_SUPPORTED:
+                continue
+            # Windows carries no POSIX modes at all, so a case asserting one is inapplicable there
+            # rather than weaker — the same reason a link case is skipped.
+            if test_case.get("requiresPosixModes") and not POSIX_MODES_SUPPORTED:
                 continue
             with self.subTest(case=test_case["id"]):
                 actual, expected, root = run_python_conformance_case(

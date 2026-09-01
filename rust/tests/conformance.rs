@@ -1289,6 +1289,11 @@ fn the_shared_consumer_conformance_suite_passes() {
         if case.get("requiresSymlinks").is_some() && cfg!(not(unix)) {
             continue;
         }
+        // Windows carries no POSIX modes at all, so a case asserting one is inapplicable there
+        // rather than weaker — the same reason a link case is skipped.
+        if case.get("requiresPosixModes").is_some() && cfg!(not(unix)) {
+            continue;
+        }
         ran += 1;
         let Outcome { actual, expected } = run_case(case, patterns);
         if actual != expected {

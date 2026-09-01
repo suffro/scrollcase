@@ -1402,6 +1402,7 @@
     {
       "id": "declared-executable-survives-a-restrictive-umask",
       "action": "prepare",
+      "requiresPosixModes": true,
       "fixture": {
         "executableAsset": true
       },

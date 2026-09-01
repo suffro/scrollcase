@@ -504,22 +504,35 @@ describe('the build pipeline', () => {
   });
 
   it('refuses a box that runs a file the archive would not mark executable', async () => {
+    // Both halves of one rule, and which half applies is the *target's* business rather than the
+    // build host's. A POSIX box carries modes, so a file nothing declared executable comes out
+    // 0644 and the box could never start: refused. A Windows box carries no modes at all —
+    // `archiveFileMode` writes 0644 for every entry there and Windows decides executability by
+    // extension — so there is no bit to be missing and nothing to refuse. Asserting the refusal
+    // unconditionally is what made this pass on macOS and fail on Windows, found by the first CI
+    // run this branch ever had.
     const { keys, payloadDir } = await makeProject({
       ...SCROLL,
       runtime: { id: 'native' },
-      // Declared without `executable`, so the archive would ship it 0644 and nothing could start it.
+      // Declared without `executable`, so on a POSIX target the archive would ship it 0644.
       localFiles: [{ sourcePath: 'tool', relativePath: 'bin/tool' }],
       execution: { kind: 'native-binary', binary: 'bin/tool', defaultArgs: [] },
       selfTest: { commands: [{ args: [] }], files: [] },
     }, { projectFiles: { tool: '#!/bin/sh\nexit 0\n' } });
-    await expect(buildBox(SCROLL_REF, {
+    const build = () => buildBox(SCROLL_REF, {
       ...keys,
       ...fakeToolchain(payloadDir, {
         interpreter: false,
         selfTestCommand: join(payloadDir, 'bin', 'tool'),
       }),
       log: () => {},
-    })).rejects.toThrow(/runs bin\/tool, which the archive would not mark executable/);
+    });
+
+    if (HOST_ADAPTER.host.platform === 'win32') {
+      await expect(build()).resolves.toMatchObject({ archiveSha256: expect.any(String) });
+      return;
+    }
+    await expect(build()).rejects.toThrow(/runs bin\/tool, which the archive would not mark executable/);
   });
 
   it('refuses a native scroll that declares a runtime entry point', async () => {
