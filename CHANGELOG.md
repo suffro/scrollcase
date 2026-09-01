@@ -6,6 +6,18 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed — the Python package declares `referencing`
+
+- `scrollcase_consumer` imports `referencing` directly, to build the schema `Registry` that resolves
+  the `$ref`s between the bundled canonical schemas, but declared only `cryptography` and
+  `jsonschema`. It worked because `jsonschema` depends on `referencing` itself — that is, the package
+  was relying on another project's dependency list staying what it is today. It is now a declared
+  dependency at the floor `jsonschema` already requires, `>=0.28.4,<1`, so nothing new is installed;
+  what was already installed and already imported is simply named. Reported in review of the
+  conda-forge submission, where the declared run requirements are what the solver builds an
+  environment from. `tests/test_dependencies.py` now walks the shipped source and fails on any
+  third-party import the package does not declare.
+
 ## [0.12.0] — 2026-08-22
 
 ### Added
