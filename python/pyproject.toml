@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
   "cryptography>=42,<47",
   "jsonschema>=4.21,<5",
+  "referencing>=0.28.4,<1",
 ]
 
 [project.urls]

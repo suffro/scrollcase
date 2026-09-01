@@ -4171,12 +4171,14 @@ ports; they are three mirrors of one contract, and they are held to it by the sa
 | Process seam | `spawn` option | `popen_factory` argument | `SpawnBox` trait |
 | Signal seam | `signalSource` option | `signal.signal` on the main thread | a channel the caller owns |
 | Schemas | read from `src/contract/schema/` | bundled copies, checked by `sync_schemas.py --check` | bundled copies used by the tests, checked by `sync-assets.mjs --check` |
-| Dependencies | `yauzl` for reading archives | `cryptography`, `jsonschema` | `ed25519-dalek`, `zip`, `sha2`, `serde`, `base64` |
+| Dependencies | `yauzl` for reading archives | `cryptography`, `jsonschema`, `referencing` | `ed25519-dalek`, `zip`, `sha2`, `serde`, `base64` |
 
 The Python package is distributed separately (`scrollcase-consumer` on PyPI, requiring Python 3.10 or
 newer), ships `py.typed`, and is checked under `mypy --strict`. It depends on `cryptography` for
-ed25519 and `jsonschema` for schema validation, and on nothing else; ZIP reading uses the standard
-library's `zipfile`.
+ed25519, on `jsonschema` for schema validation and on `referencing` for the registry that resolves
+the `$ref`s between the bundled schemas, and on nothing else; ZIP reading uses the standard
+library's `zipfile`. `jsonschema` installs `referencing` anyway, but a module this package imports
+is a dependency this package declares — a transitive one is another project's decision to change.
 
 The crate is distributed separately too (`scrollcase-consumer` on crates.io, requiring Rust 1.88 or
 newer). It forbids `unsafe`, is synchronous throughout so an application chooses its own runtime or
