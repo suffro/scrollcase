@@ -127,9 +127,9 @@ Byte verification is an independent, opt-in operation. New builds write `payload
 the payload and add optional `payloadDigest: { format, sha256 }` to the signed release. The list has
 one byte-sorted record per original file or link and is excluded from itself; the release signs its
 hash. `verifyExtractedPayload` / `verify_extracted_payload` authenticates the bounded list before
-parsing it, then visits only the paths it names. The field is additive, so `schemaVersion` stays 2
-and older v2 releases remain valid, while the specific payload-verification operation refuses one
-that carries no commitment.
+parsing it, then visits only the paths it names. The field is additive, so `schemaVersion` stays 3
+and releases built before the capability remain valid, while the specific payload-verification
+operation refuses one that carries no commitment.
 
 **Rejected:** storing the whole per-file table in the release. A conda environment routinely holds
 10,000–30,000 files, which would add megabytes to every signed document. One signed digest plus the
@@ -343,7 +343,7 @@ dependency offers that follow belong to them. A short non-overwriting `SCROLLCAS
 basic workflow and links to the canonical documentation visible in the project.
 
 `scrollcase new scroll` remains the only command that authors real project identity, target,
-versions, compatibility, weights, and execution intent. A non-terminal authoring call must provide
+runtime, versions, compatibility, and execution intent. A non-terminal authoring call must provide
 every value that has no default and fails before writing when one is missing; an interactive
 terminal uses the same finite-choice menus as the rest of the CLI.
 
@@ -354,7 +354,7 @@ inputs are created independently rather than edited from guessed product metadat
 ## A scroll declares decisions, not restatements
 
 A scroll is a file a person writes and maintains by hand, and several of its fields were only ever
-restating something the file already said. `pythonEntryPoint` is the clearest case: a target admits
+restating something the file already said. `runtime.entryPoint` is the clearest case: a target admits
 exactly one interpreter path and the reader rejected every other value, so requiring the field
 obliged the author to type the one string that was already implied — and to type it again for every
 target of the same box. `scrollVersion`, `compatibility`, `cacheSubdir`, `assets` and
@@ -362,7 +362,7 @@ target of the same box. `scrollVersion`, `compatibility`, `cacheSubdir`, `assets
 
 Those fields are now optional and derived when the scroll is read. Derivation happens in one place,
 so everything downstream — including the provenance record — still sees a complete object, and a
-scroll that spells a derived field out produces an identical result. A declared `pythonEntryPoint`
+scroll that spells a derived field out produces an identical result. A declared `runtime.entryPoint`
 that disagrees with its target is still refused.
 
 **Rejected:** a `??` fallback at each point of use. That spreads the meaning of an absent field
@@ -483,7 +483,7 @@ it was built for — a failure that arrives long after the command that caused i
 ### Two committed Python versions instead of a lookup
 
 `new scroll` defaults to one minor behind the newest Python conda-forge publishes, and
-`--python-version latest` resolves to the newest itself. Both are constants in the repository, moved
+`--runtime-version latest` resolves to the newest itself. Both are constants in the repository, moved
 deliberately at release time by `npm run python:bump`.
 
 **Rejected:** resolving the newest Python on each invocation. That would make the same command

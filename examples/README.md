@@ -139,10 +139,10 @@ that cannot start fails the build rather than the user.
 The environment is small (`zstd` and `libzlib`) and the licence audit is derived from the lock as
 usual — `native` means "no interpreter", not "no dependencies".
 
-It is also the one example that declares **no `publishBaseUrl`**, deliberately: nothing here is ever
-published, so its release names no address for its archive and its channel names none for its
-release. Everything else is unchanged — the archive is hashed, both documents are signed, `verify
---self-test` passes, and `run` works. Compare its release with any other example's to see exactly
+Like every example here it declares **no `publishBaseUrl`**, deliberately: nothing in this directory
+is published to an address of its own, so a release names none for its archive and a channel names
+none for its release. Everything else is unchanged — the archive is hashed, both documents are
+signed, `verify --self-test` passes, and `run` works. Set one on a scroll of your own to see exactly
 what a publish location adds, and what it does not.
 
 ```sh

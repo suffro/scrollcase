@@ -5,9 +5,9 @@ description: What a box is on disk and on the wire — targets, archive layout, 
 
 # The Box Format
 
-The format is the product. This page is the v2 contract a builder, a signer, and any client — in any
-language — must agree on. Active documents carry `schemaVersion: 2`; v1 is rejected rather than
-silently reinterpreted.
+The format is the product. This page is the v3 contract a builder, a signer, and any client — in any
+language — must agree on. Active documents carry `schemaVersion: 3`; v1 and v2 are rejected **by
+name** rather than silently reinterpreted.
 
 The normative artefacts ship inside the npm package:
 

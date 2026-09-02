@@ -1,5 +1,5 @@
 ---
-title: Box-run
+title: How to run a box
 description: Try a box run, without installing a toolchain.
 outline: [2,3]
 runtime: python

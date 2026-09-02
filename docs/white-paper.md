@@ -2303,19 +2303,22 @@ metadata. A closed union of two shapes cannot be talked into running something e
 
 #### The release manifest
 
-Thirteen required fields describing one built box, of which three groups matter most.
+Eleven required fields describing one built box, of which three groups matter most.
 
-**`archive`** is `{ format: "zip", url, sha256, sizeBytes }`, all four required. Size *and* hash,
-not hash alone: the size is checkable before a byte is read, so a consumer can refuse an
-implausible download before spending on it.
+**`archive`** is `{ format: "zip", url, sha256, sizeBytes }`, of which `format`, `sha256` and
+`sizeBytes` are required and `url` is not: a box built without a publish location omits it rather
+than inventing an address. Size *and* hash, not hash alone: the size is checkable before a byte is
+read, so a consumer can refuse an implausible download before spending on it.
 
-**`selfTest`** is `{ pythonImports, timeoutSeconds }` — the import subset a consumer can repeat
-after extraction. The schema states plainly that the builder also ran the scroll's Python-code and
-file assertions and that those are builder-only, rather than implying the signed check covers them.
+**`selfTest`** is `{ probe, timeoutSeconds }` — the check a consumer can repeat after extraction,
+carrying `imports`, `commands`, or both. The schema states plainly that the builder also ran the
+scroll's file assertions and any extra source it declared and that those are builder-only, rather
+than implying the signed check covers them.
 
-**`provenance`** requires all nine of its fields: `scrollId`, `scrollVersion`, `builderRevision`
+**`provenance`** requires eight of its nine fields: `scrollId`, `scrollVersion`, `builderRevision`
 (exactly 40 hex characters), `sourceTreeDirty`, `sourceRevision`, `pixiVersion`,
-`dependencyLockSha256` and `builtAt`. `sourceTreeDirty` is a required boolean rather than an
+`dependencyLockSha256` and `builtAt`. The ninth, `runtimeVersion`, is absent exactly when the
+runtime has none. `sourceTreeDirty` is a required boolean rather than an
 optional flag, so "clean" is always an assertion somebody made and never the absence of one.
 
 `installedSizeBytes` is optional and is a free-space estimate, not an integrity identity. At build
@@ -3713,7 +3716,7 @@ with a starter is edit it; and the self-test is written as a real `self_test.py`
 with `selfTest.script` pointing at it.
 
 Two constants live here rather than in a lookup: `DEFAULT_PYTHON_VERSION`, one minor behind the
-newest Python conda-forge publishes, and `LATEST_PYTHON_VERSION`, what `--python-version latest`
+newest Python conda-forge publishes, and `LATEST_PYTHON_VERSION`, what `--runtime-version latest`
 resolves to. Both are committed and moved deliberately at release time by
 `scripts/bump-python-version.mjs`, which asks conda-forge what it has built. The alternative —
 resolving the newest Python on each invocation — would make the same command produce different
@@ -4141,8 +4144,8 @@ theatre. Every code path that consumes a signed document — `build` re-verifyin
 ```js
 // src/sign/keys.mjs
 export function decodeSignedDocument(document) {
-  if (document?.schemaVersion === 1) {
-    fail(unsupportedSchemaVersionMessage(1));
+  if (document?.schemaVersion === 1 || document?.schemaVersion === 2) {
+    fail(unsupportedSchemaVersionMessage(document.schemaVersion));
   }
   if (document?.schemaVersion !== BOX_SCHEMA_VERSION || document?.payloadEncoding !== PAYLOAD_ENCODING) {
     fail('Unsupported signed document.');
@@ -5201,7 +5204,7 @@ installations: the build toolchain, and the dependencies of whichever consumer t
 wants.
 
 It refuses to be used as an authoring command. Passing `--target`, `--platform`, `--accelerator`,
-`--cuda-version`, `--box-id`, `--model-id` or `--runtime-id` fails with a pointer to `new scroll`:
+`--cuda-version`, `--box-id` or `--labels` fails with a pointer to `new scroll`:
 
 ```js
 // src/cli.mjs

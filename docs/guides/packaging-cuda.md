@@ -59,7 +59,7 @@ Three things are CUDA-specific:
    the installing host to check. Scrollcase never interprets it.
 3. **A self-test that actually exercises the GPU** — see below.
 
-`pythonEntryPoint`, `cacheSubdir` and an empty `assets` list are left out: the target and the
+`runtime.entryPoint`, `cacheSubdir` and an empty `assets` list are left out: the target and the
 box identity already determine them, and they are filled in when the scroll is read. A box that
 ships both a CUDA and a CPU target should keep what they share in one
 [base scroll](/reference/scroll#one-box-several-targets), with `cudaVersion`,
