@@ -6,7 +6,9 @@ outline: [2,3]
 
 # Dataset demo box
 
-<big> **Runtime: `native`** — no interpreter at all; the binary *is* the command line </big>
+<big> **A signed reader, so a published inspection is one anybody can repeat** </big>
+
+> <small> Runtime: **`native`** — no interpreter at all; the binary *is* the command line. </small>
 
 ---
 
@@ -47,7 +49,7 @@ Open in GitHub Codespaces
 </Tab>
 <Tab title="Pre-built box">
 
-### Run one that is already signed
+### Download the prebuilt box
 
 > You can find the box's **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/dataset-demo-v1).
 

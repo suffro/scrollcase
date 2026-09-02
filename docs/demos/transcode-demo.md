@@ -6,7 +6,9 @@ outline: [2,3]
 
 # Transcode demo box
 
-<big> **Runtime: `native`** — no interpreter at all; the binary *is* the command line </big>
+<big> **ffmpeg, pinned and signed, on a machine that has none** </big>
+
+> <small> Runtime: **`native`** — no interpreter at all; the binary *is* the command line. </small>
 
 ---
 
@@ -52,7 +54,7 @@ Open in GitHub Codespaces
 </Tab>
 <Tab title="Pre-built box">
 
-### Run one that is already signed
+### Download the prebuilt box
 
 > You can find the box's **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/transcode-demo-v1).
 

@@ -6,7 +6,9 @@ outline: [2,3]
 
 # Genetic code demo box
 
-<big> **Runtime: `node`** — the interpreter inside this box is Node 26, not Python </big>
+<big> **A box that carries reference data and the tool that queries it** </big>
+
+> <small> Runtime: **`node`** — the interpreter inside this box is Node 26, not Python. </small>
 
 ---
 
@@ -55,7 +57,7 @@ Open in GitHub Codespaces
 </Tab>
 <Tab title="Pre-built box">
 
-### Run one that is already signed
+### Download the prebuilt box
 
 > You can find the box's **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/codon-demo-v1).
 
