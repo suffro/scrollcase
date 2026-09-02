@@ -13,9 +13,9 @@ runtime: native
 
 ---
 
-The second `native` box, and a different shape from [`transcode-demo`](/demos/transcode-demo): small
+This `native` demo box provides small
 compiled tools reading a data file the box itself ships, rather than one large program driven by
-flags.
+flags like the [`transcode-demo`](/demos/transcode-demo).
 
 It carries the HDF5 command-line tools and `readings.h5`, pinned by hash. The case it answers is not
 *"I cannot install this"* but **"we must all read this file the same way"** — a signed box fixes the
