@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-09-02
+
 ### Added — the `node` and `native` runtimes
 
 - **A box can run Node, or run nothing at all.** `runtime.id: "node"` packs `nodejs` from
