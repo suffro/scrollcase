@@ -1,0 +1,9 @@
+{
+  "extends": "../scroll.json",
+  "target": {
+    "platform": "linux",
+    "arch": "x86_64",
+    "accelerator": "cpu"
+  },
+  "condaDependencyLicenseAudit": "examples/dataset-demo/linux-x86_64-cpu/conda-licenses.json"
+}

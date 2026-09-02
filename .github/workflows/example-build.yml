@@ -132,11 +132,11 @@ jobs:
             console.log(`extracted ${mb(payload.installedSizeBytes)}`);
           ' "$release"
 
-      # The other two runtimes, on the one target their example scrolls declare. They are the only
-      # thing in CI that builds a box with no interpreter, and a box whose interpreter is not
-      # Python — the paths where a Python assumption would hide, and where the unit suite's fake
-      # toolchain cannot follow. Each is built, verified with its own self-test, and run.
-      - name: Build, verify and run the node and native examples
+      # The two smoke tests for the other runtimes, on the one target their scrolls declare. They
+      # are the only thing in CI that builds a box with no interpreter, and a box whose interpreter
+      # is not Python — the paths where a Python assumption would hide, and where the unit suite's
+      # fake toolchain cannot follow. Each is built, verified with its own self-test, and run.
+      - name: Build, verify and run the node and native smoke tests
         if: matrix.target == 'macos-aarch64-metal'
         shell: bash
         run: |
@@ -152,6 +152,20 @@ jobs:
           node src/cli.mjs build hello-box-native/${{ matrix.target }} --scrolls-dir examples
           node src/cli.mjs verify "$(release_for hello-box-native)" --self-test
           node src/cli.mjs run "$(release_for hello-box-native)" -- --version
+
+      # The three published demo boxes for the node and native runtimes, on both targets their
+      # scrolls declare. Both, not just macOS: these are the boxes `codon-demo-v1`,
+      # `transcode-demo-v1` and `dataset-demo-v1` ship to the public, and the demo pages send a
+      # reader into a Linux Codespace — so a Linux box that only ever built inside the publishing
+      # workflow would have its first build be the one that goes out signed.
+      - name: Build, verify and run the demo boxes
+        if: matrix.target == 'macos-aarch64-metal' || matrix.target == 'linux-x86_64-cpu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_for() {
+            ls .scrollcase/dist/boxes/"$1"/1.0.0/${{ matrix.target }}/*.release.json
+          }
 
           # A node box doing real work rather than proving it starts: reference data pinned by hash,
           # queried through `node:sqlite`. It is the one example whose payload carries data the box

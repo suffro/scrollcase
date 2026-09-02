@@ -1,60 +1,12 @@
 {
-  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
-  "schemaVersion": 3,
-  "boxId": "dataset-demo",
-  "version": "1.0.0",
-  "sourceRevision": "hdf5-2-conda-forge",
+  "extends": "../scroll.json",
   "target": {
     "platform": "macos",
     "arch": "aarch64",
     "accelerator": "metal"
   },
   "compatibility": {
-    "minHostAppVersion": "1.0.0",
     "minMacosVersion": "13.0"
   },
-  "runtime": {
-    "id": "native"
-  },
-  "pixiVersion": "0.73.0",
-  "condaDependencyLicenseAudit": "examples/dataset-demo/macos-aarch64-metal/conda-licenses.json",
-  "cacheSubdir": "cache/dataset-demo",
-  "publishBaseUrl": "https://assets.example.org/boxes",
-  "selfTest": {
-    "files": [
-      "readings.h5"
-    ],
-    "commands": [
-      {
-        "args": [
-          "--version"
-        ]
-      },
-      {
-        "args": [
-          "-H",
-          "readings.h5"
-        ]
-      },
-      {
-        "args": [
-          "-d",
-          "/measurements/monthly",
-          "readings.h5"
-        ]
-      }
-    ]
-  },
-  "localFiles": [
-    {
-      "sourcePath": "examples/dataset-demo/macos-aarch64-metal/readings.h5",
-      "relativePath": "readings.h5",
-      "sha256": "1e87f417207c0f3359ec3238adacb7795665bc7bf4af8abaeb6e20f33772dfcc"
-    }
-  ],
-  "execution": {
-    "kind": "native-binary",
-    "binary": "venv/bin/h5dump",
-    "defaultArgs": []
-  }
+  "condaDependencyLicenseAudit": "examples/dataset-demo/macos-aarch64-metal/conda-licenses.json"
 }

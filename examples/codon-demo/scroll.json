@@ -1,0 +1,49 @@
+{
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
+  "boxId": "codon-demo",
+  "version": "1.0.0",
+  "sourceRevision": "ncbi-translation-table-1",
+  "compatibility": {
+    "minHostAppVersion": "1.0.0"
+  },
+  "runtime": {
+    "id": "node",
+    "version": "26"
+  },
+  "pixiVersion": "0.73.0",
+  "cacheSubdir": "cache/codon-demo",
+  "publishBaseUrl": "https://assets.example.org/boxes",
+  "selfTest": {
+    "imports": [
+      "node:sqlite",
+      "node:fs"
+    ],
+    "files": [
+      "entrypoint.js",
+      "codons.csv"
+    ],
+    "commands": [
+      { "args": [] },
+      { "args": ["ATG"] },
+      { "args": ["Leucine"] },
+      { "args": ["ZZZ"], "expectExitCode": 1 }
+    ]
+  },
+  "localFiles": [
+    {
+      "sourcePath": "examples/codon-demo/shared/entrypoint.js",
+      "relativePath": "entrypoint.js"
+    },
+    {
+      "sourcePath": "examples/codon-demo/shared/codons.csv",
+      "relativePath": "codons.csv",
+      "sha256": "6e33318966fc91da6281e4bcf245f5451c91cf6c0eb64dbc8bb9e07fcd829ae1"
+    }
+  ],
+  "execution": {
+    "kind": "node-script",
+    "script": "entrypoint.js",
+    "defaultArgs": []
+  }
+}
