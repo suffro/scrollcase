@@ -17,18 +17,15 @@ This is the case the `native` runtime exists for: a large compiled program where
 means a different version on every machine, and a different answer from each.
 
 The box pins one ffmpeg, carries the ninety-odd libraries it links against, and is signed — so the
-transcode a user runs is the transcode that was tested. 121 MB archived, 391 MB extracted, which is
-the honest cost of "just install ffmpeg" made visible.
+transcode a user runs is the transcode that was tested.
 
 ```text
-$ scrollcase run box/*.release.json -- -i input.mov -c:v libx264 -crf 20 output.mp4
+$ scrollcase run box/*.release.json -- -i clip.mov clip.mp4
 ```
 
-::: warning This box is where licensing stops being abstract
-Twenty-one of its ninety packages are GPL-family, including ffmpeg, `x264` and `x265` at
-GPL-2.0-or-later. Anyone redistributing the box needs that inventory before shipping, and
-`scrollcase audit` derives it from the lock.
-:::
+Everything after `--` is ffmpeg's own command line, so anything you already know how to ask it for
+still works. Nothing is installed to make that run: 121 MB archived, 391 MB extracted, and no
+compiler anywhere near it.
 
 ## Try the demo
 
@@ -97,6 +94,14 @@ That probe is declared in the macOS and Linux scrolls rather than in the base th
 because the one-byte exit status it depends on is a POSIX fact: the format caps `expectExitCode` at
 255, and Windows exit codes are 32-bit. It is a probe the Windows box does not run, rather than one
 it runs weakly — and a good illustration of why a split scroll keeps per-target facts per target.
+
+## What redistributing it costs
+
+Twenty-one of the ninety packages are GPL-family — ffmpeg itself, and `x264` and `x265` at
+GPL-2.0-or-later. That is a fact about handing this box to somebody else rather than about running
+it, and it is the demo where a licence inventory stops being paperwork: `scrollcase audit` derives
+the full list from the lock, and the build refuses to sign a box whose inventory no longer matches
+what the lock resolved.
 
 ## What a native box will not do for you
 
