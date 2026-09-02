@@ -10,13 +10,14 @@ prev: false
 
 Explore our collection of easy interactive demos to see Scrollcase in action. Each demo showcases different features and use cases to help you understand how to leverage Scrollcase in your projects.
 
-**New here?** [Box run](/demos/box-run-demo) verifies and runs a signed box with nothing but the CLI,
-and [Box development](/demos/box-dev-demo) builds one from an empty project. The rest show what a box
-can actually hold.
+**New here?** Start with the two basics. [Box-run](/demos/box-run-demo) verifies and runs a signed
+box with nothing but the CLI, and [Box development](/demos/box-dev-demo) builds one from an empty
+project. Together they are the shortest path from nothing to a box you have checked yourself.
 
-Every demo names the **runtime** that runs inside its box — what starts when the box starts.
-`python` and `node` each carry their own interpreter; `native` carries none at all, and the binary is
-the command line.
+The rest are real workloads, and they are grouped by **runtime** — what actually starts when the box
+starts. `python` and `node` each carry their own interpreter; `native` carries none at all, and the
+binary *is* the command line. It is the thing to look at when you are wondering whether a box could
+hold what you have in mind.
 
 <SubPagesList
   title="Demos"

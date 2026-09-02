@@ -83,24 +83,29 @@ const sidebar = [
         link: "/demos",
         collapsed: true,
         items: [
-          // Grouped by runtime, which is the group name rather than a suffix on every entry.
+          // Two kinds of demo, and only the second kind is about a runtime.
           //
-          // Two earlier arrangements were wrong in different ways. The first grouped by difficulty,
-          // then by subject, then by runtime — three axes in one list — and called the third group
-          // "Other runtimes", making `python` the unmarked default and the two runtimes version 3
-          // added the exception. That is precisely the assumption a declared `runtime` field exists
-          // to remove. The second kept subject groups and appended "· python" and friends to each
-          // entry, which fixed the defaulting but wrapped the longer names onto two lines in a
-          // sidebar this narrow.
+          // The basics exist to show how Scrollcase works at all — run a box, then build one — in
+          // the shortest path from nothing to a verified box. They happen to be Python because
+          // something had to be, and saying so in the navigation would offer the reader a fact they
+          // have no use for yet. They stay in one group of their own, in reading order rather than
+          // alphabetical: running a box comes before building one.
           //
-          // Naming the runtime once, as the group, fixes both: no entry carries a suffix, and no
-          // runtime is a default because each is a peer heading. Alphabetical between the groups
-          // and inside them, so nothing reaches the top by arrangement — which also happens to put
-          // the two demos that teach the workflow at the head of their own group.
+          // The rest are real workloads, and there the runtime is the point — it is what a reader
+          // is choosing between when they wonder whether a box can hold their thing. So it is the
+          // group heading: each runtime a peer, none a default, and no entry carrying a suffix.
           //
-          // The section index is where a newcomer lands (`link` above), and it lists all seven as
-          // cards with the runtime on each, so the reading order this grouping does not express is
-          // carried there instead.
+          // Two earlier arrangements were worse. One called the last group "Other runtimes", which
+          // made `python` the unmarked default and the two runtimes version 3 added the exception —
+          // exactly the assumption a declared `runtime` field exists to remove. The next appended
+          // "· python" and friends to every entry, which fixed that but wrapped the longer names
+          // onto two lines in a sidebar this narrow.
+          //
+          // The runtime groups are alphabetical so none of them leads by arrangement.
+          { text: 'Basic demos', items: [
+            { text: 'Box-run', link: '/demos/box-run-demo' },
+            { text: 'Box development', link: '/demos/box-dev-demo' },
+          ]},
           { text: 'native', items: [
             { text: 'Dataset', link: '/demos/dataset-demo' },
             { text: 'Transcode', link: '/demos/transcode-demo' },
@@ -109,8 +114,6 @@ const sidebar = [
             { text: 'Genetic code', link: '/demos/codon-demo' },
           ]},
           { text: 'python', items: [
-            { text: 'Box development', link: '/demos/box-dev-demo' },
-            { text: 'Box-run', link: '/demos/box-run-demo' },
             { text: 'Local LLM', link: '/demos/llm-box-demo' },
             { text: 'Sentiment analysis', link: '/demos/sentiment-demo' },
           ]},
