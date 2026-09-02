@@ -24,9 +24,13 @@ on:
         default: 'demo-box-v1'
         required: true
       draft:
-        description: 'Publish as a draft for review before it goes public'
+        description: 'Hold the release as a draft instead of publishing it live'
         type: boolean
-        default: true
+        # False, because every tag this workflow publishes under now already has a release, so a
+        # re-publish is the only thing it ever does and the safe default there is to leave the
+        # release visible. Passing true parks it as a draft — which on an existing release means
+        # taking the live box offline until someone publishes it again.
+        default: false
 
 env:
   PIXI_VERSION: '0.73.0'
@@ -197,10 +201,15 @@ jobs:
           # The notes are rewritten on every run, not only at creation. They name the assets and tell
           # a reader what to do with them, so a re-publish that changed either would otherwise leave
           # the previous instructions sitting above the new files.
+          # `--draft` is passed on both branches, and explicitly rather than conditionally: without
+          # it here the input meant nothing on a re-publish, which — every tag having a release by
+          # now — is the only path this workflow takes. An option that reads like a safety net and
+          # cannot act as one is worse than no option at all.
           if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
             gh release edit "${{ inputs.tag }}" \
               --title "Demo box" \
-              --notes-file .github/demo-box-release-notes.md
+              --notes-file .github/demo-box-release-notes.md \
+              --draft=${{ inputs.draft }}
           else
             gh release create "${{ inputs.tag }}" \
               --title "Demo box" \
