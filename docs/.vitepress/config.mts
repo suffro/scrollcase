@@ -83,39 +83,47 @@ const sidebar = [
         link: "/demos",
         collapsed: true,
         items: [
-          // Two kinds of demo, and only the second kind is about a runtime.
+          // Two kinds of demo, and only the second kind is about a runtime. The kinds are the two
+          // headings; the runtimes sit a level below one of them.
           //
           // The basics exist to show how Scrollcase works at all — run a box, then build one — in
           // the shortest path from nothing to a verified box. They happen to be Python because
           // something had to be, and saying so in the navigation would offer the reader a fact they
-          // have no use for yet. They stay in one group of their own, in reading order rather than
-          // alphabetical: running a box comes before building one.
+          // have no use for yet. Reading order rather than alphabetical here: running a box comes
+          // before building one.
           //
           // The rest are real workloads, and there the runtime is the point — it is what a reader
-          // is choosing between when they wonder whether a box can hold their thing. So it is the
-          // group heading: each runtime a peer, none a default, and no entry carrying a suffix.
+          // is choosing between when they wonder whether a box can hold their thing. So the
+          // runtimes are group headings, each a peer, none a default, with no suffix on any entry.
           //
-          // Two earlier arrangements were worse. One called the last group "Other runtimes", which
-          // made `python` the unmarked default and the two runtimes version 3 added the exception —
-          // exactly the assumption a declared `runtime` field exists to remove. The next appended
-          // "· python" and friends to every entry, which fixed that but wrapped the longer names
-          // onto two lines in a sidebar this narrow.
+          // Three earlier arrangements were worse, each in its own way. One called the last group
+          // "Other runtimes", making `python` the unmarked default and the two runtimes version 3
+          // added the exception — exactly the assumption a declared `runtime` field exists to
+          // remove. The next appended "· python" and friends to every entry, which fixed that but
+          // wrapped the longer names onto two lines in a sidebar this narrow. The third promoted
+          // the runtimes to top level beside "Basic demos", which read as though the basics were a
+          // fourth runtime: a category of difficulty and three categories of runtime cannot share
+          // one level without one of them being misread.
           //
-          // The runtime groups are alphabetical so none of them leads by arrangement.
-          { text: 'Basic demos', items: [
+          // Hence the nesting. The extra level is what says the two are different axes, which no
+          // choice of wording at a single level managed to say. The runtime groups are alphabetical
+          // so none of them leads by arrangement.
+          { text: 'The basics', items: [
             { text: 'Box-run', link: '/demos/box-run-demo' },
             { text: 'Box development', link: '/demos/box-dev-demo' },
           ]},
-          { text: 'native', items: [
-            { text: 'Dataset', link: '/demos/dataset-demo' },
-            { text: 'Transcode', link: '/demos/transcode-demo' },
-          ]},
-          { text: 'node', items: [
-            { text: 'Genetic code', link: '/demos/codon-demo' },
-          ]},
-          { text: 'python', items: [
-            { text: 'Local LLM', link: '/demos/llm-box-demo' },
-            { text: 'Sentiment analysis', link: '/demos/sentiment-demo' },
+          { text: 'Real usecases', items: [
+            { text: 'native', items: [
+              { text: 'Dataset', link: '/demos/dataset-demo' },
+              { text: 'Transcode', link: '/demos/transcode-demo' },
+            ]},
+            { text: 'node', items: [
+              { text: 'Genetic code', link: '/demos/codon-demo' },
+            ]},
+            { text: 'python', items: [
+              { text: 'Local LLM', link: '/demos/llm-box-demo' },
+              { text: 'Sentiment analysis', link: '/demos/sentiment-demo' },
+            ]},
           ]},
         ]
       }
