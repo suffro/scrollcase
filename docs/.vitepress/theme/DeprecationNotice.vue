@@ -41,7 +41,7 @@ const mirrored = computed(() => current.value !== '/')
       refuses a version 2 box by name rather than reading it.
       <a :href="withBase(current)">{{
         mirrored ? 'Read this page in the current version' : 'Go to the current documentation'
-      }}</a>.
+      }}</a>, or see <a :href="withBase('/guides/migrating-from-v2')">how to migrate a box to v3</a>.
     </p>
   </div>
 </template>

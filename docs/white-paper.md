@@ -1501,12 +1501,21 @@ The contract is exposed twice, and the split is load-bearing:
 
 - **`scrollcase/contract`** — the complete surface, including payload decoding, which needs Node's
   `crypto` for hashing.
-- **`scrollcase/contract/browser`** — target identity, document naming, the constants, and the
-  structural envelope guard. No Node built-in is reachable from it, so it loads in a browser, in a
-  Worker, and in Node alike.
+- **`scrollcase/contract/browser`** — target identity, the [runtime](#runtime) model, document
+  naming, the constants, and the structural envelope guard. No Node built-in is reachable from it,
+  so it loads in a browser, in a Worker, and in Node alike.
 
-A test walks the browser entry point's entire import graph and fails if any module in it reaches a
-Node built-in (`tests/unit/package-surface.test.mjs`). The reason is practical: a client that only
+The split is subtractive, which is what gives a new contract export somewhere obvious to go: the
+browser entry point carries everything the full one does except payload decoding and the two helpers
+that resolve a file beside the installed package. Everything else the contract states is a statement
+about names, and answers the same wherever it is asked.
+
+Two tests hold that line. One walks the browser entry point's entire import graph and fails if any
+module in it reaches a Node built-in; the other links all five published entry points in a real Node
+process, because that graph walk reads source text without evaluating it and the test runner's own
+resolver forgives a re-export naming a symbol that no longer exists — which is how this entry point
+spent the whole of the version 3 work pointing at a function the runtime split had renamed
+(`tests/unit/package-surface.test.mjs`). The reason for the split is practical: a client that only
 needs to compute a [target ID](#target-id) or recognise a document `kind` should not have to bundle
 a hashing implementation to do it.
 
@@ -6464,7 +6473,7 @@ consumer-only dependent avoid the entire build layer.
 
 | Export | Kind | Meaning |
 | --- | --- | --- |
-| `BOX_SCHEMA_VERSION` | constant | `2` — the only format version this release reads or writes |
+| `BOX_SCHEMA_VERSION` | constant | `3` — the only format version this release reads or writes |
 | `CHANNELS` | constant | The closed vocabulary: `nightly`, `beta`, `stable` |
 | `DEFAULT_DOCUMENT_NAMESPACE` | constant | `scrollcase.box`, used when a project declares none |
 | `PAYLOAD_ENCODING` | constant | The envelope's payload encoding identifier |

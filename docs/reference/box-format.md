@@ -400,14 +400,34 @@ payload encoding, signature algorithm, or golden fixture.
 
 ### What version 3 changed
 
-| Version 2 | Version 3 | Why |
-| --- | --- | --- |
-| `modelId`, `runtimeId` (both required) | `labels`, optional and free-form | Neither was ever read by any code path. They were a consumer's vocabulary in the format: a box packaging a library still had to name a model |
-| `pythonVersion`, `pythonEntryPoint` | `runtime: { id, version, entryPoint }` | A box said *where its Python was* and never *that it was Python*. A reader had to infer the runtime from the shape of a path |
-| `provenance.pythonVersion` | `provenance.runtimeVersion` | Same reason, and it may now be absent for a runtime that has no version to record |
-| `modelCacheSubdir` | `cacheSubdir` | The directory holds whatever the box's large files are |
-| `weights: embed \| on-demand` | `assets[].embed`, per entry | A box-wide switch could not ship a small entry point and defer a large dataset. `--weights` went with it: a build-time override of a per-asset declaration repacks a box under an identity that no longer describes it |
-| `selfTest.pythonImports` | `selfTest.probe` with `imports` and `commands` | Python syntax in the wire format. A runtime with no module system could not state a check at all |
-| Executable bit from a `venv/bin` heuristic | `assets[].executable`, `localFiles[].executable` | A downloaded file arrives with no permissions, so a box could not ship one that runs |
-| `python-script`, `python-module` | plus `node-script`, `native-binary` | Named once, so implementing the runtimes was code rather than another wire break — which is exactly how `node` and `native` arrived |
-| — | `bundledLicenses`, optional | The licences of what was linked *inside* a binary the box ships. `pixi.lock` cannot see them, so they are declared rather than derived, and signed so a licence decision can be made before an archive is downloaded |
+Six things, and one addition:
+
+1. **A box declares its runtime.** `runtime: { id, version, entryPoint }` replaces `pythonVersion`
+   and `pythonEntryPoint`. A version 2 box said *where its Python was* and never *that it was
+   Python*, so a reader had to infer the runtime from the shape of a path. Fixing the vocabulary —
+   `python`, `node`, `native` — is what let the other two runtimes arrive as code rather than as a
+   second wire break.
+2. **`modelId` and `runtimeId` became `labels`**, optional and free-form. Both were required and
+   neither was ever read by any code path: they were a consumer's vocabulary written into the
+   format, so a box packaging a library still had to name a model. `modelCacheSubdir` became
+   `cacheSubdir` for the same reason — the directory holds whatever the box's large files are.
+3. **`weights` became `assets[].embed`, per entry.** A box-wide switch could not ship a small entry
+   point inside the archive and defer a large dataset beside it, which is the case it existed for.
+4. **The self-test generalised.** `selfTest.pythonImports` put Python syntax in the wire format and
+   gave a runtime with no module system no way to state a check at all. The signed subset is
+   `selfTest.probe`, carrying `imports`, `commands`, or both.
+5. **The executable bit is declared**, through `assets[].executable` and `localFiles[].executable`,
+   rather than inferred from a `venv/bin` heuristic. A downloaded file arrives with no permissions,
+   so a box could not ship one that runs.
+6. **Publishing became optional.** `assetBaseUrl` is `publishBaseUrl` — it never touched an asset,
+   only the links between the signed documents — and `archive.url` and a channel entry's
+   `releaseManifestUrl` may now be absent, because a placeholder address in a signed, immutable
+   document stays false forever.
+
+The addition is `bundledLicenses`: the licences of what was linked *inside* a binary the box ships.
+`pixi.lock` cannot see them, so they are declared rather than derived, and signed so a licence
+decision can be made before an archive is downloaded.
+
+**[Migrating from v2](/guides/migrating-from-v2) is the field-by-field mapping** — the scroll, the
+signed documents, the CLI flags, and the order to do it in. It is kept in one place, so this section
+says what moved and that page says what to type.

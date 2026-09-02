@@ -278,26 +278,29 @@ boxTargetId({ platform: 'linux', arch: 'x86_64', accelerator: 'cuda', cudaVersio
 | `schemaUrl` | `(name) => URL` | Absolute URL of a shipped JSON Schema |
 | `fixtureUrl` | `(name) => URL` | Absolute URL of a shipped fixture |
 
-Constants: `BOX_SCHEMA_VERSION` (`2`), `PAYLOAD_ENCODING` (`'base64-json-utf8'`),
+Constants: `BOX_SCHEMA_VERSION` (`3`), `PAYLOAD_ENCODING` (`'base64-json-utf8'`),
 `SIGNATURE_ALGORITHM` (`'ed25519'`), `DEFAULT_DOCUMENT_NAMESPACE` (`'scrollcase.box'`),
 `CHANNELS` (`['nightly', 'beta', 'stable']`).
 
 ## `scrollcase/contract/browser`
 
 The platform-neutral subset of the contract for browsers, Workers, and Node. It exports the target
-helpers plus document constants, namespacing helpers, and `isSignedBoxDocument`. Its complete module
-graph contains no Node built-ins.
+helpers, the whole runtime model, the document constants, the namespacing helpers, and
+`isSignedBoxDocument`. Its complete module graph contains no Node built-ins.
 
 ```js
 import {
   boxTargetId,
+  runtimeAdapter,
   isSignedBoxDocument,
 } from 'scrollcase/contract/browser';
 ```
 
-The full `scrollcase/contract` entry point remains the Node surface and additionally exports
-`decodeDocumentPayload`, `schemaUrl`, and `fixtureUrl`. Cryptographic verification remains under
-`scrollcase/sign`; the browser guard checks envelope shape only and never establishes trust.
+The full `scrollcase/contract` entry point remains the Node surface and exports exactly three things
+more: `decodeDocumentPayload`, which needs Node's `crypto` to hash a payload, and `schemaUrl` and
+`fixtureUrl`, which resolve a file beside the installed package rather than anything a browser can
+fetch. Cryptographic verification remains under `scrollcase/sign`; the browser guard checks envelope
+shape only and never establishes trust.
 
 ::: warning Decoding is not verifying
 `decodeDocumentPayload` catches a truncated or edited document, because the payload hash must

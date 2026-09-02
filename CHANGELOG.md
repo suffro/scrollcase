@@ -151,8 +151,9 @@ dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll
   `DYLD_INSERT_LIBRARIES` on macOS, `LD_PRELOAD` on Linux, nothing on Windows. The runtime
   contributes the `PYTHON*` half, and `executionAffectingVariables(runtimeId, adapter)` joins the
   two in the order a diagnostic report prints them. The Rust `BoxTargetAdapter` and the Python
-  `TargetAdapter` lost the same fields, for the same reason. `assertPythonEntryPoint` keeps its
-  published name and signature in all three, and delegates to the runtime rule.
+  `TargetAdapter` lost the same fields, for the same reason. `assertPythonEntryPoint` is gone from
+  all three, replaced by `assertRuntimeEntryPoint(runtimeId, adapter, entryPoint)`, which asks the
+  runtime rule rather than the target for the layout it judges against.
 
 - The builder-side half of a runtime now lives under `src/runtimes/<id>/`. `repairPosixLaunchers`
   moved from `src/build/launchers.mjs` to `src/runtimes/python/launchers.mjs` — the conda shebang
@@ -470,7 +471,36 @@ dual-read path anywhere, and no migration tool: a box is rebuilt from its scroll
   into a document whose whole value is that it is true. Press Enter to skip; supply it later with
   `edit scroll`, or per build with `--asset-base-url`.
 
+### Added — one page for the v2 → v3 move
+
+- **`/guides/migrating-from-v2` is the field-by-field mapping, in one place.** Every renamed scroll
+  field, every renamed field in the signed documents, every renamed or removed CLI flag, the three
+  additions version 2 had no equivalent for — `assets[].executable`, `bundledLicenseDeclaration`,
+  an optional `archive.url` — a before-and-after scroll, and the order to do it in. All of it was
+  derivable before, from three separate subsections of this changelog and a table in the box-format
+  reference, which is not the same as being findable by someone holding a v2 scroll. That table is
+  now the *why* and links here for the *what*, so the mapping has one home rather than two.
+
+- The deprecation notice on every `/v2/` page links to it, since a reader who arrived there from an
+  old link or a search result is exactly the person it is for.
+
 ### Fixed
+
+- **`scrollcase/contract/browser` was a dead entry point for the whole of the version 3 work.** It
+  re-exported `assertPythonEntryPoint` from `targets.mjs`, which the runtime split had renamed and
+  moved, so linking the module under `node` was a `SyntaxError` before a single statement ran. It
+  now exports `assertRuntimeEntryPoint` and the rest of the runtime model — `runtimes.mjs` reads no
+  file, joins no host path and starts no process, so the browser-safe rule is unchanged and the
+  entry point is once again everything `scrollcase/contract` has except `decodeDocumentPayload`,
+  `schemaUrl` and `fixtureUrl`.
+
+  **Three things should have caught it and all three looked elsewhere**, which is the part worth
+  recording. The package-surface import test runs under Vitest, whose resolver forgave the missing
+  export. The import-closure check is a regular expression over source text and never evaluates a
+  module. And `tsc` omits an unresolvable re-export from the generated `.d.mts` without a word, so
+  `types:check` reported no drift. The suite now links all five published entry points in separate
+  `node` processes, through the `exports` map, which is the walk a dependent's own `import`
+  performs.
 
 - **A build with no asset base URL is refused before it solves anything.** The URL is needed only
   when the release document is written, which is after the environment solve, the self-test and the

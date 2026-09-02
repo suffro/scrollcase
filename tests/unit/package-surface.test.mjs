@@ -1,16 +1,18 @@
 /**
  * What a consumer of the published package actually gets.
  *
- * Three failures this catches that nothing else does. First, an `exports` map that names a file which
+ * Four failures this catches that nothing else does. First, an `exports` map that names a file which
  * moved or was never shipped: every other test imports by relative path, so the package could be
- * broken for everyone installing it while the suite stayed green. Second, generated types drifting
- * from the schemas they are a projection of — the schemas are the source of truth, and a type that
- * disagrees with them is worse than no type at all. Third, runtime declarations that exist but
- * silently widen the JavaScript API to `any`.
+ * broken for everyone installing it while the suite stayed green. Second, an entry point that
+ * resolves but will not *link* — a re-export naming a symbol its source no longer has, which this
+ * runner forgives and `node` refuses. Third, generated types drifting from the schemas they are a
+ * projection of — the schemas are the source of truth, and a type that disagrees with them is worse
+ * than no type at all. Fourth, runtime declarations that exist but silently widen the JavaScript
+ * API to `any`.
  */
 
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
@@ -104,6 +106,47 @@ describe('the package surface', () => {
     expect(typeof consumer.runExtractedBox).toBe('function');
     expect(typeof consumer.runBox).toBe('function');
     expect(typeof sign.verifySignedDocument).toBe('function');
+  });
+
+  /**
+   * The same five entry points, loaded by Node itself.
+   *
+   * The case above imports them too, and it is not enough: it runs inside Vitest, whose resolver
+   * links a module graph its own way and forgave a re-export naming a symbol that no longer existed.
+   * `scrollcase/contract/browser` re-exported `assertPythonEntryPoint` from `targets.mjs` for the
+   * whole of the version 3 work — the runtime split had moved it and renamed it — and every one of
+   * the three things that should have caught it looked elsewhere. The import above resolved. The
+   * closure scan below is a regular expression over source text, which reads specifiers and never
+   * evaluates a module. And `tsc` omits an unresolvable re-export from the generated `.d.mts`
+   * without a word, so `types:check` reported no drift. Under `node`, linking that module is a
+   * SyntaxError before a single statement runs, which is what a dependent would have met.
+   *
+   * A separate process per subpath, resolved through the package name so the `exports` map is what
+   * decides which file is loaded — the same walk `import 'scrollcase/…'` performs for a dependent.
+   */
+  it('links every entry point in a real Node process, through the exports map', () => {
+    const specifiers = Object.entries(packageJson.exports)
+      .filter(([, entry]) => typeof entry === 'object' && entry.import)
+      .map(([subpath]) => `scrollcase${subpath.slice(1)}`);
+    expect(specifiers).toEqual([
+      'scrollcase/contract',
+      'scrollcase/contract/browser',
+      'scrollcase/build',
+      'scrollcase/consumer',
+      'scrollcase/sign',
+    ]);
+
+    for (const specifier of specifiers) {
+      // An entry point that links but exports nothing is the other half of the same failure: it
+      // resolves, it evaluates, and a dependent gets an empty namespace object.
+      const source = `const module = await import(${JSON.stringify(specifier)});
+        if (Object.keys(module).length === 0) throw new Error('${specifier} exports nothing');`;
+      const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+        cwd: repoRootPath,
+        encoding: 'utf8',
+      });
+      expect(result.status, `${specifier} failed to link under node:\n${result.stderr}`).toBe(0);
+    }
   });
 
   it('ships a browser-safe contract helper graph with no Node built-ins', async () => {

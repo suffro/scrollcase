@@ -182,7 +182,7 @@ describe('auditing dependency licences', () => {
       runtimeVersion: '3.11.15',
       pixiVersion: '0.73.0',
       compatibility: { minHostAppVersion: '1.0.0' },
-      assetBaseUrl: 'https://assets.example.org',
+      publishBaseUrl: 'https://assets.example.org',
       executionKind: 'library-only',
     });
     const scroll = JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8'));
