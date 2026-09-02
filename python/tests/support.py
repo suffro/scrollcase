@@ -37,7 +37,7 @@ def native_target() -> dict[str, str]:
     raise RuntimeError(f"Unsupported test host: {sys.platform}/{machine}")
 
 
-def python_entry_point(target: dict[str, str]) -> str:
+def entry_point_for(target: dict[str, str]) -> str:
     if target["platform"] == "windows":
         return "venv/python.exe"
     return "venv/bin/python"
@@ -65,7 +65,7 @@ class ConsumerFixture:
     def sign(self) -> None:
         payload = (json.dumps(self.release, indent=2) + "\n").encode("utf-8")
         signed = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "payloadEncoding": "base64-json-utf8",
             "payloadBase64": base64.b64encode(payload).decode("ascii"),
             "payloadSha256": hashlib.sha256(payload).hexdigest(),
@@ -141,10 +141,12 @@ def create_fixture(
     script: bytes = b'print("consumer fixture")\n',
     payload_digest: bool = True,
     environment: dict[str, str] | None = None,
+    labels: dict[str, str] | None = None,
+    extra_files: dict[str, tuple[bytes, int]] | None = None,
 ) -> ConsumerFixture:
     root = Path(tempfile.mkdtemp(prefix="scrollcase-python-consumer-fixture-"))
     resolved_target = native_target() if target is None else target
-    entry_point = python_entry_point(resolved_target)
+    entry_point = entry_point_for(resolved_target)
     resolved_execution = (
         {
             "kind": "python-script",
@@ -155,22 +157,24 @@ def create_fixture(
         else execution
     )
     shared: dict[str, Any] = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "boxId": "consumer-fixture",
-        "modelId": "example-consumer-model",
-        "runtimeId": "example-consumer-runtime",
         "version": "2.0.0",
         "target": resolved_target,
-        "pythonEntryPoint": entry_point,
-        "modelCacheSubdir": "model-cache/consumer-fixture",
-        "selfTest": {"pythonImports": ["json"], "timeoutSeconds": 30},
+        "runtime": {
+            "id": "python",
+            "version": "3.11.15",
+            "entryPoint": entry_point,
+        },
+        "cacheSubdir": "cache/consumer-fixture",
+        "selfTest": {"probe": {"imports": ["json"]}, "timeoutSeconds": 30},
         "provenance": {
             "scrollId": "consumer-fixture-scroll",
             "scrollVersion": "2.0.0",
             "builderRevision": "0123456789abcdef0123456789abcdef01234567",
             "sourceTreeDirty": False,
             "sourceRevision": "fedcba9876543210",
-            "pythonVersion": "3.11.15",
+            "runtimeVersion": "3.11.15",
             "pixiVersion": "0.73.0",
             "dependencyLockSha256": "a" * 64,
             "builtAt": "2026-07-29T00:00:00.000Z",
@@ -180,12 +184,16 @@ def create_fixture(
         shared["execution"] = resolved_execution
     if environment is not None:
         shared["environment"] = environment
+    if labels is not None:
+        shared["labels"] = labels
     if required_asset is not None:
-        shared["weights"] = "on-demand"
+        # The list is exactly the deferred entries; there is no second field to keep in step.
         shared["assets"] = [required_asset]
     entries = [
         ArchiveEntry(entry_point, interpreter, 0o755),
     ]
+    for path, (data, mode) in (extra_files or {}).items():
+        entries.append(ArchiveEntry(path, data, mode))
     if isinstance(resolved_execution, dict):
         if resolved_execution["kind"] == "python-script":
             entries.append(ArchiveEntry(resolved_execution["script"], script))

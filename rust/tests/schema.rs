@@ -5,7 +5,7 @@
 //! actually agree. So this suite runs both over the same documents and asserts they reach the same
 //! verdict, on the examples and on a battery of mutations chosen to poke at the places where a typed
 //! parse and a schema most plausibly drift apart: an unknown field, a missing required field, a
-//! pattern violation, a broken bound, and the `weights`/`assets` co-requirement.
+//! pattern violation, a broken bound, and a probe that states nothing.
 //!
 //! Agreement is checked in both directions. Drifting *stricter* than the schema is as much a
 //! divergence as drifting looser, and it is the direction a typed parse drifts by default: the last
@@ -108,7 +108,7 @@ fn the_types_and_the_schema_agree_on_every_mutation() {
         (
             "a schema version from another format revision",
             Box::new(|value: &mut Value| {
-                value["schemaVersion"] = json!(3);
+                value["schemaVersion"] = json!(4);
             }),
         ),
         (
@@ -156,7 +156,7 @@ fn the_types_and_the_schema_agree_on_every_mutation() {
         (
             "an empty self-test import list",
             Box::new(|value: &mut Value| {
-                value["selfTest"]["pythonImports"] = json!([]);
+                value["selfTest"]["probe"]["imports"] = json!([]);
             }),
         ),
         (
@@ -166,22 +166,32 @@ fn the_types_and_the_schema_agree_on_every_mutation() {
             }),
         ),
         (
-            "weights without assets",
+            "an empty deferred-asset list",
             Box::new(|value: &mut Value| {
-                value["weights"] = json!("on-demand");
-                value.as_object_mut().unwrap().remove("assets");
+                value["assets"] = json!([]);
             }),
         ),
         (
-            "assets without weights",
+            "a deferred asset with no digest",
             Box::new(|value: &mut Value| {
-                value.as_object_mut().unwrap().remove("weights");
                 value["assets"] = json!([{
                     "url": "https://example.invalid/w.bin",
-                    "relativePath": "weights/w.bin",
+                    "relativePath": "cache/w.bin",
                     "sizeBytes": 1,
-                    "sha256": "a".repeat(64),
+                    "sha256": "not-a-digest",
                 }]);
+            }),
+        ),
+        (
+            "a probe that proves nothing",
+            Box::new(|value: &mut Value| {
+                value["selfTest"]["probe"] = json!({});
+            }),
+        ),
+        (
+            "a runtime the format does not define",
+            Box::new(|value: &mut Value| {
+                value["runtime"]["id"] = json!("ruby");
             }),
         ),
         (

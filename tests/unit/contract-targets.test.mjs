@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   assertNativeHost,
-  assertPythonEntryPoint,
+  assertRuntimeEntryPoint,
   boxTargetAdapter,
   boxTargetAdapters,
   boxTargetId,
@@ -46,13 +46,21 @@ describe('target adapters', () => {
     }
   });
 
-  it('describes a payload layout consumers can rely on', () => {
+  it('describes the substrate and archive facts a build depends on', () => {
     for (const adapter of boxTargetAdapters()) {
-      expect(adapter.python.payloadRoot, adapter.id).toBe('venv');
-      expect(adapter.python.entryPoint, adapter.id).toMatch(/^venv\//);
       expect(adapter.archive.format, adapter.id).toBe('zip');
-      // The scripts directory must sit inside the payload root, or an installed box cannot find it.
-      expect(adapter.python.scriptsDirectory, adapter.id).toMatch(/^venv/);
+      expect(adapter.condaSubdir, adapter.id).toMatch(/^(osx-arm64|linux-64|win-64)$/);
+      expect(adapter.nativeLibraryInspection.command, adapter.id).toBeTruthy();
+    }
+  });
+
+  it('carries only the operating system half of the execution-affecting variables', () => {
+    // The runtime contributes the rest. A target adapter that named PYTHONPATH would be saying a
+    // box is a Python box, which is exactly the coupling `runtimes.mjs` exists to remove.
+    for (const adapter of boxTargetAdapters()) {
+      for (const variable of adapter.executionAffectingEnvironmentVariables) {
+        expect(variable, adapter.id).not.toMatch(/^PYTHON/);
+      }
     }
   });
 
@@ -82,10 +90,11 @@ describe('target adapters', () => {
     expect(() => assertNativeHost(adapter, { platform: 'darwin', arch: 'arm64' })).toThrow(/must be built natively/);
   });
 
-  it('refuses a scroll entry point that disagrees with the adapter layout', () => {
+  it('refuses a scroll entry point that disagrees with the runtime layout', () => {
     const adapter = boxTargetAdapter({ platform: 'windows', arch: 'x86_64', accelerator: 'cpu' });
-    expect(() => assertPythonEntryPoint(adapter, 'venv/python.exe')).not.toThrow();
-    expect(() => assertPythonEntryPoint(adapter, 'venv/bin/python')).toThrow(/entry point/);
+    expect(() => assertRuntimeEntryPoint('python', adapter, 'venv/python.exe')).not.toThrow();
+    expect(() => assertRuntimeEntryPoint('python', adapter, 'venv/bin/python'))
+      .toThrow(/entry point/);
   });
 });
 

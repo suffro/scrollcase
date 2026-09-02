@@ -1,0 +1,49 @@
+{
+  "$schema": "https://scrollcase.dev/schema/v3/scroll.schema.json",
+  "schemaVersion": 3,
+  "boxId": "hello-box-node",
+  "version": "1.0.0",
+  "sourceRevision": "example-node-v1",
+  "target": {
+    "platform": "macos",
+    "arch": "aarch64",
+    "accelerator": "metal"
+  },
+  "compatibility": {
+    "minHostAppVersion": "1.0.0",
+    "minMacosVersion": "13.0"
+  },
+  "runtime": {
+    "id": "node",
+    "version": "22"
+  },
+  "pixiVersion": "0.73.0",
+  "condaDependencyLicenseAudit": "examples/hello-box-node/macos-aarch64-metal/conda-licenses.json",
+  "cacheSubdir": "cache/hello-box-node",
+  "publishBaseUrl": "https://assets.example.org/boxes",
+  "selfTest": {
+    "imports": [
+      "node:fs",
+      "node:path"
+    ],
+    "files": [
+      "entrypoint.js"
+    ],
+    "commands": [
+      {
+        "args": []
+      }
+    ]
+  },
+  "localFiles": [
+    {
+      "sourcePath": "examples/hello-box-node/macos-aarch64-metal/entrypoint.js",
+      "relativePath": "entrypoint.js"
+    }
+  ],
+  "execution": {
+    "kind": "node-script",
+    "script": "entrypoint.js",
+    "defaultArgs": []
+  }
+}

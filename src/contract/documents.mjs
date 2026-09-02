@@ -8,7 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { isSignedBoxDocument } from './document-shape.mjs';
+import { isSignedBoxDocument, unsupportedSchemaVersionMessage } from './document-shape.mjs';
 
 export {
   BOX_SCHEMA_VERSION,
@@ -19,6 +19,7 @@ export {
   documentKinds,
   isSignedBoxDocument,
   parseDocumentKind,
+  unsupportedSchemaVersionMessage,
 } from './document-shape.mjs';
 
 /**
@@ -33,8 +34,8 @@ export {
  * @throws {Error} when the embedded payload hash does not match the bytes
  */
 export function decodeDocumentPayload(document) {
-  if (document?.schemaVersion === 1) {
-    throw new TypeError('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+  if (document?.schemaVersion === 1 || document?.schemaVersion === 2) {
+    throw new TypeError(unsupportedSchemaVersionMessage(document.schemaVersion));
   }
   if (!isSignedBoxDocument(document)) {
     throw new TypeError('Not a signed box document');

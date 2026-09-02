@@ -28,15 +28,6 @@ export function assertNativeHost(adapter: BoxTargetAdapter, host?: {
     arch: string;
 }): void;
 /**
- * Ensures the scroll entry point agrees with the adapter's standalone Python layout.
- *
- * @param {BoxTargetAdapter} adapter
- * @param {string} entryPoint
- * @returns {void}
- * @throws {TypeError} when the entry point does not match the adapter's layout
- */
-export function assertPythonEntryPoint(adapter: BoxTargetAdapter, entryPoint: string): void;
-/**
  * Lists every adapter, for contract tests and for consumers enumerating supported targets.
  *
  * @returns {BoxTargetAdapter[]} every supported adapter, as a fresh array
@@ -64,7 +55,7 @@ export function pixiAccelerator(scroll: Pick<import("./types/index.d.ts").BoxScr
 };
 /**
  * What a target implies for the built payload. Part of the format rather than an implementation
- * detail: a consumer unpacking a box relies on this layout.
+ * detail: a consumer unpacking a box relies on this.
  */
 export type BoxTargetAdapter = {
     /**
@@ -85,16 +76,6 @@ export type BoxTargetAdapter = {
      */
     condaSubdir: "osx-arm64" | "linux-64" | "win-64";
     /**
-     * layout of the interpreter in the box
-     */
-    python: {
-        payloadRoot: string;
-        entryPoint: string;
-        scriptsDirectory: string;
-        executableSuffix: string;
-        launcherKind: string;
-    };
-    /**
      * the pinned archive backend
      */
     archive: {
@@ -114,12 +95,9 @@ export type BoxTargetAdapter = {
      */
     validationEnvironments: Readonly<Record<string, Readonly<Record<string, string>>>>;
     /**
-     * inherited variables whose
-     * presence can change which code the box interpreter loads or executes
+     * the operating system's own
+     * dynamic-linker controls; the runtime adds the variables its loader reads, and
+     * `executionAffectingVariables()` in `runtimes.mjs` is what joins the two halves
      */
     executionAffectingEnvironmentVariables: readonly string[];
-    /**
-     * the platform assertion prepended to every self-test
-     */
-    selfTestPython: string;
 };

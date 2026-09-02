@@ -18,6 +18,7 @@ const REPO_ROOT = dirname(CRATE_ROOT);
 /** Canonical source → crate destination, both relative to the repository root. */
 const ASSETS = [
   ['src/contract/fixtures/target-id-contract.json', 'rust/fixtures/target-id-contract.json'],
+  ['src/contract/fixtures/runtime-contract.json', 'rust/fixtures/runtime-contract.json'],
   ['src/contract/fixtures/payload-digest-contract.json', 'rust/fixtures/payload-digest-contract.json'],
   ['src/contract/fixtures/consumer-conformance.json', 'rust/fixtures/consumer-conformance.json'],
   ['src/contract/schema/signed-document.schema.json', 'rust/src/contract/schema/signed-document.schema.json'],

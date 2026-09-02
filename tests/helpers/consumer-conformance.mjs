@@ -29,6 +29,7 @@ import {
   payloadDigestStream,
 } from '../../src/contract/payload-digest.mjs';
 import { boxTargetAdapter, boxTargetId } from '../../src/contract/targets.mjs';
+import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import {
   attachExtractedBox,
   runBox,
@@ -156,7 +157,7 @@ async function mutateFixture(fixture, mutation, destination) {
   }
   if (mutation === 'downgrade-envelope-version') {
     // The envelope's own version is outside the signed payload, so this is what a genuine v1
-    // document looks like to a v2 consumer: refusable by name before any signature is checked.
+    // document looks like to a v3 consumer: refusable by name before any signature is checked.
     const signed = JSON.parse(await readFile(fixture.releasePath, 'utf8'));
     signed.schemaVersion = 1;
     await writeFile(fixture.releasePath, `${JSON.stringify(signed, null, 2)}\n`);
@@ -173,8 +174,21 @@ async function mutateFixture(fixture, mutation, destination) {
     await writeSignedRelease(fixture, fixture.release);
     return;
   }
-  if (mutation === 'alter-release-model') {
-    fixture.release.modelId = 'altered-model';
+  if (mutation === 'alter-release-labels') {
+    fixture.release.labels = { model: 'altered-model' };
+    await writeSignedRelease(fixture, fixture.release);
+    return;
+  }
+  if (mutation === 'alter-release-runtime-version') {
+    fixture.release.runtime = { ...fixture.release.runtime, version: '3.99.0' };
+    await writeSignedRelease(fixture, fixture.release);
+    return;
+  }
+  if (mutation === 'alter-release-runtime-id') {
+    // A Python box relabelled as native after it was built. Everything about the payload still
+    // says Python, so the consumer must refuse it rather than read the declaration as the truth
+    // about a box that disagrees with it.
+    fixture.release.runtime = { ...fixture.release.runtime, id: 'native' };
     await writeSignedRelease(fixture, fixture.release);
     return;
   }
@@ -188,6 +202,24 @@ async function mutateFixture(fixture, mutation, destination) {
   }
   if (mutation === 'alter-release-environment') {
     fixture.release.environment = { SCROLLCASE_CHANGED_AFTER_BUILD: '1' };
+    await writeSignedRelease(fixture, fixture.release);
+    return;
+  }
+  if (mutation === 'strip-release-archive-url') {
+    // A box built without a publish base URL: it was never published, so its release names no
+    // address for the archive. Every consumer must prepare it exactly as it prepares any other, because
+    // the URL was never part of the trust chain — the archive is found beside the release document and
+    // identified by its sha256.
+    const { url: _unpublished, ...archive } = fixture.release.archive;
+    fixture.release.archive = archive;
+    await writeSignedRelease(fixture, fixture.release);
+    return;
+  }
+  if (mutation === 'alter-release-bundled-licenses') {
+    // A licence inventory added to the signed release after the box was built. It is signed, so the
+    // signature still verifies; what refuses it is that box.json says something else, which is the
+    // whole reason the inventory is compared field by field rather than merely carried.
+    fixture.release.bundledLicenses = [{"name": "zlib", "version": "1.3.1", "declaredLicense": "Zlib", "linkedInto": ["box.json"]}];
     await writeSignedRelease(fixture, fixture.release);
     return;
   }
@@ -207,7 +239,7 @@ async function mutateFixture(fixture, mutation, destination) {
     return;
   }
   const removePath = {
-    'remove-interpreter': fixture.release.pythonEntryPoint,
+    'remove-interpreter': fixture.release.runtime.entryPoint,
     'remove-script': fixture.release.execution?.script,
     'remove-module': fixture.release.execution?.module?.split('.').join('/') + '.py',
   }[mutation];
@@ -221,17 +253,17 @@ async function mutateFixture(fixture, mutation, destination) {
   // — `venv/bin/python` is a link to the versioned binary beside it — so a consumer that only
   // accepts regular files here rejects every box the builder produces on macOS and Linux.
   if (mutation === 'link-interpreter') {
-    const parts = fixture.release.pythonEntryPoint.split('/');
+    const parts = fixture.release.runtime.entryPoint.split('/');
     const linkTarget = `${parts[parts.length - 1]}-real`;
     const directory = join(fixture.payload, ...parts.slice(0, -1));
     await rename(join(fixture.payload, ...parts), join(directory, linkTarget));
     await refreshPayloadDigest(fixture, [{
-      path: fixture.release.pythonEntryPoint,
+      path: fixture.release.runtime.entryPoint,
       kind: 'link',
       contentSha256: createHash('sha256').update(linkTarget, 'utf8').digest('hex'),
     }]);
     await writeZip(fixture.archivePath, fixture.payload, {
-      path: fixture.release.pythonEntryPoint,
+      path: fixture.release.runtime.entryPoint,
       contents: linkTarget,
       options: { mode: 0o120777 },
     });
@@ -304,7 +336,7 @@ async function mutateExtractedRoot(fixture, mutation, root) {
     return root;
   }
   if (mutation === 'remove-interpreter') {
-    await rm(join(root, ...fixture.release.pythonEntryPoint.split('/')));
+    await rm(join(root, ...fixture.release.runtime.entryPoint.split('/')));
     return root;
   }
   if (mutation === 'remove-script') {
@@ -312,7 +344,7 @@ async function mutateExtractedRoot(fixture, mutation, root) {
     return root;
   }
   if (mutation === 'retarget-interpreter-link') {
-    const interpreter = join(root, ...fixture.release.pythonEntryPoint.split('/'));
+    const interpreter = join(root, ...fixture.release.runtime.entryPoint.split('/'));
     const target = await readlink(interpreter);
     await rm(interpreter);
     await symlink(`${target}-retargeted`, interpreter);
@@ -346,9 +378,10 @@ function fixtureOptions(spec = {}) {
   const execution = spec.execution === 'module'
     ? { kind: 'python-module', module: 'example.application', defaultArgs: ['--default'] }
     : undefined;
+  const executablePaths = spec.executableAsset ? ['bin/tool'] : [];
   const requiredAsset = spec.requiredAsset ? {
-    url: 'https://assets.example.org/weights.bin',
-    relativePath: 'model-cache/consumer-fixture/weights.bin',
+    url: 'https://assets.example.org/data.bin',
+    relativePath: 'cache/consumer-fixture/data.bin',
     sizeBytes: ASSET_BYTES.length,
     sha256: createHash('sha256').update(ASSET_BYTES).digest('hex'),
   } : null;
@@ -359,6 +392,9 @@ function fixtureOptions(spec = {}) {
     requiredAsset,
     payloadDigest: spec.payloadDigest !== false,
     environment: spec.environment,
+    executablePaths,
+    ...(spec.executableAsset ? { extraFiles: { 'bin/tool': '#!/bin/sh\nexit 0\n' } } : {}),
+    ...(spec.labels ? { labels: spec.labels } : {}),
   };
 }
 
@@ -413,7 +449,7 @@ function replaceTokens(value, root = null) {
   if (typeof value === 'string') {
     const adapter = boxTargetAdapter(nativeTarget());
     return value
-      .replaceAll('$NATIVE_PYTHON', adapter.python.entryPoint)
+      .replaceAll('$NATIVE_ENTRY_POINT', runtimeAdapter('python').layout(adapter).entryPoint)
       .replaceAll('$NATIVE_TARGET', boxTargetId(nativeTarget()))
       .replaceAll('$BOX', root ?? '$BOX');
   }
@@ -461,6 +497,11 @@ export async function runNodeConformanceCase(testCase) {
     previousHostEnvironment.set(name, process.env[name]);
     process.env[name] = value;
   }
+  // A restrictive umask is the condition under which the three consumers used to disagree: two
+  // applied the archive's mode through open(2) and lost it, one chmod'd and kept it.
+  const previousUmask = runtime.umask === undefined || process.platform === 'win32'
+    ? null
+    : process.umask(Number.parseInt(runtime.umask, 8));
   try {
     if (testCase.fixture?.linkedInterpreter) {
       await mutateFixture(fixture, 'link-interpreter', destination);
@@ -485,9 +526,16 @@ export async function runNodeConformanceCase(testCase) {
         boxId: prepared.boxId,
         executionKind: prepared.execution?.kind ?? null,
         requiredAssetCount: prepared.requiredAssets.length,
-        pythonEntryPoint: prepared.pythonEntryPoint,
+        runtimeId: prepared.runtime.id,
+        entryPoint: prepared.runtime.entryPoint,
         targetId: prepared.targetId,
       };
+      if (testCase.expected.receipt?.executableModes) {
+        receipt.executableModes = await executableModes(
+          prepared.root,
+          testCase.expected.receipt.executableModes,
+        );
+      }
       if (testCase.expected.receipt?.environmentReport) {
         receipt.environmentReport = environmentReport(
           prepared.environmentReport,
@@ -530,7 +578,8 @@ export async function runNodeConformanceCase(testCase) {
           boxId: attached.boxId,
           executionKind: attached.execution?.kind ?? null,
           requiredAssetCount: attached.requiredAssets.length,
-          pythonEntryPoint: attached.pythonEntryPoint,
+          runtimeId: attached.runtime.id,
+          entryPoint: attached.runtime.entryPoint,
           targetId: attached.targetId,
         };
         if (testCase.expected.receipt?.environmentReport) {
@@ -687,11 +736,27 @@ export async function runNodeConformanceCase(testCase) {
     }
     return { actual, expected, root: fixture.root };
   } finally {
+    if (previousUmask !== null) process.umask(previousUmask);
     for (const [name, value] of previousHostEnvironment) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
   }
+}
+
+/**
+ * The permission bits an extracted box actually carries, for the paths a case names.
+ *
+ * Windows has no bit to read, so every path reports the same value there and the fixture says so
+ * rather than the driver quietly skipping the case.
+ */
+async function executableModes(root, paths) {
+  const modes = {};
+  for (const path of Object.keys(paths)) {
+    const details = await stat(join(root, ...path.split('/')));
+    modes[path] = process.platform === 'win32' ? null : (details.mode & 0o777).toString(8);
+  }
+  return modes;
 }
 
 async function pathExists(path) {

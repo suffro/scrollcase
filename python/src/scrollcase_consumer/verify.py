@@ -31,9 +31,13 @@ from ._contract import (
     assert_execution_files,
     assert_native_host,
     execution_from_json,
+    is_implemented_runtime,
     parse_payload_digest_stream,
     path_under,
     required_assets_from_json,
+    runtime_from_json,
+    unimplemented_runtime_message,
+    assert_runtime_entry_point,
     target_adapter,
     target_from_json,
     target_id,
@@ -54,19 +58,38 @@ from .models import BoxExecution, BoxTarget, PayloadVerification, PreparedBox, R
 _AGREEMENT_FIELDS = (
     "schemaVersion",
     "boxId",
-    "modelId",
-    "runtimeId",
+    "labels",
     "version",
     "target",
-    "pythonEntryPoint",
-    "modelCacheSubdir",
+    "runtime",
+    "cacheSubdir",
+    # Here for the same reason it is signed at all: a licence inventory that could differ between
+    # the document a reviewer read and the box a user installed would be worth nothing.
+    "bundledLicenses",
     "environment",
     "selfTest",
     "execution",
-    "weights",
     "assets",
     "provenance",
 )
+
+
+#: The format version this package reads and nothing else.
+BOX_SCHEMA_VERSION = 3
+
+
+def _assert_supported_schema_version(version: object) -> None:
+    """Refuse a superseded document by name rather than reinterpreting it.
+
+    Both older versions are named rather than lumped together as "too old": a v1 and a v2 box are
+    different artefacts with different rebuilds ahead of them, and whoever is holding one is
+    entitled to know which.
+    """
+
+    if version in (1, 2):
+        raise ScrollcaseConsumerError(
+            f"Unsupported schemaVersion {version}; rebuild this box with Scrollcase v3."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,20 +302,16 @@ def _inspect_release_document(
     """
     release_path = absolute_path(release_document_path)
     signed_value = _read_json(release_path, "signed document")
-    if isinstance(signed_value, Mapping) and signed_value.get("schemaVersion") == 1:
-        raise ScrollcaseConsumerError(
-            "Unsupported schemaVersion 1; rebuild this box with Scrollcase v2."
-        )
+    if isinstance(signed_value, Mapping):
+        _assert_supported_schema_version(signed_value.get("schemaVersion"))
     validate_schema(signed_value, "signed-document.schema.json", "signed document")
     signed = cast(dict[str, Any], signed_value)
     _, release = _verify_signed_document(signed, trusted)
-    if release.get("schemaVersion") == 1:
+    _assert_supported_schema_version(release.get("schemaVersion"))
+    if release.get("schemaVersion") != BOX_SCHEMA_VERSION:
         raise ScrollcaseConsumerError(
-            "Unsupported schemaVersion 1; rebuild this box with Scrollcase v2."
-        )
-    if release.get("schemaVersion") != 2:
-        raise ScrollcaseConsumerError(
-            f"Unsupported schemaVersion {release.get('schemaVersion')}; expected 2."
+            f"Unsupported schemaVersion {release.get('schemaVersion')}; "
+            f"expected {BOX_SCHEMA_VERSION}."
         )
     validate_schema(release, "release-manifest.schema.json", "release manifest")
     kind = cast(str, release["kind"])
@@ -301,11 +320,12 @@ def _inspect_release_document(
 
     target = target_from_json(cast(dict[str, Any], release["target"]))
     adapter = target_adapter(target)
-    if release["pythonEntryPoint"] != adapter.python_entry_point:
-        raise ScrollcaseConsumerError(
-            f"{adapter.platform}-{adapter.arch} boxes must use Python entry point "
-            f"{adapter.python_entry_point}"
-        )
+    runtime = runtime_from_json(cast(dict[str, Any], release["runtime"]))
+    # The format's runtime vocabulary is wider than what this package implements, so a release may
+    # name one there is no adapter for. That is refused by name rather than misread as another.
+    if not is_implemented_runtime(runtime.id):
+        raise ScrollcaseConsumerError(unimplemented_runtime_message(runtime.id))
+    assert_runtime_entry_point(runtime.id, adapter, runtime.entry_point)
     return _InspectedRelease(
         release_path=release_path,
         signed=signed,
@@ -358,17 +378,17 @@ def _inspect_box_archive(
     validate_schema(box_value, "box-manifest.schema.json", "box.json")
     box = cast(dict[str, Any], box_value)
     _assert_manifest_agreement(box, release)
-    if release["pythonEntryPoint"] not in resolvable_paths:
-        raise ScrollcaseConsumerError(
-            f"Archive is missing {release['pythonEntryPoint']}."
-        )
+    entry_point = cast("str | None", release["runtime"].get("entryPoint"))
+    if entry_point is not None and entry_point not in resolvable_paths:
+        raise ScrollcaseConsumerError(f"Archive is missing {entry_point}.")
     execution = execution_from_json(
         cast(dict[str, Any] | None, release.get("execution"))
     )
     assert_execution_files(
         execution,
         target,
-        cast(str, release["provenance"]["pythonVersion"]),
+        cast(str, release["runtime"]["id"]),
+        cast(str, release["provenance"].get("runtimeVersion", "")),
         resolvable_paths,
     )
     return _InspectedBox(
@@ -403,9 +423,7 @@ def verify_and_extract_box(
     )
     release = inspected.release
     required_assets = required_assets_from_json(
-        cast(list[Mapping[str, Any]] | None, release.get("assets"))
-        if release.get("weights") == "on-demand"
-        else None
+        cast("list[Mapping[str, Any]] | None", release.get("assets"))
     )
     final_root.parent.mkdir(parents=True, exist_ok=True)
     if final_root.exists() or final_root.is_symlink():
@@ -448,12 +466,11 @@ def verify_and_extract_box(
             status="prepared",
             root=str(final_root),
             box_id=cast(str, release["boxId"]),
-            model_id=cast(str, release["modelId"]),
-            runtime_id=cast(str, release["runtimeId"]),
+            labels=cast("Mapping[str, str]", release.get("labels", {})),
             version=cast(str, release["version"]),
             target=target,
             target_id=target_id(target),
-            python_entry_point=cast(str, release["pythonEntryPoint"]),
+            runtime=runtime_from_json(cast(dict[str, Any], release["runtime"])),
             execution=inspected.execution,
             required_assets=required_assets,
             signing_key_ids=tuple(
@@ -558,23 +575,21 @@ def attach_extracted_box(
     assert_native_host(target)
 
     resolvable_paths = frozenset(collect_files(box_root))
-    if release["pythonEntryPoint"] not in resolvable_paths:
-        raise ScrollcaseConsumerError(
-            f"Attached box is missing {release['pythonEntryPoint']}."
-        )
+    entry_point = cast("str | None", release["runtime"].get("entryPoint"))
+    if entry_point is not None and entry_point not in resolvable_paths:
+        raise ScrollcaseConsumerError(f"Attached box is missing {entry_point}.")
     execution = execution_from_json(
         cast(dict[str, Any] | None, release.get("execution"))
     )
     assert_execution_files(
         execution,
         target,
-        cast(str, release["provenance"]["pythonVersion"]),
+        cast(str, release["runtime"]["id"]),
+        cast(str, release["provenance"].get("runtimeVersion", "")),
         resolvable_paths,
     )
     required_assets = required_assets_from_json(
-        cast(list[Mapping[str, Any]] | None, release.get("assets"))
-        if release.get("weights") == "on-demand"
-        else None
+        cast("list[Mapping[str, Any]] | None", release.get("assets"))
     )
     verify_required_assets(box_root, required_assets)
 
@@ -590,12 +605,11 @@ def attach_extracted_box(
         status="attached",
         root=str(box_root),
         box_id=cast(str, release["boxId"]),
-        model_id=cast(str, release["modelId"]),
-        runtime_id=cast(str, release["runtimeId"]),
+        labels=cast("Mapping[str, str]", release.get("labels", {})),
         version=cast(str, release["version"]),
         target=target,
         target_id=target_id(target),
-        python_entry_point=cast(str, release["pythonEntryPoint"]),
+        runtime=runtime_from_json(cast(dict[str, Any], release["runtime"])),
         execution=execution,
         required_assets=required_assets,
         signing_key_ids=tuple(

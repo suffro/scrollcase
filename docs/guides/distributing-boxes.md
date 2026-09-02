@@ -56,8 +56,9 @@ The chain is content-addressed end to end: **channel → release document (by it
 - **An object can never be replaced with different bytes under the same URL.** New bytes means a
   new hash means a new key. Serve `boxes/` as immutable and cache it aggressively.
 
-The URLs inside the signed documents are `<assetBaseUrl>/<object key>`, so pointing
-`assetBaseUrl` at wherever you serve `dist/boxes/` from is all the coordination needed.
+The URLs inside the signed documents are `<publishBaseUrl>/<object key>`, so pointing
+`publishBaseUrl` at wherever you serve `dist/boxes/` from is all the coordination needed. A box
+built without one carries no such URLs at all — see [the scroll reference](/reference/scroll#publishbaseurl).
 
 ## Publishing
 
@@ -88,7 +89,7 @@ separation is the point: **promoting a build never requires re-signing it**.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.channel",
   "channel": "beta",
   "boxId": "my-model",
@@ -161,9 +162,9 @@ Whatever installs your boxes should do exactly what `scrollcase verify` does, in
 5. Download the archive; check size and SHA-256 against the release.
 6. Validate every entry name before final extraction.
 7. Compare all shared `box.json` fields recursively against the release.
-8. Run the self-test: `selfTest.pythonImports` with `pythonEntryPoint`, bounded by
+8. Run the self-test: `selfTest.probe` with `runtime.entryPoint`, bounded by
    `selfTest.timeoutSeconds`.
-9. With on-demand weights, fetch each asset and check its size and SHA-256 before first use.
+9. For each entry in `assets`, fetch it and check its size and SHA-256 before first use.
 
 Running `scrollcase verify --self-test` on the build machine covers the archive and temporary
 extraction checks, not final installation, compatibility policy, rollout, or activation.

@@ -20,7 +20,7 @@ import math
 import sys
 from pathlib import Path
 
-MODEL_SUBDIR = ("model-cache", "distilbert-sst2")
+MODEL_SUBDIR = ("cache", "distilbert-sst2")
 MODEL_FILE = "model_int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 CONFIG_FILE = "config.json"

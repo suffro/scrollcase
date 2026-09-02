@@ -96,3 +96,52 @@ export async function runInitDependencySetup({
     rust,
   };
 }
+
+/**
+ * What `init` says about the build toolchain, as lines the CLI edge renders.
+ *
+ * Four outcomes, and every one of them reports. The last used to be silent: `init` looks for pixi
+ * and conda-pack on every run and asks only when something is missing, so on a machine that already
+ * had both, the question a reader had been told to expect never appeared and nothing said why —
+ * silence there is indistinguishable from never having looked.
+ *
+ * Extracted from `cli.mjs` so the four branches can be asserted without a host that happens to have
+ * the tools installed, which is the reason the silent one went unnoticed.
+ *
+ * @param {object} toolchain the result of `ensureToolchain`
+ * @param {{ toolchainDir: string }} options
+ * @returns {Array<[('success'|'info'|'warning'), string]>}
+ */
+export function toolchainReportLines(toolchain, { toolchainDir }) {
+  if (toolchain.installed.length > 0) {
+    const lines = [
+      ['success', `Installed ${toolchain.installed.join(' and ')} into ${toolchainDir}`],
+      ['info', 'Nothing was added to PATH; scrollcase finds them there on its own.'],
+    ];
+    if (toolchain.configPath) {
+      lines.push(['success', `Recorded the toolchain pins in ${toolchain.configPath}`]);
+    }
+    return lines;
+  }
+  if (toolchain.unsupportedHost) {
+    return [['warning', `pixi publishes no build for ${toolchain.unsupportedHost}; install ${toolchain.missing.join(' and ')} manually.`]];
+  }
+  if (toolchain.missing.length > 0) {
+    return [
+      ['warning', `Skipped installing ${toolchain.missing.join(' and ')}.`],
+      ['info', 'Install them yourself, or re-run with --install-toolchain. `scrollcase doctor` reports what is missing.'],
+    ];
+  }
+  if (toolchain.pixiVersion) {
+    const lines = [['info', `Found pixi ${toolchain.pixiVersion} and conda-pack; nothing to install.`]];
+    // Worth saying because of what happens next rather than as general news: `new scroll` records
+    // the pixi it finds, and `build` refuses any other version for that scroll. Being behind here
+    // means every scroll written from now on pins the old resolver.
+    if (toolchain.newestPixiVersion && toolchain.newestPixiVersion !== toolchain.pixiVersion) {
+      lines.push(['warning', `pixi ${toolchain.newestPixiVersion} is the newest release.`]);
+      lines.push(['info', `A scroll created now would pin ${toolchain.pixiVersion}; pass --pixi-version to choose another.`]);
+    }
+    return lines;
+  }
+  return [];
+}

@@ -5,6 +5,7 @@ import {
   resolvePythonConsumerSource,
   resolveTemplatesChoice,
   runInitDependencySetup,
+  toolchainReportLines,
 } from '../../src/cli-init.mjs';
 
 describe('init example choice', () => {
@@ -226,5 +227,52 @@ describe('init dependency setup', () => {
     expect(offered).toEqual(['typescript', 'python']);
     expect(installRust).not.toHaveBeenCalled();
     expect(result).toMatchObject({ rustAvailable: false, installRust: false, rust: null });
+  });
+});
+
+/**
+ * Every outcome of the toolchain step says something.
+ *
+ * The "already there" branch used to say nothing at all: `init` looks for pixi and conda-pack on
+ * every run and asks only when one is missing, so on a machine that had both, the question a reader
+ * had been told to expect never appeared and nothing explained why. Silence there is
+ * indistinguishable from never having looked, and it was reported as a bug for exactly that reason.
+ */
+describe('the toolchain report', () => {
+  const lines = (toolchain) =>
+    toolchainReportLines(toolchain, { toolchainDir: '/p/.scrollcase/toolchain' });
+  const text = (toolchain) => lines(toolchain).map(([, message]) => message).join('\n');
+
+  it('says so when nothing was missing', () => {
+    const reported = lines({ installed: [], missing: [], pixiVersion: '0.77.0' });
+    expect(reported.length).toBeGreaterThan(0);
+    expect(text({ installed: [], missing: [], pixiVersion: '0.77.0' }))
+      .toContain('Found pixi 0.77.0 and conda-pack');
+  });
+
+  it('names the newer pixi, and what pinning it would mean', () => {
+    const reported = lines({
+      installed: [], missing: [], pixiVersion: '0.73.0', newestPixiVersion: '0.78.0',
+    });
+    expect(reported.some(([level]) => level === 'warning')).toBe(true);
+    // The consequence, not the news: `new scroll` records the pixi it finds and `build` refuses any
+    // other for that scroll, so being behind decides what every scroll written next pins.
+    expect(reported.map(([, message]) => message).join('\n')).toContain('would pin 0.73.0');
+  });
+
+  it('stays quiet about the newest release when it is current or unknown', () => {
+    for (const newestPixiVersion of ['0.77.0', null, undefined]) {
+      const reported = lines({ installed: [], missing: [], pixiVersion: '0.77.0', newestPixiVersion });
+      expect(reported.some(([level]) => level === 'warning'), String(newestPixiVersion)).toBe(false);
+    }
+  });
+
+  it('still reports an install, an unsupported host and a decline', () => {
+    expect(text({ installed: ['pixi 0.78.0'], missing: [], configPath: '/p/scrollcase.config.json' }))
+      .toContain('Installed pixi 0.78.0 into /p/.scrollcase/toolchain');
+    expect(text({ installed: [], missing: ['pixi'], unsupportedHost: 'aix/ppc64' }))
+      .toContain('publishes no build for aix/ppc64');
+    expect(text({ installed: [], missing: ['pixi', 'conda-pack'], declined: true }))
+      .toContain('Skipped installing pixi and conda-pack');
   });
 });

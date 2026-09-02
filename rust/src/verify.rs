@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use crate::archive::{list_zip_entries, read_zip_entry_text, ArchiveEntry};
 use crate::contract::documents::SignedDocument;
 use crate::contract::links::EntryKind;
-use crate::contract::targets::{assert_python_entry_point, box_target_adapter, BoxTargetAdapter};
+use crate::contract::runtimes::{
+    assert_runtime_entry_point, is_implemented_runtime, unimplemented_runtime_message,
+};
+use crate::contract::targets::{box_target_adapter, BoxTargetAdapter};
 use crate::error::{fail, Error, Result};
 use crate::execution::assert_execution_files;
 use crate::filesystem::sha256_file;
@@ -61,16 +64,28 @@ pub fn inspect_release_document(
     let signed = SignedDocument::parse(&raw)?;
     let payload = verify_signed_document(&signed, &trusted)?;
 
-    // A v1 payload inside a v2 envelope is refused by name rather than reinterpreted.
-    if payload.value.get("schemaVersion").and_then(serde_json::Value::as_u64) == Some(1) {
-        fail!("Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.");
+    // A superseded payload inside a v3 envelope is refused by name rather than reinterpreted. Both
+    // older versions are named: they are different artefacts with different rebuilds ahead of them.
+    if let Some(version @ (1 | 2)) = payload
+        .value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+    {
+        fail!("Unsupported schemaVersion {version}; rebuild this box with Scrollcase v3.");
     }
     let release: ReleaseManifest = serde_json::from_value(payload.value)
         .map_err(|error| Error::new(format!("Invalid release manifest: {error}.")))?;
     release.validate()?;
 
     let adapter = box_target_adapter(&release.target)?;
-    assert_python_entry_point(adapter, &release.python_entry_point)?;
+    // The format's runtime vocabulary is wider than what this crate implements, so a release may
+    // name one there is no adapter for. That is refused by name rather than misread as another.
+    if !is_implemented_runtime(&release.runtime.id) {
+        fail!("{}", unimplemented_runtime_message(&release.runtime.id));
+    }
+    if let Some(entry_point) = &release.runtime.entry_point {
+        assert_runtime_entry_point(&release.runtime.id, adapter, entry_point)?;
+    }
 
     Ok(InspectedRelease {
         release_path,
@@ -82,10 +97,10 @@ pub fn inspect_release_document(
 
 /// Binds the self-description inside the archive to the signed release outside it.
 ///
-/// Only fields present in both schema-version-2 documents belong here. Release-only transport data
-/// has no counterpart in `box.json`; every shared identity, target, layout, self-test, environment,
-/// asset-policy and provenance field must agree. Without this, a correctly hashed archive could be
-/// paired with a signed manifest describing something else entirely.
+/// Only fields present in both schema-version-3 documents belong here. Release-only transport data
+/// has no counterpart in `box.json`; every shared identity, target, runtime, layout, self-test,
+/// environment, deferred-asset and provenance field must agree. Without this, a correctly hashed
+/// archive could be paired with a signed manifest describing something else entirely.
 ///
 /// # Errors
 ///
@@ -96,31 +111,31 @@ pub fn assert_box_manifest_agreement(
 ) -> Result<()> {
     // Written as explicit pairs rather than a derived comparison so the field name in the message is
     // the field that actually differed — the Node and Python consumers report the same way, and the
-    // conformance fixture pins `box.json mismatch: modelId` among others.
+    // conformance fixture pins `box.json mismatch: labels` among others.
     let mismatch = if box_manifest.schema_version != release.schema_version {
         Some("schemaVersion")
     } else if box_manifest.box_id != release.box_id {
         Some("boxId")
-    } else if box_manifest.model_id != release.model_id {
-        Some("modelId")
-    } else if box_manifest.runtime_id != release.runtime_id {
-        Some("runtimeId")
+    } else if box_manifest.labels != release.labels {
+        Some("labels")
     } else if box_manifest.version != release.version {
         Some("version")
     } else if box_manifest.target != release.target {
         Some("target")
-    } else if box_manifest.python_entry_point != release.python_entry_point {
-        Some("pythonEntryPoint")
-    } else if box_manifest.model_cache_subdir != release.model_cache_subdir {
-        Some("modelCacheSubdir")
+    } else if box_manifest.runtime != release.runtime {
+        Some("runtime")
+    } else if box_manifest.cache_subdir != release.cache_subdir {
+        Some("cacheSubdir")
+    } else if box_manifest.bundled_licenses != release.bundled_licenses {
+        // Here for the same reason it is signed at all: a licence inventory that could differ
+        // between the document a reviewer read and the box a user installed would be worth nothing.
+        Some("bundledLicenses")
     } else if box_manifest.environment != release.environment {
         Some("environment")
     } else if box_manifest.self_test != release.self_test {
         Some("selfTest")
     } else if box_manifest.execution != release.execution {
         Some("execution")
-    } else if box_manifest.weights != release.weights {
-        Some("weights")
     } else if box_manifest.assets != release.assets {
         Some("assets")
     } else if box_manifest.provenance != release.provenance {
@@ -219,13 +234,16 @@ pub fn inspect_archive_for(
         .map_err(|error| Error::new(format!("Invalid box.json: {error}.")))?;
     assert_box_manifest_agreement(&box_manifest, release)?;
 
-    if !resolvable.contains(&release.python_entry_point) {
-        fail!("Archive is missing {}.", release.python_entry_point);
+    if let Some(entry_point) = &release.runtime.entry_point {
+        if !resolvable.contains(entry_point) {
+            fail!("Archive is missing {entry_point}.");
+        }
     }
     assert_execution_files(
         release.execution.as_ref(),
         inspected.adapter,
-        &release.provenance.python_version,
+        &release.runtime.id,
+        release.provenance.runtime_version.as_deref().unwrap_or_default(),
         &resolvable,
     )?;
 

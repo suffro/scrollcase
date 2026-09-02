@@ -28,6 +28,49 @@ const MARKDOWN_TYPE = 'text/markdown; charset=utf-8';
  *  `.vitepress/api-catalog.mjs`, which is Node code the Worker bundle has no business carrying. */
 const CATALOG_PATH = '/.well-known/api-catalog';
 
+/** The deprecated documentation's prefix, spelled out for the same reason as the path above rather
+ *  than imported from `.vitepress/versions.mjs`. `docs-markdown-negotiation.test.mjs` asserts the
+ *  two agree, so the copy cannot drift without a test saying so. */
+const DEPRECATED_PREFIX = '/v2';
+
+/**
+ * The date version 2 stopped being current, as a Unix timestamp, or null while there is not one.
+ *
+ * RFC 9745's `Deprecation` field is a Date and nothing else will do, so this stays null until the
+ * release that makes version 3 current actually ships and the date is a fact rather than a guess.
+ * A header stating a deprecation date that never happened is worse than no header: it is a claim
+ * about this project made to software that cannot check it.
+ *
+ * The signal that needs no date ships regardless — see `rel="deprecation"` below.
+ */
+const DEPRECATED_SINCE = null;
+
+/**
+ * What every response under the deprecated prefix carries, page and Markdown twin alike.
+ *
+ * `noindex` because the version switch links these pages from every current one, so a crawler
+ * finds the whole archive whether or not the sitemap offers it, and two documentation sets
+ * describing incompatible formats then compete for the same queries — with the obsolete one often
+ * winning on age. `follow` because the links inside are worth following, not least the one out.
+ *
+ * `rel="deprecation"` is RFC 9745's own relation and points at the page explaining the deprecation.
+ * It is deliberately not `successor-version`: that names the resource replacing *this* one, and
+ * which page that is differs per URL — version 3 dropped some of these and renamed others. The
+ * answer is already per page, in the twin's `current:` field and in the page's own banner, and a
+ * header that guessed would be pointing readers at pages that do not exist.
+ *
+ * No `Sunset` (RFC 8594). That field promises when a resource will stop being served, and these
+ * are meant to stay readable for as long as there are version 2 boxes in the field.
+ */
+function deprecationHeaders(pathname, origin) {
+  if (pathname !== DEPRECATED_PREFIX && !pathname.startsWith(`${DEPRECATED_PREFIX}/`)) return [];
+  return [
+    ['X-Robots-Tag', 'noindex, follow'],
+    ['Link', `<${origin}${DEPRECATED_PREFIX}/>; rel="deprecation"`],
+    ...(DEPRECATED_SINCE ? [['Deprecation', `@${DEPRECATED_SINCE}`]] : []),
+  ];
+}
+
 /**
  * True when the client explicitly asked for Markdown.
  *
@@ -66,6 +109,14 @@ export async function onRequest(context) {
   const { request, next, env } = context;
   const url = new URL(request.url);
 
+  // Applied to whichever response is returned below. Both representations of a deprecated page get
+  // it — the twin is an indexable file in its own right, and it is the one a bot reads.
+  const deprecation = deprecationHeaders(url.pathname, url.origin);
+  const marked = (response) => {
+    for (const [name, value] of deprecation) response.headers.append(name, value);
+    return response;
+  };
+
   // A directly requested .md file is served as an asset; all that is missing is the promise that
   // it is Markdown, which depends on a mime table this code should not have to trust.
   if (url.pathname.endsWith('.md')) {
@@ -73,7 +124,7 @@ export async function onRequest(context) {
     if (!asset.ok) return asset;
     const response = new Response(asset.body, asset);
     response.headers.set('Content-Type', MARKDOWN_TYPE);
-    return response;
+    return marked(response);
   }
 
   const markdownPath = markdownPathFor(url.pathname);
@@ -89,14 +140,14 @@ export async function onRequest(context) {
     response.headers.append('Vary', 'Accept');
     response.headers.append('Link', `<${markdownUrl}>; rel="alternate"; type="text/markdown"`);
     response.headers.append('Link', `<${url.origin}${CATALOG_PATH}>; rel="api-catalog"`);
-    return response;
+    return marked(response);
   }
 
   const markdown = await env.ASSETS.fetch(markdownUrl);
   if (!markdown.ok) return next();
 
   const body = await markdown.text();
-  return new Response(body, {
+  return marked(new Response(body, {
     status: 200,
     headers: {
       'Content-Type': MARKDOWN_TYPE,
@@ -108,5 +159,5 @@ export async function onRequest(context) {
       'x-markdown-tokens': String(estimateTokens(body)),
       'Cache-Control': 'public, max-age=3600',
     },
-  });
+  }));
 }

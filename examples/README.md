@@ -97,6 +97,189 @@ declares — the build stops with a mismatch on a checkout that looks perfectly 
 marks the affected paths in [`.gitattributes`](../.gitattributes); a project declaring its own
 `localFiles` needs the same for the files it names.
 
+## `hello-box-node`
+
+The same thing as `hello-box`, one runtime over: a bare Node 22 environment from conda-forge, a
+`node-script` entry point, and nothing to download beyond the runtime itself. One target
+(`macos-aarch64-metal`), because it exists to show the shape rather than to be published.
+
+Two details are the whole point of it. The scroll declares `runtime.id: "node"` and nothing else
+changes shape — the target, the licence audit, the self-test, the signed release are all the same
+fields. And the built archive carries a `package.json` at its root that no scroll declares:
+
+```jsonc
+{ "name": "scrollcase-box", "private": true, "type": "commonjs" }
+```
+
+Node decides whether a `.js` file is CommonJS or an ES module from the nearest `package.json`
+**above** it. A box without one asks whichever directory it was extracted into — this example failed
+its own self-test against *this repository's* `package.json`, which says `"type": "module"`. The
+builder writes one so the walk stops inside the box, and leaves it alone if the payload already has
+one. Ship your own as a `localFile` if you want ESM.
+
+```sh
+node src/cli.mjs build hello-box-node/macos-aarch64-metal --scrolls-dir examples
+```
+
+## `hello-box-native`
+
+A box with **no interpreter at all**. It packs conda-forge's `zstd` and runs `venv/bin/zstd`
+directly: the binary is the command line, `runtime.version` and `runtime.entryPoint` are absent, and
+the self-test is two invocations of the box's own execution — `--version`, and a `--test` that must
+exit 1 on a file that is not a zstd archive.
+
+`zstd` rather than something with a console UI, and that choice is itself the lesson. The first
+version of this example ran `sqlite3`, whose own linkage is entirely `@rpath` and perfectly
+relocatable — but conda-forge's `ncurses`, three dependencies down, ships a `libncurses` that
+re-exports `libtinfo` through an unrewritten path on the machine that *built the package*. The box
+was correct; a package inside it was not, and Scrollcase does not repair a binary's library paths.
+The self-test caught it before anything was signed, which is the arrangement working: a native box
+that cannot start fails the build rather than the user.
+
+The environment is small (`zstd` and `libzlib`) and the licence audit is derived from the lock as
+usual — `native` means "no interpreter", not "no dependencies".
+
+It is also the one example that declares **no `publishBaseUrl`**, deliberately: nothing here is ever
+published, so its release names no address for its archive and its channel names none for its
+release. Everything else is unchanged — the archive is hashed, both documents are signed, `verify
+--self-test` passes, and `run` works. Compare its release with any other example's to see exactly
+what a publish location adds, and what it does not.
+
+```sh
+node src/cli.mjs build hello-box-native/macos-aarch64-metal --scrolls-dir examples
+```
+
+## `codon-demo`
+
+What a `node` box is actually for, rather than what it minimally is: a reference table and the tool
+that queries it, shipped and signed together. The recipient needs neither Node, nor npm, nor a
+database — the box carries its own interpreter, its own data, and the code that joins them.
+
+The table is the standard genetic code (NCBI translation table 1). `run` with no arguments prints
+what the box carries; `run -- ATG` answers forward; `run -- Leucine` answers backwards; an unknown
+term exits 1. RNA is accepted too, so `UUG` and `TTG` give the same answer.
+
+```sh
+node src/cli.mjs build codon-demo/macos-aarch64-metal --scrolls-dir examples
+node src/cli.mjs run .scrollcase/dist/boxes/codon-demo/1.0.0/macos-aarch64-metal/*.release.json -- Leucine
+```
+
+```text
+Leucine (Leu) is encoded by 6 codons: CTA, CTC, CTG, CTT, TTA, TTG
+```
+
+Three things in it are worth reading:
+
+**No npm.** Scrollcase solves from conda-forge and nothing else, so a `node` box cannot declare an
+npm dependency. The tool loads its table with `node:sqlite`, which is part of Node itself, and the
+JavaScript enters through `localFiles` like any other project file. That is the shape a `node` box
+has: conda-forge supplies the runtime and the native libraries, the project supplies the code.
+
+**Node 26, deliberately.** `node:sqlite` needs a recent Node to be usable without a flag, and a box
+that needed `--experimental-sqlite` could not say so: `execution.defaultArgs` land *after* the script
+path, never before it. Pinning the runtime was the fix; the scroll is the place that decides.
+
+**The data is pinned by hash.** `codons.csv` carries its SHA-256 in `localFiles`, so reference data
+cannot change without the build stopping. Appending one fabricated row is refused by name —
+`Local box file SHA-256 mismatch` — before anything is packed or signed. That is the point of a
+signed box carrying data rather than fetching it.
+
+## `transcode-demo`
+
+What a `native` box is actually for: ffmpeg, pinned, with everything it links against, signed. The
+recipient transcodes with the exact build that was tested, on a machine that has no ffmpeg and needs
+no compiler. 121 MB archived, 391 MB extracted, 90 packages in the lock — which is the honest cost
+of "just install ffmpeg" made visible.
+
+```sh
+node src/cli.mjs build transcode-demo/macos-aarch64-metal --scrolls-dir examples
+r=.scrollcase/dist/boxes/transcode-demo/1.0.0/macos-aarch64-metal/*.release.json
+node src/cli.mjs run $r -- -version
+node src/cli.mjs run $r -- -f lavfi -i "testsrc=duration=2:size=640x480:rate=25" \
+  -c:v libx264 -pix_fmt yuv420p /tmp/out.mp4
+```
+
+The second command writes a real MP4 outside the box, which is worth noticing: `run` extracts to a
+temporary directory and deletes it on exit, so anything the box produces has to be written somewhere
+the caller names. An application that runs a box repeatedly extracts it durably through a consumer
+instead.
+
+Three things in it are worth reading:
+
+**No glue.** A `native` box starts one binary with the arguments the scroll fixed, and nothing else.
+`defaultArgs` is `["-hide_banner"]`, so every invocation is that plus whatever the caller adds.
+There is no script in between, because a box that needed one would be a `node` or `python` box.
+
+**The self-test proves a real encode.** Not just `-version`: the second probe generates a test
+pattern with `lavfi`, encodes it through `libx264` and discards the output. A box whose codecs did
+not load fails the build. No media file ships to make that possible — ffmpeg synthesises its own
+input, which is the trick that keeps the example free of a sample video.
+
+**`expectExitCode` is 254, and that is not a typo.** The third probe points ffmpeg at a file that is
+not there. ffmpeg reports the negative C error number, `ENOENT` is 2, and a process exit status is
+one byte — so `-2` surfaces as 254. It is in the scroll because a self-test asserts the binary's
+*real* contract rather than a convention someone assumed: the value was measured against the built
+payload, not guessed, after the first build failed expecting 1.
+
+**The licence inventory earns its place here.** 21 of the 90 packages are GPL-family, including
+ffmpeg itself, `x264` and `x265` at GPL-2.0-or-later. Anyone redistributing this box needs to know
+that before they ship it, not after — and `scrollcase audit` derives it from the lock rather than
+asking anyone to remember.
+
+## `dataset-demo`
+
+The second `native` box, and a different kind of program from `transcode-demo`: the HDF5
+command-line tools, which read the format most scientific instrument data and model weights are
+stored in. 36 MB archived. It ships a small dataset and the reader together.
+
+The case it answers is not "I cannot install this" but **"we must all read this file the same
+way"**. A signed box fixes the reader, so an inspection somebody publishes is one anybody can
+repeat.
+
+```sh
+node src/cli.mjs build dataset-demo/macos-aarch64-metal --scrolls-dir examples
+r=.scrollcase/dist/boxes/dataset-demo/1.0.0/macos-aarch64-metal/*.release.json
+node src/cli.mjs run $r -- -H readings.h5
+node src/cli.mjs run $r -- -d /measurements/monthly readings.h5
+```
+
+```text
+GROUP "measurements" {
+   DATASET "monthly" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SIMPLE { ( 12, 3 ) / ( 12, 3 ) }
+```
+
+`readings.h5` is pinned by SHA-256 and generated rather than committed blind: `readings.txt` and
+`readings.conf` sit beside it, and `h5import readings.txt -c readings.conf -o readings.h5` rebuilds
+it. The numbers are a synthetic seasonal series — the point is the format and the reader, not the
+measurement.
+
+### Why not a bioinformatics tool
+
+That was the intent, and conda-forge is the reason it is not. **Almost every bioinformatics package
+lives on bioconda**, a second channel: `samtools`, `bwa`, `seqkit`, `minimap2`, `hmmer`, `diamond`,
+`blast`, `muscle` and `fasttree` are all absent from conda-forge. Adding a channel to one example
+would demonstrate something this project does not claim, so it was not done.
+
+`mafft` is the exception that is present — and it fails as a `native` box, instructively. Its
+`venv/bin/mafft` is a shell wrapper that finds its helper binaries through a path compiled into it:
+
+```text
+prefix=/Users/runner/miniforge3/conda-bld/mafft_.../_h_env_placehold_placehold_.../libexec/mafft
+```
+
+That is the machine that *built the conda package*, and Scrollcase does not repair a binary's — or a
+script's — recorded paths. The package offers `MAFFT_BINARIES` as an override, but it must be
+absolute, and a box is extracted to a different temporary directory on every run: the signed
+`environment` is a fixed string map with no substitution, so there is nothing correct to put in it.
+The self-test caught it before anything was signed.
+
+This is the second instance of the limitation `hello-box-native` documents, in a new shape — there a
+dylib re-exported through an unrewritten path, here a wrapper script. **Before choosing a program
+for a `native` box, check what it actually is.** `file venv/bin/<program>` answering "shell script"
+is the warning; `Mach-O 64-bit executable` or an ELF binary is what relocates cleanly.
+
 ## `sentiment-demo`
 
 The same pipeline carrying a real model: DistilBERT SST-2 quantised to INT8 in ONNX form, with the

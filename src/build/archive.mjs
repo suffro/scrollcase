@@ -2,8 +2,8 @@
  * Deterministic archive creation and defensive extraction.
  *
  * Writing: every box ships as a ZIP whose bytes depend only on its contents — fixed timestamps,
- * stable file ordering, and modes derived from the target adapter — so rebuilding the same commit
- * reproduces the archive bit for bit.
+ * stable file ordering, and modes synthesised from what the runtime and the scroll declared rather
+ * than read off the build machine — so rebuilding the same commit reproduces the archive bit for bit.
  *
  * Reading: nothing from inside an archive is trusted before it is validated. Entry names are
  * checked against path traversal, links and special entries are rejected outright, and both ZIP
@@ -11,7 +11,7 @@
  * to have — an archive behaves the same on every machine that opens it.
  */
 import { constants, createWriteStream } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, stat, symlink } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -19,6 +19,7 @@ import * as tar from 'tar';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { findEntryThroughLink, findUnresolvableLink } from '../contract/links.mjs';
+import { isExecutablePayloadPath, runtimeAdapter } from '../contract/runtimes.mjs';
 import {
   FIXED_ARCHIVE_TIME,
   collectEntries,
@@ -34,19 +35,63 @@ const ZIP_REGULAR_FILE = 0o100000;
 const ZIP_DIRECTORY = 0o040000;
 const ZIP_SYMBOLIC_LINK = 0o120000;
 
-/** Returns the stable archive mode for a box payload file. */
-function archiveFileMode(adapter, relativePath) {
+/**
+ * Returns the stable archive mode for a box payload file.
+ *
+ * Executability is *declared*, from two sources joined into one rule. The runtime contributes what
+ * no scroll could name by hand — a conda prefix generates hundreds of console scripts, and the
+ * runtime is what knows where they land. The scroll contributes everything it brought in itself:
+ * an asset arrives over HTTP, which carries content and not permissions, and a local file is copied
+ * rather than moved, so neither has a mode to inherit and both would otherwise be unrunnable.
+ *
+ * The mode is still *synthesised* rather than read off disk, which is what keeps two builds of one
+ * commit byte-identical whatever umask each ran under, and keeps `payload-digest.v1` — which
+ * excludes mode — honest.
+ */
+function archiveFileMode(adapter, relativePath, executablePaths) {
   if (adapter.host.platform === 'win32') return 0o100644;
-  const scriptsDirectory = adapter.python.scriptsDirectory;
-  return relativePath === adapter.python.entryPoint || relativePath.startsWith(`${scriptsDirectory}/`)
-    ? 0o100755
-    : 0o100644;
+  return isExecutablePayloadPath(executablePaths, relativePath) ? 0o100755 : 0o100644;
+}
+
+/**
+ * Joins the runtime's executable rule with the paths the scroll declared executable.
+ *
+ * @param {string} runtimeId
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {readonly string[]} declared payload paths the scroll marked executable
+ * @returns {import('../contract/runtimes.mjs').ExecutablePayloadPaths}
+ */
+function declaredExecutablePaths(runtimeId, adapter, declared) {
+  const rule = runtimeAdapter(runtimeId).executablePayloadPaths(adapter);
+  return { files: [...rule.files, ...declared], directories: rule.directories };
+}
+
+/**
+ * Whether the archive will give one payload path the executable bit.
+ *
+ * Asked before the archive is written, by the one check that matters for a box nobody can start:
+ * the file a box runs has to come out of the archive runnable. A Windows target carries no modes at
+ * all — `archiveFileMode` writes 0644 for every entry there and Windows decides executability by
+ * extension — so the question does not arise and the answer is yes.
+ *
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {string} runtimeId
+ * @param {readonly string[]} declared payload paths the scroll marked executable
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+export function archiveMarksExecutable(adapter, runtimeId, declared, relativePath) {
+  if (adapter.host.platform === 'win32') return true;
+  return isExecutablePayloadPath(
+    declaredExecutablePaths(runtimeId, adapter, declared),
+    relativePath,
+  );
 }
 
 /**
  * Whether a payload path was declared as one whose bytes are already compressed.
  *
- * A match is exact or by directory prefix, so one declaration can name a single weights file or
+ * A match is exact or by directory prefix, so one declaration can name a single large file or
  * the whole tree an expanded asset archive landed in. Nothing here opens the file or reads its
  * extension: the answer depends only on the scroll and the path, which is what keeps two builds of
  * the same commit byte-identical.
@@ -64,18 +109,23 @@ function isDeclaredUncompressed(path, declared) {
  *
  * Deflating an already-compressed file is pure loss: measured on incompressible bytes, level 6
  * runs at 47 MB/s and the result is 0.03% *larger* than the input, and dropping to level 1 buys
- * 4 MB/s because the search fails either way. Weights are the only thing in a box large enough for
- * that to matter, so `uncompressedPaths` names them and they are stored instead. Everything else —
+ * 4 MB/s because the search fails either way. Declared assets are the only thing in a box large
+ * enough for that to matter, so they and `uncompressedPaths` are stored instead. Everything else —
  * the interpreter, the site-packages tree, the notices — compresses genuinely and still does.
  *
  * @param {string} payloadDir
  * @param {string} archivePath
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
- * @param {readonly string[]} [uncompressedPaths] payload paths stored rather than deflated
+ * @param {object} options
+ * @param {string} options.runtimeId whose rule decides which entries carry the executable bit
+ * @param {readonly string[]} [options.uncompressedPaths] payload paths stored rather than deflated
+ * @param {readonly string[]} [options.executablePaths] payload paths the scroll declared executable
  * @returns {Promise<void>}
  */
-export async function createDeterministicZip(payloadDir, archivePath, adapter, uncompressedPaths = []) {
+export async function createDeterministicZip(payloadDir, archivePath, adapter, options) {
+  const { runtimeId, uncompressedPaths = [], executablePaths: declared = [] } = options;
   const entries = await collectEntries(payloadDir);
+  const executablePaths = declaredExecutablePaths(runtimeId, adapter, declared);
   assertPayloadLinksAreCarryable(entries);
   await rm(archivePath, { force: true });
   await mkdir(dirname(archivePath), { recursive: true });
@@ -100,7 +150,7 @@ export async function createDeterministicZip(payloadDir, archivePath, adapter, u
       compress: compressionLevel !== 0,
       compressionLevel,
       mtime: FIXED_ARCHIVE_TIME,
-      mode: archiveFileMode(adapter, entry.path),
+      mode: archiveFileMode(adapter, entry.path, executablePaths),
       forceDosTimestamp: true,
     });
   }
@@ -289,10 +339,13 @@ export async function extractZipArchive(archivePath, destination) {
         continue;
       }
       const stream = await zip.openReadStreamPromise(entry);
-      await pipeline(stream, createWriteStream(outputPath, {
-        flags: 'wx',
-        mode: classified.mode || 0o644,
-      }));
+      const mode = classified.mode || 0o644;
+      await pipeline(stream, createWriteStream(outputPath, { flags: 'wx', mode }));
+      // `open(2)` masks the mode it is given by the process umask, so a box extracted under 077
+      // would silently lose the executable bit the archive states — and the box would fail to run
+      // for reasons nothing in it explains. Say the mode again, explicitly, the way key writing
+      // already has to (`src/sign/keys.mjs`). Windows has no bit to restore.
+      if (process.platform !== 'win32') await chmod(outputPath, mode & 0o7777);
     }
   } finally {
     await zip.close();

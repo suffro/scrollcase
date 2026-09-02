@@ -3,8 +3,8 @@
  *
  * A scroll is the only input a build accepts, so it is validated before anything is installed. In
  * the nested layout, the meaningful declarations police the path: `boxId` names the parent and the
- * canonical target names the child. Python layout is checked against the target before the scroll
- * reaches any tool discovery or build mutation.
+ * canonical target names the child. The declared runtime's layout is checked against the target
+ * before the scroll reaches any tool discovery or build mutation.
  *
  * Reading is also where a scroll becomes complete. A split scroll's two halves are joined, fields
  * the target or the identity already determine are derived, and the result — the *effective* scroll
@@ -14,7 +14,14 @@
 
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { assertPythonEntryPoint, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import { boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  assertRuntimeEntryPoint,
+  isImplementedRuntime,
+  runtimeAdapter,
+  unimplementedRuntimeMessage,
+  unsupportedSelfTestProbeMessage,
+} from '../contract/runtimes.mjs';
 import { compareStableStrings, fileExists, safeRelativePath } from './filesystem.mjs';
 import { fail, runResult } from './process.mjs';
 import { schemaValidationError } from './schema-validation.mjs';
@@ -96,22 +103,31 @@ function assertDistinctPayloadDestinations(scroll) {
 /**
  * Joins the base and fragment self-tests.
  *
- * `imports` and `files` accumulate, because a target that needs one more module still needs the
- * shared ones. The extra Python is one logical slot with two spellings, so a fragment naming either
- * `pythonCode` or `pythonFile` replaces both: inheriting a base's file while the fragment declares
- * inline code would produce a scroll the schema refuses, and silently running both would run a check
- * the author did not ask for.
+ * `imports`, `files` and `commands` accumulate, because a target that needs one more module — or one
+ * more invocation — still needs the shared ones. `imports` and `files` drop repeats, since asking
+ * for the same module twice is the same instruction twice; `commands` does not, because two
+ * invocations differing only in `expectExitCode` are two different checks and comparing whole
+ * objects for identity would be a rule with a surprising edge rather than a simplification.
+ *
+ * The extra source is one logical slot with two spellings, so a fragment naming either `code` or
+ * `script` replaces both: inheriting a base's file while the fragment declares inline source would
+ * produce a scroll the schema refuses, and silently running both would run a check the author did
+ * not ask for.
  */
 function joinSelfTests(base = {}, fragment = {}) {
   const joined = { ...base, ...fragment };
-  joined.imports = [...new Set([...(base.imports ?? []), ...(fragment.imports ?? [])])];
+  const imports = [...new Set([...(base.imports ?? []), ...(fragment.imports ?? [])])];
+  if (base.imports || fragment.imports) joined.imports = imports;
   const files = [...new Set([...(base.files ?? []), ...(fragment.files ?? [])])];
   if (base.files || fragment.files) joined.files = files;
-  if (fragment.pythonCode !== undefined || fragment.pythonFile !== undefined) {
-    delete joined.pythonCode;
-    delete joined.pythonFile;
-    if (fragment.pythonCode !== undefined) joined.pythonCode = fragment.pythonCode;
-    if (fragment.pythonFile !== undefined) joined.pythonFile = fragment.pythonFile;
+  if (base.commands || fragment.commands) {
+    joined.commands = [...(base.commands ?? []), ...(fragment.commands ?? [])];
+  }
+  if (fragment.code !== undefined || fragment.script !== undefined) {
+    delete joined.code;
+    delete joined.script;
+    if (fragment.code !== undefined) joined.code = fragment.code;
+    if (fragment.script !== undefined) joined.script = fragment.script;
   }
   return joined;
 }
@@ -126,9 +142,10 @@ function joinSelfTests(base = {}, fragment = {}) {
  *
  * | Shape | Rule |
  * | --- | --- |
- * | Scalars, and the cohesive objects `target`, `execution`, `parity` | The fragment replaces the base |
+ * | Scalars, and the cohesive objects `target`, `runtime`, `execution`, `parity` | The fragment replaces the base |
  * | `assets`, `assetArchives`, `localFiles` | Joined base-first; a repeated `relativePath` is an error |
  * | `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
+ * | `selfTest.commands` | Joined base-first, repeats kept |
  * | `compatibility`, `environment` | Joined key by key, the fragment winning a shared key |
  * | `extends` | Dropped: the joined scroll extends nothing |
  *
@@ -206,11 +223,19 @@ export function scrollDirectory(reference) {
  * Fills in everything a scroll does not have to say twice.
  *
  * A hand-written scroll should carry decisions, not restatements: the interpreter path is the only
- * one the target admits, the model cache directory follows the box identity, and an empty list means
+ * one the runtime's layout admits, the cache directory follows the box identity, and an empty list means
  * the same thing whether or not it was typed. Deriving here rather than at each use keeps one
  * effective scroll — the object the rest of the build, and the provenance record, actually see.
  */
 function effectiveScroll(scroll, adapter, targetId) {
+  // Only a runtime this build implements gets this far, so its layout is the one authority on where
+  // the entry point sits — derived when the scroll stays quiet, checked against when it does not.
+  // A runtime with no interpreter has none to derive, and leaving the field out is the honest
+  // answer: `runtime.entryPoint` is optional on the wire precisely so a native box can omit it.
+  const layout = runtimeAdapter(scroll.runtime.id).layout(adapter);
+  const runtime = layout.entryPoint === null
+    ? { ...scroll.runtime }
+    : { ...scroll.runtime, entryPoint: scroll.runtime.entryPoint ?? layout.entryPoint };
   return {
     ...scroll,
     // Provenance needs a stable source identity. It is derived when the scroll does not name one,
@@ -218,8 +243,8 @@ function effectiveScroll(scroll, adapter, targetId) {
     scrollId: scroll.scrollId ?? `${scroll.boxId}-${targetId}`,
     scrollVersion: scroll.scrollVersion ?? '1.0.0',
     compatibility: scroll.compatibility ?? {},
-    pythonEntryPoint: scroll.pythonEntryPoint ?? adapter.python.entryPoint,
-    modelCacheSubdir: scroll.modelCacheSubdir ?? `model-cache/${scroll.boxId}`,
+    runtime,
+    cacheSubdir: scroll.cacheSubdir ?? `cache/${scroll.boxId}`,
     assets: scroll.assets ?? [],
     selfTest: { ...scroll.selfTest, files: scroll.selfTest.files ?? [] },
   };
@@ -243,27 +268,52 @@ async function readExactScroll(reference) {
   if (validationError) {
     fail(`Invalid scroll ${normalized}${extended ? ' joined with its base' : ''}: ${validationError}.`);
   }
-  if (declared.weights === 'on-demand' && (declared.assetArchives ?? []).length > 0) {
-    fail('on-demand weights cannot be combined with assetArchives, which are expanded at build time.');
+  // The wire vocabulary is wider than what this build can run, deliberately, so the schema admits a
+  // runtime with no adapter here and this is where that becomes a clear refusal.
+  if (!isImplementedRuntime(declared.runtime.id)) fail(unimplementedRuntimeMessage(declared.runtime.id));
+  const runtime = runtimeAdapter(declared.runtime.id);
+  if (declared.execution && !runtime.executionKinds.includes(declared.execution.kind)) {
+    fail(`Execution kind ${declared.execution.kind} does not belong to the ${runtime.id} runtime; `
+      + `it defines ${runtime.executionKinds.join(', ')}.`);
+  }
+  // A command probe appends arguments to the box's declared execution. With none declared there is
+  // nothing to append them to, so the two declarations contradict each other.
+  if ((declared.selfTest.commands ?? []).length > 0 && !declared.execution) {
+    fail('selfTest.commands invokes the box\'s execution, which this scroll does not declare.');
+  }
+  // An import probe asks a module system a question. A runtime without one cannot answer it, and
+  // running the build only to discover that at self-test time would be a worse place to find out.
+  for (const probeKind of ['imports', 'commands']) {
+    if (!(declared.selfTest[probeKind] ?? []).length) continue;
+    if (!runtime.selfTestProbeKinds.includes(probeKind)) {
+      fail(unsupportedSelfTestProbeMessage(runtime.id, probeKind));
+    }
   }
   // Checked here rather than in the schema: a base legitimately has no target, and requiring one
   // there would make every base file light up in an editor.
   if (declared.target === undefined) fail(`Scroll ${normalized} declares no target.`);
   const adapter = boxTargetAdapter(declared.target);
   const targetId = boxTargetId(declared.target);
+  // The parity gate runs a source file with the box's own runtime, once per accelerator. A runtime
+  // with no interpreter has nothing to run it with, and a compiled binary is not a check script.
+  if (declared.parity && runtime.layout(adapter).entryPoint === null) {
+    fail(`A ${runtime.id} box has no interpreter to run a parity check with; parity compares source run inside the box.`);
+  }
   const scroll = effectiveScroll(declared, adapter, targetId);
   const payloadPaths = [
-    scroll.modelCacheSubdir,
+    scroll.cacheSubdir,
     ...scroll.assets.map((asset) => asset.relativePath),
     ...(scroll.assetArchives ?? []).flatMap((archive) => [archive.relativePath, archive.destination]),
     ...(scroll.localFiles ?? []).flatMap((file) => [file.sourcePath, file.relativePath]),
     ...(scroll.prunePaths ?? []),
     ...(scroll.uncompressedPaths ?? []),
     ...scroll.selfTest.files,
-    ...(scroll.selfTest.pythonFile ? [scroll.selfTest.pythonFile] : []),
-    ...(scroll.execution?.kind === 'python-script' ? [scroll.execution.script] : []),
+    ...(scroll.selfTest.script ? [scroll.selfTest.script] : []),
+    ...(scroll.execution?.script ? [scroll.execution.script] : []),
+    ...(scroll.execution?.binary ? [scroll.execution.binary] : []),
     ...(scroll.parity ? [scroll.parity.script] : []),
     ...(scroll.condaDependencyLicenseAudit ? [scroll.condaDependencyLicenseAudit] : []),
+    ...(scroll.bundledLicenseDeclaration ? [scroll.bundledLicenseDeclaration] : []),
   ];
   for (const path of payloadPaths) safeRelativePath(path);
   assertDistinctPayloadDestinations(scroll);
@@ -274,7 +324,7 @@ async function readExactScroll(reference) {
   if (targetDirectory !== targetId) {
     fail(`Nested scroll target directory ${targetDirectory} does not match declared target ${targetId}.`);
   }
-  assertPythonEntryPoint(adapter, scroll.pythonEntryPoint);
+  assertRuntimeEntryPoint(scroll.runtime.id, adapter, scroll.runtime.entryPoint);
   return { adapter, dir, scroll, reference: normalized, targetId };
 }
 

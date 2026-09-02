@@ -116,7 +116,7 @@ class ExecutionTests(unittest.TestCase):
         )
         self.assertEqual((result.exit_code, result.signal), (23, None))
         argv, options = fake.calls[0]
-        self.assertEqual(argv[0], str(Path(prepared.root) / prepared.python_entry_point))
+        self.assertEqual(argv[0], str(Path(prepared.root) / prepared.runtime.entry_point))
         self.assertEqual(
             argv[1:],
             [
@@ -248,8 +248,8 @@ class ExecutionTests(unittest.TestCase):
     def test_verifies_materialized_on_demand_assets_before_spawn(self) -> None:
         data = b"trusted on-demand bytes"
         asset: dict[str, Any] = {
-            "url": "https://assets.example.org/weights.bin",
-            "relativePath": "model-cache/consumer-fixture/weights.bin",
+            "url": "https://assets.example.org/data.bin",
+            "relativePath": "cache/consumer-fixture/data.bin",
             "sizeBytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(),
         }

@@ -1,19 +1,41 @@
 /**
+ * Whether the archive will give one payload path the executable bit.
+ *
+ * Asked before the archive is written, by the one check that matters for a box nobody can start:
+ * the file a box runs has to come out of the archive runnable. A Windows target carries no modes at
+ * all — `archiveFileMode` writes 0644 for every entry there and Windows decides executability by
+ * extension — so the question does not arise and the answer is yes.
+ *
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {string} runtimeId
+ * @param {readonly string[]} declared payload paths the scroll marked executable
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+export function archiveMarksExecutable(adapter: import("../contract/targets.mjs").BoxTargetAdapter, runtimeId: string, declared: readonly string[], relativePath: string): boolean;
+/**
  * Streams a deterministic, Zip64-capable box archive using the pinned Node backend.
  *
  * Deflating an already-compressed file is pure loss: measured on incompressible bytes, level 6
  * runs at 47 MB/s and the result is 0.03% *larger* than the input, and dropping to level 1 buys
- * 4 MB/s because the search fails either way. Weights are the only thing in a box large enough for
- * that to matter, so `uncompressedPaths` names them and they are stored instead. Everything else —
+ * 4 MB/s because the search fails either way. Declared assets are the only thing in a box large
+ * enough for that to matter, so they and `uncompressedPaths` are stored instead. Everything else —
  * the interpreter, the site-packages tree, the notices — compresses genuinely and still does.
  *
  * @param {string} payloadDir
  * @param {string} archivePath
  * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
- * @param {readonly string[]} [uncompressedPaths] payload paths stored rather than deflated
+ * @param {object} options
+ * @param {string} options.runtimeId whose rule decides which entries carry the executable bit
+ * @param {readonly string[]} [options.uncompressedPaths] payload paths stored rather than deflated
+ * @param {readonly string[]} [options.executablePaths] payload paths the scroll declared executable
  * @returns {Promise<void>}
  */
-export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, uncompressedPaths?: readonly string[]): Promise<void>;
+export function createDeterministicZip(payloadDir: string, archivePath: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, options: {
+    runtimeId: string;
+    uncompressedPaths?: readonly string[];
+    executablePaths?: readonly string[];
+}): Promise<void>;
 /**
  * Lists and validates all entries before any ZIP data is trusted or extracted.
  *

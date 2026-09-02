@@ -6,10 +6,11 @@
  * the payload's *own* interpreter, normalise timestamps, zip deterministically, and emit a signed
  * release plus a signed channel pointer.
  *
- * The self-test is the step that earns the box its name. The builder runs target, import, optional
- * Python-code, and file assertions; the release signs the import subset that a consumer can repeat
- * after extraction. The distinction is deliberate rather than pretending the narrower consumer
- * check reproduces scroll-only assertions it cannot see.
+ * The self-test is the step that earns the box its name. The builder runs the platform assertion,
+ * the probe the scroll declared, its file assertions and any extra source it named; the release
+ * signs the probe alone, which is what a consumer can repeat after extraction. The distinction is
+ * deliberate rather than pretending the narrower consumer check reproduces assertions it cannot
+ * see.
  *
  * The archive is content-addressed by its own hash, so the release document can commit to it and any
  * consumer can verify it byte for byte.
@@ -19,7 +20,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { assertNativeHost, boxTargetId } from '../contract/targets.mjs';
-import { CHANNELS, documentKinds } from '../contract/documents.mjs';
+import { runtimeAdapter } from '../contract/runtimes.mjs';
+import { BOX_SCHEMA_VERSION, CHANNELS, documentKinds } from '../contract/documents.mjs';
 import { mergeEnvironmentLayers } from '../environment.mjs';
 import {
   PAYLOAD_DIGEST_FILE,
@@ -28,7 +30,7 @@ import {
 } from '../contract/payload-digest.mjs';
 import { signDocument } from '../sign/index.mjs';
 import { copyVerifiedLocalFile, downloadVerified, expandAssetArchive, moveIntoPlace } from './assets.mjs';
-import { createDeterministicZip } from './archive.mjs';
+import { archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
 import {
   collectFiles,
   fileExists,
@@ -40,9 +42,14 @@ import {
 } from './filesystem.mjs';
 import { assertExecutionFiles } from './execution.mjs';
 import { boxReleaseObjectPrefix, boxReleaseStem, builderVersionFields } from './identity.mjs';
-import { createCondaDependencyLicenseAudit, validateCondaDependencyLicenseAudit } from './licenses.mjs';
+import {
+  createCondaDependencyLicenseAudit,
+  validateBundledLicenses,
+  validateCondaDependencyLicenseAudit,
+} from './licenses.mjs';
 import { checkParity } from './parity.mjs';
 import { findCondaPack, findPixi, installAndPackPixiEnvironment } from './pixi.mjs';
+import { runtimeBuilder } from '../runtimes/index.mjs';
 import { fail, run as runProcess } from './process.mjs';
 import { readScroll, sourceBuildState, sourceBuildTime } from './scroll.mjs';
 import { getWorkspace } from './workspace.mjs';
@@ -51,55 +58,98 @@ const SELF_TEST_TIMEOUT_SECONDS = 180;
 const sha256Hex = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 /**
- * The extra self-test Python a scroll declares, read from the file it names or taken inline.
+ * The extra self-test source a scroll declares, read from the file it names or taken inline.
  *
- * A real self-test outgrows a JSON string quickly, so `pythonFile` points at a file in the project
- * that an editor, a linter and a diff can all see. It is read here rather than at scroll-read time
+ * A real self-test outgrows a JSON string quickly, so `script` points at a file in the project that
+ * an editor, a linter and a diff can all see. It is read here rather than at scroll-read time
  * because it is build input, not part of the box format.
  */
 async function selfTestExtraCode(scroll, projectRoot) {
-  const { pythonCode, pythonFile } = scroll.selfTest;
-  if (!pythonFile) return pythonCode ?? null;
-  const path = join(projectRoot, safeRelativePath(pythonFile));
-  if (!await fileExists(path)) fail(`Self-test Python file is missing: ${pythonFile}`);
+  const { code, script } = scroll.selfTest;
+  if (!script) return code ?? null;
+  const path = join(projectRoot, safeRelativePath(script));
+  if (!await fileExists(path)) fail(`Self-test script is missing: ${script}`);
   return readFile(path, 'utf8');
 }
 
-/** Runs the scroll's self-test with the payload's own interpreter, under the target's environment. */
-function runSelfTest({ interpreter, adapter, scroll, payloadDir, run, extraCode = null }) {
-  const imports = `import ${scroll.selfTest.imports.join(', ')}`;
-  const code = extraCode
-    ? `${adapter.selfTestPython}\n${imports}\n${extraCode}`
-    : `${adapter.selfTestPython}\n${imports}`;
-  run(interpreter, ['-c', code], {
-    cwd: payloadDir,
-    env: mergeEnvironmentLayers(
-      adapter.platform,
-      scroll.environment ?? {},
-      adapter.validationEnvironments[scroll.target.accelerator],
-    ),
+/**
+ * Runs the scroll's self-test against the payload, under the target's validation environment.
+ *
+ * The builder's probe is the signed one plus whatever extra source the scroll declared, and the
+ * runtime is the only thing that knows how to turn either into command lines. A probe may imply
+ * several — an import check and any number of command invocations — and each is run from the
+ * payload root with its own required exit status, because a check that passes by exiting non-zero
+ * is a check that never ran.
+ */
+function runSelfTest({ adapter, scroll, payloadDir, run, extraCode = null }) {
+  const invocations = runtimeAdapter(scroll.runtime.id).selfTestInvocations({
+    probe: { ...scroll.selfTest, code: extraCode },
+    execution: scroll.execution,
+    target: adapter,
   });
+  const env = mergeEnvironmentLayers(
+    adapter.platform,
+    scroll.environment ?? {},
+    adapter.validationEnvironments[scroll.target.accelerator],
+  );
+  const resolve = (argument) => (argument.kind === 'payload-path'
+    ? join(payloadDir, ...safeRelativePath(argument.value).split('/'))
+    : argument.value);
+  for (const invocation of invocations) {
+    run(resolve(invocation.command), invocation.args.map(resolve), {
+      cwd: payloadDir,
+      env,
+      expectExitCode: invocation.expectExitCode,
+    });
+  }
 }
 
-/** Writes the licence inventory the box ships, after proving it still matches the reviewed one. */
-async function writeLicenceAudit({ scroll, lockPath, payloadDir, projectRoot }) {
-  if (!scroll.condaDependencyLicenseAudit) return;
-  const actual = createCondaDependencyLicenseAudit({
-    lockBytes: await readFile(lockPath),
-    targetId: boxTargetId(scroll.target),
-  });
-  const reviewedPath = join(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
-  const reviewed = JSON.parse(await readFile(reviewedPath, 'utf8'));
-  validateCondaDependencyLicenseAudit(reviewed, actual);
-  const auditPath = join(payloadDir, 'THIRD_PARTY_NOTICES', 'conda-distributions.json');
-  await mkdir(dirname(auditPath), { recursive: true });
-  await writeFile(auditPath, `${JSON.stringify(actual, null, 2)}\n`);
+/** Writes one notices file, creating the directory the first of them needs. */
+async function writeNotice(payloadDir, name, value) {
+  const path = join(payloadDir, 'THIRD_PARTY_NOTICES', name);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Writes the licence inventories the box ships, after proving each still describes this box.
+ *
+ * Two halves, known two different ways — see `licenses.mjs`. Both land under `THIRD_PARTY_NOTICES/`,
+ * because someone opening a box to answer a licence question looks in one place and half a notices
+ * directory is worse than none. The declared half is also returned, because unlike the derived one
+ * it travels in the signed release: a licence decision is made before an archive is downloaded, and
+ * a list only a downloaded archive reveals is a list that arrives too late to act on.
+ *
+ * @returns {Promise<import('./licenses.mjs').BundledDependency[] | null>}
+ */
+async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRoot, carriedPaths }) {
+  if (scroll.condaDependencyLicenseAudit) {
+    const actual = createCondaDependencyLicenseAudit({
+      lockBytes: await readFile(lockPath),
+      targetId: boxTargetId(scroll.target),
+    });
+    const reviewedPath = join(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
+    const reviewed = JSON.parse(await readFile(reviewedPath, 'utf8'));
+    validateCondaDependencyLicenseAudit(reviewed, actual);
+    await writeNotice(payloadDir, 'conda-distributions.json', actual);
+  }
+  if (!scroll.bundledLicenseDeclaration) return null;
+  const declarationPath = join(projectRoot, safeRelativePath(scroll.bundledLicenseDeclaration));
+  if (!await fileExists(declarationPath)) {
+    fail(`Bundled licence declaration is missing: ${scroll.bundledLicenseDeclaration}`);
+  }
+  const bundled = await validateBundledLicenses(
+    JSON.parse(await readFile(declarationPath, 'utf8')),
+    carriedPaths,
+  );
+  await writeNotice(payloadDir, 'bundled-dependencies.json', bundled);
+  return bundled;
 }
 
 /**
  * Builds, self-tests, archives, and signs the box a scroll describes — the whole pipeline the
  * module header narrates. `name` is an exact scroll reference, or an unambiguous box shorthand;
- * options override signing, channel, weights mode, namespace, and toolchain paths. `run`,
+ * options override signing, channel, namespace, and toolchain paths. `run`,
  * `runResult`, and `fetchImpl` are the injection seams the tests use to substitute the toolchain
  * and asset transport.
  */
@@ -107,8 +157,7 @@ export async function buildBox(name, options = {}) {
   const {
     allowDirty = false,
     channel = 'beta',
-    weights = null,
-    assetBaseUrl: assetBaseUrlOverride = null,
+    publishBaseUrl: publishBaseUrlOverride = null,
     namespace,
     signerCommand = null,
     privatePath,
@@ -125,19 +174,21 @@ export async function buildBox(name, options = {}) {
   const probe = runResult ? { runResult } : {};
   const workspace = getWorkspace();
   const { adapter, dir, scroll } = await readScroll(name);
-  const weightsMode = weights || scroll.weights || 'embed';
   if (!CHANNELS.includes(channel)) {
     fail(`Unsupported channel: ${channel}. Use ${CHANNELS.join(' or ')}.`);
   }
-  if (weightsMode !== 'embed' && weightsMode !== 'on-demand') {
-    fail(`Unsupported weights mode: ${weightsMode}. Use embed or on-demand.`);
-  }
-  if (weightsMode === 'on-demand' && (scroll.assetArchives ?? []).length > 0) {
-    fail('on-demand weights cannot be combined with assetArchives, which are expanded at build time.');
-  }
-  // Reported rather than asked: the mode decides whether declared assets ship inside the archive,
-  // and the CLI no longer puts a menu in front of what the scroll already says.
-  log(`Weights: ${weightsMode}`);
+  // Whether an asset ships inside the archive is per entry and declared by the scroll, so there is
+  // nothing to ask and nothing to override: a build-time override would silently repack a box under
+  // an identity that no longer describes it. What the scroll decided is reported, not negotiated.
+  const deferred = scroll.assets.filter((asset) => asset.embed === false);
+  // Where this box will be published, if it will be. Absent is a legitimate answer and the common
+  // one: a box built to run on the machine that built it is never published, so there is nowhere
+  // for its documents to point and no value here would be true. The build then omits the two links
+  // rather than inventing an address — nothing verifies them, and a false address inside a signed,
+  // immutable document stays false forever.
+  const publishBaseUrl = String(publishBaseUrlOverride || scroll.publishBaseUrl || '').replace(/\/$/, '');
+  log(`Runtime: ${scroll.runtime.id}${scroll.runtime.version ? ` ${scroll.runtime.version}` : ''}`);
+  log(`Assets:  ${scroll.assets.length - deferred.length} embedded, ${deferred.length} on demand`);
   // Wheels, native libraries, and the interpreter are proven on the exact OS/architecture they ship for.
   assertNativeHost(adapter);
   const pixi = findPixi({ requiredVersion: scroll.pixiVersion, path: pixiPath, ...probe });
@@ -189,27 +240,31 @@ export async function buildBox(name, options = {}) {
     payloadDir,
     adapter,
     run: runEnvironmentCommand,
+    runtimeId: scroll.runtime.id,
   });
 
   log('Preparing payload');
-  // `embed` packs the assets into the archive, so an installed box needs no network and works
-  // air-gapped. `on-demand` leaves them out for the caller's distribution layer to materialize from
-  // descriptors carried in the signed release. Consumers verify those bytes before execution; the
-  // declared hash is what keeps that safe. The choice trades archive size against an install-time
-  // dependency on the asset host, so it is the project's to make, per build.
-  const embedded = weightsMode === 'embed';
-  for (const asset of embedded ? scroll.assets : []) {
+  // An embedded asset is packed into the archive, so a box made only of them installs with no
+  // network and works air-gapped. A deferred one is left out and its descriptor carried in the
+  // signed release instead, for the caller's distribution layer to materialize; consumers verify
+  // those bytes before execution, and the declared hash is what keeps that safe. The choice trades
+  // archive size against an install-time dependency on the asset host, and it is per entry so that
+  // a box can ship a small entry point and defer a large dataset.
+  for (const asset of scroll.assets) {
+    if (asset.embed === false) continue;
     log(`Downloading ${asset.relativePath}`);
     await downloadVerified(asset, join(payloadDir, safeRelativePath(asset.relativePath)), {
       fetchImpl,
       log,
     });
   }
-  const deferredAssets = new Set(embedded ? [] : scroll.assets.map((asset) => asset.relativePath));
+  const deferredAssets = new Set(deferred.map((asset) => asset.relativePath));
   for (const file of scroll.localFiles ?? []) {
     await copyVerifiedLocalFile(file, payloadDir, workspace.root);
   }
-  for (const archive of embedded ? scroll.assetArchives ?? [] : []) {
+  // An asset archive is expanded at build time and has no descriptor to defer, so the schema gives
+  // it no `embed` field and there is nothing to skip here.
+  for (const archive of scroll.assetArchives ?? []) {
     await expandAssetArchive(payloadDir, archive);
   }
   // Drops what is only needed to build (tests, docs, bundled sample data). A box is a multi-gigabyte
@@ -217,7 +272,23 @@ export async function buildBox(name, options = {}) {
   for (const prunePath of scroll.prunePaths ?? []) {
     await rm(join(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
   }
-  await writeLicenceAudit({ scroll, lockPath, payloadDir, projectRoot: workspace.root });
+  // Whatever the runtime needs in the payload that nothing declares. It runs after the prunes, so
+  // a project cannot prune a file the runtime is about to write, and before the payload is read,
+  // so what it writes is archived and digested like everything else.
+  for (const written of await runtimeBuilder(scroll.runtime.id).preparePayload?.(payloadDir) ?? []) {
+    log(`Writing ${written}`);
+  }
+  // Read once, after every staging step and every prune: this is the payload as it will be
+  // archived, and both the licence declaration and the execution check are questions about that
+  // tree rather than about what the scroll asked for.
+  const payloadFiles = new Set(await collectFiles(payloadDir));
+  const bundledLicenses = await writeLicenceInventories({
+    scroll,
+    lockPath,
+    payloadDir,
+    projectRoot: workspace.root,
+    carriedPaths: new Set([...payloadFiles, ...deferredAssets]),
+  });
   // Guards against over-pruning: the files the box needs at run time must still be there.
   for (const requiredFile of scroll.selfTest.files ?? []) {
     // A deferred asset is legitimately absent from the payload; anything else missing means pruning
@@ -230,8 +301,9 @@ export async function buildBox(name, options = {}) {
   assertExecutionFiles({
     execution: scroll.execution,
     adapter,
-    pythonVersion: scroll.pythonVersion,
-    files: new Set(await collectFiles(payloadDir)),
+    runtimeId: scroll.runtime.id,
+    runtimeVersion: scroll.runtime.version,
+    files: payloadFiles,
   });
   // Everything needed to answer "where did this box come from, and could I rebuild it?".
   const provenance = {
@@ -240,30 +312,49 @@ export async function buildBox(name, options = {}) {
     builderRevision: source.revision,
     sourceTreeDirty: source.dirty,
     sourceRevision: scroll.sourceRevision,
-    pythonVersion: scroll.pythonVersion,
+    // Omitted rather than defaulted when the runtime has no version: an invented value is a
+    // provenance record that lies about what was observed.
+    ...(scroll.runtime.version === undefined ? {} : { runtimeVersion: scroll.runtime.version }),
     ...builderVersionFields(scroll),
     dependencyLockSha256: lockSha,
     builtAt: sourceBuildTime(workspace.root),
   };
+  // The signed probe is what a consumer can repeat: the imports and commands, and neither the file
+  // assertions nor the extra source, which no consumer can see to reproduce.
   const selfTest = {
-    pythonImports: scroll.selfTest.imports,
+    probe: {
+      ...(scroll.selfTest.imports ? { imports: scroll.selfTest.imports } : {}),
+      ...(scroll.selfTest.commands
+        ? {
+          commands: scroll.selfTest.commands.map(({ args, expectExitCode }) => ({
+            args,
+            expectExitCode: expectExitCode ?? 0,
+          })),
+        }
+        : {}),
+    },
     timeoutSeconds: SELF_TEST_TIMEOUT_SECONDS,
   };
-  // Descriptors travel with the box only when the consumer has to fetch the assets itself.
-  const deferred = embedded ? {} : {
-    weights: 'on-demand',
-    assets: scroll.assets.map(({ url, relativePath, sizeBytes, sha256 }) => ({
-      url, relativePath, sizeBytes, sha256,
+  // Descriptors travel with the box only for the assets the consumer has to fetch itself.
+  const deferredDescriptors = deferred.length === 0 ? {} : {
+    assets: deferred.map(({ url, relativePath, sizeBytes, sha256, executable }) => ({
+      url,
+      relativePath,
+      sizeBytes,
+      sha256,
+      ...(executable ? { executable: true } : {}),
     })),
   };
   const identity = {
     boxId: scroll.boxId,
-    modelId: scroll.modelId,
-    runtimeId: scroll.runtimeId,
+    ...(scroll.labels === undefined ? {} : { labels: scroll.labels }),
     version: scroll.version,
   };
   const execution = scroll.execution ? { execution: scroll.execution } : {};
   const environment = scroll.environment === undefined ? {} : { environment: scroll.environment };
+  // Absent rather than empty when the project declared nothing: an empty list would read as "this
+  // box bundles no third-party code", which is a claim Scrollcase is in no position to make.
+  const notices = bundledLicenses === null ? {} : { bundledLicenses };
   // box.json travels *inside* the archive. A consumer compares it field by field against the signed
   // release, which is what binds the archive's contents to its signed metadata.
   //
@@ -273,21 +364,21 @@ export async function buildBox(name, options = {}) {
   // self-tested at all: the check ran against a payload missing a file the box has. Nothing here
   // depends on the test or the parity gate, so there was never a reason for it to wait.
   await writeFile(join(payloadDir, 'box.json'), `${JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: BOX_SCHEMA_VERSION,
     ...identity,
     target: scroll.target,
-    pythonEntryPoint: scroll.pythonEntryPoint,
-    modelCacheSubdir: scroll.modelCacheSubdir,
+    runtime: scroll.runtime,
+    cacheSubdir: scroll.cacheSubdir,
+    ...notices,
     selfTest,
     ...environment,
     ...execution,
-    ...deferred,
+    ...deferredDescriptors,
     provenance,
   }, null, 2)}\n`);
 
   log('Running self-test');
   runSelfTest({
-    interpreter,
     adapter,
     scroll,
     payloadDir,
@@ -314,7 +405,7 @@ export async function buildBox(name, options = {}) {
   // cannot describe itself. It goes in before `normalizeTree` so it carries the same fixed mtime as
   // the rest, and before `payloadSize` so the size a consumer checks free space against is honest.
   // This costs one full sequential read of the payload — real minutes on a box carrying embedded
-  // weights — and it is paid here rather than folded into the archive writer, which has no business
+  // assets — and it is paid here rather than folded into the archive writer, which has no business
   // knowing a format rule that is not about archiving.
   const digestStream = payloadDigestStream(await payloadDigestEntries(payloadDir));
   await writeFile(join(payloadDir, PAYLOAD_DIGEST_FILE), digestStream);
@@ -325,14 +416,42 @@ export async function buildBox(name, options = {}) {
   // Declared assets are the one thing a box carries that arrives already compressed, so they are
   // stored rather than deflated without the project having to say so. `uncompressedPaths` covers
   // what only the project can know: the tree an expanded archive left behind, a bundled corpus.
-  // Under `on-demand` the assets are not in the payload at all and the first list simply matches
-  // nothing.
+  // A deferred asset is not in the payload at all, and simply matches nothing.
   const uncompressedPaths = [
     ...scroll.assets.map((asset) => safeRelativePath(asset.relativePath)),
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path)),
   ];
+  // The executable bit is synthesised, never read off the build machine, so what carries it has to
+  // be *declared*: the runtime's own rule covers the interpreter and the console scripts a conda
+  // prefix generates, and the scroll covers everything it brought in itself. A downloaded file
+  // arrives with no mode at all — HTTP carries content, not permissions — so without this a box
+  // could not ship an asset that runs.
+  const declaredExecutablePaths = [
+    ...scroll.assets,
+    ...(scroll.localFiles ?? []),
+  ].filter((entry) => entry.executable && entry.embed !== false)
+    .map((entry) => safeRelativePath(entry.relativePath));
+  // Whatever the box starts has to come out of the archive runnable. For an interpreted runtime
+  // that is the interpreter, and the runtime's own rule covers it; for a native one it is a file
+  // the scroll brought in, and only the scroll can say the bit belongs on it. Asked through the
+  // argv rule rather than by naming an execution kind here, so the guard holds for every runtime
+  // and keeps holding for the next one.
+  if (scroll.execution) {
+    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
+      execution: scroll.execution,
+      target: adapter,
+    });
+    const commandPath = safeRelativePath(command.value);
+    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in.`);
+    }
+  }
   log('Creating deterministic archive');
-  await createDeterministicZip(payloadDir, archivePath, adapter, uncompressedPaths);
+  await createDeterministicZip(payloadDir, archivePath, adapter, {
+    uncompressedPaths,
+    runtimeId: scroll.runtime.id,
+    executablePaths: declaredExecutablePaths,
+  });
 
   log('Hashing deterministic archive');
   const archiveSha = await sha256File(archivePath);
@@ -340,27 +459,31 @@ export async function buildBox(name, options = {}) {
   // Content-addressed: the object is named after its own hash, so publishing is idempotent and an
   // object can never be replaced with different bytes under the same URL.
   const archiveObject = `${objectPrefix}/${archiveSha}.zip`;
-  const assetBaseUrl = String(assetBaseUrlOverride || scroll.assetBaseUrl || '').replace(/\/$/, '');
-  if (!assetBaseUrl) fail('No asset base URL: declare assetBaseUrl in the scroll or pass --asset-base-url.');
   const kinds = documentKinds(namespace);
   const signing = { signerCommand, privatePath, publicPath };
   log('Signing release and channel');
 
   const release = {
-    schemaVersion: 2,
+    schemaVersion: BOX_SCHEMA_VERSION,
     kind: kinds.release,
     ...identity,
     target: scroll.target,
     compatibility: scroll.compatibility,
-    archive: { format: 'zip', url: `${assetBaseUrl}/${archiveObject}`, sha256: archiveSha, sizeBytes: archiveSize },
+    archive: {
+      format: 'zip',
+      ...(publishBaseUrl ? { url: `${publishBaseUrl}/${archiveObject}` } : {}),
+      sha256: archiveSha,
+      sizeBytes: archiveSize,
+    },
     installedSizeBytes,
     payloadDigest: payloadDigestValue,
-    pythonEntryPoint: scroll.pythonEntryPoint,
-    modelCacheSubdir: scroll.modelCacheSubdir,
+    runtime: scroll.runtime,
+    cacheSubdir: scroll.cacheSubdir,
+    ...notices,
     selfTest,
     ...environment,
     ...execution,
-    ...deferred,
+    ...deferredDescriptors,
     provenance,
   };
   // Written beside the archive, under the same scratch rule: named for its own hash once it has one.
@@ -368,10 +491,12 @@ export async function buildBox(name, options = {}) {
   await writeFile(stagedReleasePath, `${JSON.stringify(await signDocument(release, signing), null, 2)}\n`);
 
   // The channel points at the release document by *its* hash too, so the whole chain is
-  // content-addressed: channel -> release document -> archive.
+  // content-addressed: channel -> release document -> archive. An unpublished box has no chain to
+  // build, and a channel that still says which version is current is more use than one carrying an
+  // address that resolves nowhere.
   const releaseDocumentSha = await sha256File(stagedReleasePath);
   const channelDocument = {
-    schemaVersion: 2,
+    schemaVersion: BOX_SCHEMA_VERSION,
     kind: kinds.channel,
     channel,
     boxId: scroll.boxId,
@@ -384,7 +509,9 @@ export async function buildBox(name, options = {}) {
     // rather than by the builder.
     releases: [{
       version: scroll.version,
-      releaseManifestUrl: `${assetBaseUrl}/${objectPrefix}/${releaseDocumentSha}.release.json`,
+      ...(publishBaseUrl
+        ? { releaseManifestUrl: `${publishBaseUrl}/${objectPrefix}/${releaseDocumentSha}.release.json` }
+        : {}),
       rolloutPercentage: 100,
     }],
   };
@@ -406,15 +533,25 @@ export async function buildBox(name, options = {}) {
   log(`Release: ${publishedRelease}`);
   log(`Channel: ${channelPath}`);
   log('');
-  log(`Publish: upload ${join(workspace.distDir, 'boxes')} under ${assetBaseUrl}, keeping its paths,`);
-  log('         then publish the channel document where your clients look for it.');
+  if (publishBaseUrl) {
+    log(`Publish: upload ${join(workspace.distDir, 'boxes')} under ${publishBaseUrl}, keeping its paths,`);
+    log('         then publish the channel document where your clients look for it.');
+  } else {
+    // Said plainly rather than left to be discovered from a missing field: this box is complete and
+    // runnable, and the one thing it cannot do is tell a downloader where to find itself.
+    log('Local:   this box names no publish location, so its documents point nowhere.');
+    log(`         Run it from here, or rebuild with --publish-base-url to publish it.`);
+  }
   return {
     archivePath: publishedArchive,
     releasePath: publishedRelease,
+    // Whether this box has a publish location, so the CLI's closing line does not tell the author
+    // to distribute documents that point nowhere.
+    published: Boolean(publishBaseUrl),
     channelPath,
     archiveSha256: archiveSha,
     installedSizeBytes,
-    weights: weightsMode,
+    deferredAssets: deferred.length,
     parity,
   };
 }

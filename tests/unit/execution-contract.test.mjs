@@ -9,13 +9,15 @@ describe('execution payload prerequisites', () => {
     expect(() => assertExecutionFiles({
       execution,
       adapter,
-      pythonVersion: '3.11.15',
+      runtimeId: 'python',
+      runtimeVersion: '3.11.15',
       files: new Set(['app/main.py']),
     })).not.toThrow();
     expect(() => assertExecutionFiles({
       execution,
       adapter,
-      pythonVersion: '3.11.15',
+      runtimeId: 'python',
+      runtimeVersion: '3.11.15',
       files: new Set(),
     })).toThrow(/Execution script is missing/);
   });
@@ -30,7 +32,8 @@ describe('execution payload prerequisites', () => {
     expect(() => assertExecutionFiles({
       execution: moduleExecution,
       adapter: linux,
-      pythonVersion: '3.11.15',
+      runtimeId: 'python',
+      runtimeVersion: '3.11.15',
       files: new Set(['venv/lib/python3.11/site-packages/example_model/main.py']),
     })).not.toThrow();
 
@@ -38,14 +41,16 @@ describe('execution payload prerequisites', () => {
     expect(() => assertExecutionFiles({
       execution: moduleExecution,
       adapter: windows,
-      pythonVersion: '3.11.15',
+      runtimeId: 'python',
+      runtimeVersion: '3.11.15',
       files: new Set(['venv/Lib/site-packages/example_model/main.py']),
     })).not.toThrow();
 
     expect(() => assertExecutionFiles({
       execution: { ...moduleExecution, module: 'json.tool' },
       adapter: linux,
-      pythonVersion: '3.11.15',
+      runtimeId: 'python',
+      runtimeVersion: '3.11.15',
       files: new Set(['venv/lib/python3.11/json/tool.py']),
     })).not.toThrow();
   });
@@ -55,7 +60,8 @@ describe('execution payload prerequisites', () => {
     expect(() => assertExecutionFiles({
       execution: { kind: 'python-module', module: 'missing.main', defaultArgs: [] },
       adapter,
-      pythonVersion: '3.12.4',
+      runtimeId: 'python',
+      runtimeVersion: '3.12.4',
       files: new Set(['venv/bin/python']),
     })).toThrow(/Execution module is not discoverable/);
   });

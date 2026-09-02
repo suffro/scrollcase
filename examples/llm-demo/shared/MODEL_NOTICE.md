@@ -7,7 +7,7 @@ comes from, what it may reasonably be used for, and where its documented limitat
 
 | File | Origin |
 | --- | --- |
-| `model-cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf` | GGUF Q4_K_M conversion, revision `2d4a76a30b4af41ecd395c35725ac11688d4cfe4` |
+| `cache/llm-demo/smollm2-1.7b-instruct-q4_k_m.gguf` | GGUF Q4_K_M conversion, revision `2d4a76a30b4af41ecd395c35725ac11688d4cfe4` |
 
 One file, and that is the whole model: a GGUF carries the weights, the tokenizer and the chat
 template together, so there is no separate `tokenizer.json` or `config.json` to ship alongside it.

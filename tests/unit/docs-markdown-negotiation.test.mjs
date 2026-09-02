@@ -8,6 +8,7 @@
  * two have to agree, and neither can prove it alone.
  */
 
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { markdownPathFor, onRequest, prefersMarkdown } from '../../docs/functions/_middleware.js';
 
@@ -60,7 +61,7 @@ describe('markdownPathFor', () => {
 
   it('leaves anything that is not a page alone', () => {
     expect(markdownPathFor('/llms.txt')).toBeNull();
-    expect(markdownPathFor('/schema/v2/target.schema.json')).toBeNull();
+    expect(markdownPathFor('/schema/v3/target.schema.json')).toBeNull();
     expect(markdownPathFor('/static/svg/logo-dark.svg')).toBeNull();
     // Asking for the Markdown of a Markdown file is a loop.
     expect(markdownPathFor('/reference/cli.md')).toBeNull();
@@ -127,5 +128,74 @@ describe('onRequest', () => {
 
     expect(response.headers.get('Link')).toBeNull();
     expect(await response.text()).toBe('<svg />');
+  });
+});
+
+/**
+ * The deprecated documentation's HTTP signals.
+ *
+ * These matter to exactly the readers who cannot see the banner on the page: a crawler deciding
+ * whether to index, and a bot that fetched the Markdown twin. Both representations carry them, and
+ * pages of the current documentation carry none — a `noindex` leaking onto those would quietly
+ * remove the site from search with nothing visibly wrong.
+ */
+describe('deprecated documentation headers', () => {
+  it('keeps the middleware prefix in step with the one the site is built from', async () => {
+    const { PREFIX } = await import('../../docs/.vitepress/versions.mjs');
+    const source = await readFile(
+      new URL('../../docs/functions/_middleware.js', import.meta.url), 'utf8');
+    expect(source).toContain(`const DEPRECATED_PREFIX = '${PREFIX}'`);
+  });
+
+  it.each([
+    ['a page', 'https://scrollcase.dev/v2/reference/cli', { page: '<html>v2</html>' }],
+    ['its Markdown twin', 'https://scrollcase.dev/v2/reference/cli.md', { page: '# CLI\n' }],
+    ['the landing page', 'https://scrollcase.dev/v2/', { page: '<html>v2</html>' }],
+  ])('tells a crawler not to index %s', async (_what, url, options) => {
+    const response = await onRequest(context(url, options));
+
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, follow');
+    expect(response.headers.get('Link')).toContain(
+      '<https://scrollcase.dev/v2/>; rel="deprecation"');
+  });
+
+  it('marks a negotiated Markdown response too', async () => {
+    const response = await onRequest(context('https://scrollcase.dev/v2/reference/cli', {
+      accept: 'text/markdown',
+      twin: '---\ndeprecated: true\n---\n',
+    }));
+
+    expect(response.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8');
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, follow');
+  });
+
+  it('leaves the current documentation indexable', async () => {
+    for (const url of [
+      'https://scrollcase.dev/reference/cli',
+      'https://scrollcase.dev/reference/cli.md',
+      'https://scrollcase.dev/',
+    ]) {
+      const response = await onRequest(context(url, { page: '<html>a page</html>' }));
+      expect(response.headers.get('X-Robots-Tag'), url).toBeNull();
+      expect(response.headers.get('Link') ?? '', url).not.toContain('rel="deprecation"');
+    }
+  });
+
+  // RFC 9745's field is a Date and nothing else, so it ships only once there is a real one. A
+  // header naming a deprecation date that never happened is a claim no client can check.
+  it('omits the Deprecation field until a date is declared', async () => {
+    const source = await readFile(
+      new URL('../../docs/functions/_middleware.js', import.meta.url), 'utf8');
+    const declared = source.match(/const DEPRECATED_SINCE = (.+);/)[1];
+    const response = await onRequest(context('https://scrollcase.dev/v2/reference/cli', {
+      page: '<html>v2</html>',
+    }));
+
+    if (declared === 'null') {
+      expect(response.headers.get('Deprecation')).toBeNull();
+    } else {
+      expect(Number(declared), 'a Unix timestamp in seconds').toBeGreaterThan(0);
+      expect(response.headers.get('Deprecation')).toBe(`@${declared}`);
+    }
   });
 });

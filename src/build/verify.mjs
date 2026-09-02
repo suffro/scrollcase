@@ -13,23 +13,33 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { assertNativeHost, assertPythonEntryPoint, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
-import { BOX_SCHEMA_VERSION, parseDocumentKind } from '../contract/documents.mjs';
+import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  assertRuntimeEntryPoint,
+  executionAffectingVariables,
+  isImplementedRuntime,
+  runtimeAdapter,
+  unimplementedRuntimeMessage,
+} from '../contract/runtimes.mjs';
+import {
+  BOX_SCHEMA_VERSION,
+  parseDocumentKind,
+  unsupportedSchemaVersionMessage,
+} from '../contract/documents.mjs';
 import { resolveTrustedKeys, verifySignedDocument } from '../sign/index.mjs';
 
 const AGREEMENT_FIELDS = [
   'schemaVersion',
   'boxId',
-  'modelId',
-  'runtimeId',
+  'labels',
   'version',
   'target',
-  'pythonEntryPoint',
-  'modelCacheSubdir',
+  'runtime',
+  'cacheSubdir',
+  'bundledLicenses',
   'environment',
   'selfTest',
   'execution',
-  'weights',
   'assets',
   'provenance',
 ];
@@ -37,9 +47,15 @@ const AGREEMENT_FIELDS = [
 /**
  * Binds the self-description inside the archive to the signed release outside it.
  *
- * Only fields present in both schema-version-2 documents belong here. Release-only transport data
- * has no counterpart in box.json; every shared identity, target, layout, consumer self-test,
- * asset-policy, and provenance field must agree recursively.
+ * Only fields present in both schema-version-3 documents belong here. Release-only transport data
+ * has no counterpart in box.json; every shared identity, target, runtime, layout, consumer
+ * self-test, deferred-asset, and provenance field must agree recursively.
+ *
+ * `assets` carries the per-entry `embed` decision by construction: it lists exactly the deferred
+ * entries, and it is compared deeply, so a box that quietly changed its mind about one asset
+ * disagrees with its release. `bundledLicenses` is here for the same reason it is signed at all: a
+ * licence inventory that could differ between the document a reviewer read and the box a user
+ * installed would be worth nothing.
  */
 export function assertBoxManifestAgreement(box, release) {
   for (const field of AGREEMENT_FIELDS) {
@@ -71,7 +87,7 @@ async function loadManifestSchemas() {
  * Performs the half of the trust chain that needs no archive.
  *
  * Everything here answers questions about the signed document alone — is the signature good, is the
- * payload a schema-version-2 release, does it describe a target this build understands. It is split
+ * payload a schema-version-3 release, does it describe a target this build understands. It is split
  * out because a box that is already extracted has no archive to check, and re-deriving these steps
  * beside the ones that do would create the second interpretation of a signed release that
  * `inspectBoxArchive` exists to prevent.
@@ -82,19 +98,20 @@ async function loadManifestSchemas() {
 export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, trustedKeys }) {
   const releasePath = resolve(releaseDocumentPath);
   const signed = JSON.parse(await readFile(releasePath, 'utf8'));
-  if (signed?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+  // Before the envelope schema gets a look at it. The schema pins `schemaVersion` to a const, so a
+  // superseded document would otherwise be refused as a shape error — "must equal 3" — which does
+  // not tell the reader what they are holding. A published box is refused by *name*, saying which
+  // version it is and what to do about it.
+  if (signed?.schemaVersion !== undefined && signed.schemaVersion !== BOX_SCHEMA_VERSION) {
+    fail(unsupportedSchemaVersionMessage(signed.schemaVersion));
   }
   const [releaseSchema, boxSchema, targetSchema, executionSchema, signedSchema] =
     await loadManifestSchemas();
   const signedError = schemaValidationError(signed, signedSchema);
   if (signedError) fail(`Invalid signed document: ${signedError}.`);
   const release = await verifySignedDocument(signed, await resolveTrustedKeys({ publicPath, trustedKeys }));
-  if (release?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
-  }
   if (release?.schemaVersion !== BOX_SCHEMA_VERSION) {
-    fail(`Unsupported schemaVersion ${String(release?.schemaVersion)}; expected ${BOX_SCHEMA_VERSION}.`);
+    fail(unsupportedSchemaVersionMessage(release?.schemaVersion));
   }
   const releaseError = schemaValidationError(
     release,
@@ -104,7 +121,12 @@ export async function inspectReleaseDocument(releaseDocumentPath, { publicPath, 
   if (releaseError) fail(`Invalid release manifest: ${releaseError}.`);
   if (parseDocumentKind(release.kind)?.type !== 'release') fail('Document is not a box release.');
   const adapter = boxTargetAdapter(release.target);
-  assertPythonEntryPoint(adapter, release.pythonEntryPoint);
+  // The format's runtime vocabulary is wider than what this build implements, so a release may name
+  // one there is no adapter for. That is refused by name rather than misread as another runtime.
+  if (!isImplementedRuntime(release.runtime.id)) fail(unimplementedRuntimeMessage(release.runtime.id));
+  if (release.runtime.entryPoint !== undefined) {
+    assertRuntimeEntryPoint(release.runtime.id, adapter, release.runtime.entryPoint);
+  }
   // Describes the extracted tree rather than the archive, so it belongs on this side of the split.
   // `payloadDigest` needs no companion check: its `format` is a schema `const`, so a release naming
   // a format this build cannot read is already refused above, by name, as an invalid manifest.
@@ -160,11 +182,15 @@ export async function inspectBoxArchive(releaseDocumentPath, options = {}) {
   );
   if (boxError) fail(`Invalid box.json: ${boxError}.`);
   assertBoxManifestAgreement(box, release);
-  if (!resolvablePaths.has(release.pythonEntryPoint)) fail(`Archive is missing ${release.pythonEntryPoint}.`);
+  if (release.runtime.entryPoint !== undefined
+    && !resolvablePaths.has(release.runtime.entryPoint)) {
+    fail(`Archive is missing ${release.runtime.entryPoint}.`);
+  }
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    pythonVersion: release.provenance.pythonVersion,
+    runtimeId: release.runtime.id,
+    runtimeVersion: release.provenance.runtimeVersion,
     files: resolvablePaths,
   });
 
@@ -213,7 +239,7 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
   const resolvedEnvironment = resolveEnvironment({
     platform: adapter.platform,
     layers: environmentLayers,
-    executionAffectingVariables: adapter.executionAffectingEnvironmentVariables,
+    executionAffectingVariables: executionAffectingVariables(release.runtime.id, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   });
@@ -238,11 +264,24 @@ export async function verifyBox(releaseDocumentPath, options = {}) {
         && (await payloadDigest(extracted)).sha256 !== release.payloadDigest.sha256) {
         fail('Extracted payload does not match the signed release.');
       }
-      const python = join(extracted, safeRelativePath(release.pythonEntryPoint));
-      run(python, ['-c', `${adapter.selfTestPython}\nimport ${release.selfTest.pythonImports.join(', ')}`], {
-        cwd: extracted,
-        env: resolvedEnvironment.environment,
+      // The signed probe only: a consumer repeating this check has the imports and commands and
+      // nothing else, and the runtime is the only thing that knows how to turn them into command
+      // lines. Running the builder-only extras here would report a pass the consumer cannot get.
+      const invocations = runtimeAdapter(release.runtime.id).selfTestInvocations({
+        probe: release.selfTest.probe,
+        execution: release.execution,
+        target: adapter,
       });
+      const resolveArgument = (argument) => (argument.kind === 'payload-path'
+        ? join(extracted, ...safeRelativePath(argument.value).split('/'))
+        : argument.value);
+      for (const invocation of invocations) {
+        run(resolveArgument(invocation.command), invocation.args.map(resolveArgument), {
+          cwd: extracted,
+          env: resolvedEnvironment.environment,
+          expectExitCode: invocation.expectExitCode,
+        });
+      }
     } finally {
       await rm(extracted, { recursive: true, force: true });
     }

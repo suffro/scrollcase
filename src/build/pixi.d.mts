@@ -84,14 +84,18 @@ export function findCondaPack({ path, runResult }?: {
     runResult?: typeof defaultRunResult;
 }): string;
 /**
- * Builds the box's `venv/` prefix from a scroll's committed pixi.lock and packs it for relocation.
+ * Builds the box's runtime prefix from a scroll's committed pixi.lock and packs it for relocation.
  *
  * Flow: install the exact locked env into an isolated workspace so pixi's `.pixi/envs` never
  * lands in the tracked scroll dir; conda-pack the prefix into a relocatable tarball; extract it
- * into `payloadDir/venv`; remove the service files that carry the build prefix (conda-unpack is
- * never run — see below); then dereference every symlink so the payload is link-free for the
- * archive layer. The multi-gigabyte workspace and tarball are removed before the payload is
- * archived.
+ * into the runtime's payload root; remove the service files that carry the build prefix
+ * (conda-unpack is never run — see below); then dereference every symlink so the payload is
+ * link-free for the archive layer. The multi-gigabyte workspace and tarball are removed before the
+ * payload is archived.
+ *
+ * Where that prefix lands and what the interpreter inside it is called are the runtime's answers,
+ * not this module's. Packing is substrate work — one pixi, one conda-pack, one tarball, whatever is
+ * inside it.
  *
  * `run` is injected so this composes with the orchestrator's logging and error model.
  *
@@ -104,10 +108,11 @@ export function findCondaPack({ path, runResult }?: {
  *   payloadDir: string,
  *   adapter: import('../contract/targets.mjs').BoxTargetAdapter,
  *   run: typeof import('./process.mjs').run,
+ *   runtimeId: string,
  * }} options
- * @returns {Promise<{ interpreter: string, prefix: string }>}
+ * @returns {Promise<{ interpreter: string | null, venvDir: string, sitePackagesRelative: string }>}
  */
-export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, lockPath, buildDir, payloadDir, adapter, run, }: {
+export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, lockPath, buildDir, payloadDir, adapter, run, runtimeId, }: {
     pixi: string;
     condaPack: string;
     manifestPath: string;
@@ -116,8 +121,10 @@ export function installAndPackPixiEnvironment({ pixi, condaPack, manifestPath, l
     payloadDir: string;
     adapter: import("../contract/targets.mjs").BoxTargetAdapter;
     run: typeof import("./process.mjs").run;
+    runtimeId: string;
 }): Promise<{
-    interpreter: string;
-    prefix: string;
+    interpreter: string | null;
+    venvDir: string;
+    sitePackagesRelative: string;
 }>;
 import { runResult as defaultRunResult } from './process.mjs';

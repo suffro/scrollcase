@@ -41,7 +41,7 @@ function createValidator() {
 }
 
 const ajv = createValidator();
-const validatorFor = (name) => ajv.getSchema(`https://scrollcase.dev/schema/v2/${name}.schema.json`);
+const validatorFor = (name) => ajv.getSchema(`https://scrollcase.dev/schema/v3/${name}.schema.json`);
 
 /** Reports why a document failed, instead of a bare boolean, when a schema and reality disagree. */
 function expectValid(name, document, label) {
@@ -54,7 +54,7 @@ describe('published schemas', () => {
   it('ships one well-formed schema per document the format defines', () => {
     for (const name of SCHEMA_NAMES) {
       const schema = readJson(schemaUrl(name));
-      expect(schema.$id, name).toBe(`https://scrollcase.dev/schema/v2/${name}.schema.json`);
+      expect(schema.$id, name).toBe(`https://scrollcase.dev/schema/v3/${name}.schema.json`);
       expect(schema.title, name).toBeTruthy();
       expect(schema.description, name).toBeTruthy();
       expect(validatorFor(name), name).toBeTypeOf('function');
@@ -149,10 +149,17 @@ describe('schemas describe what the builder actually emits', () => {
     const execution = readJson(schemaUrl('execution'));
 
     expect(scroll.properties.$schema.const).toBe(scroll.$id);
-    expect(scroll.properties.weights.default).toBe('embed');
-    expect(scroll.properties.weights.description).toBeTruthy();
+    // Both per-asset switches carry the default that lets an ordinary entry say nothing at all.
+    const asset = scroll.properties.assets.items.properties;
+    expect(asset.embed.default).toBe(true);
+    expect(asset.embed.description).toBeTruthy();
+    expect(asset.executable.default).toBe(false);
+    expect(scroll.properties.localFiles.items.properties.executable.default).toBe(false);
     expect(scroll.properties.execution.$ref).toBe(execution.$id);
-    expect(execution.oneOf).toHaveLength(2);
+    // One branch per execution kind the format defines, including the two no runtime implements
+    // yet: the vocabulary was fixed in the version 3 break so Phase C never touches the wire.
+    expect(execution.oneOf.map((branch) => branch.properties.kind.const))
+      .toEqual(['python-script', 'python-module', 'node-script', 'native-binary']);
     expect(execution.examples).toHaveLength(2);
     expect(execution.oneOf.every((branch) => branch.additionalProperties === false)).toBe(true);
     for (const field of ['platform', 'arch', 'accelerator']) {

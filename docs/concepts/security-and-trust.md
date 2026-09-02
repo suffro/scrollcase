@@ -56,10 +56,11 @@ together. Never commit the private key under `.scrollcase/keys/`.
 2. Require a release document, resolve its exact target adapter, and validate its interpreter path.
 3. Locate the archive and compare its byte size and SHA-256 with the signed release.
 4. List ZIP entries defensively, rejecting traversal, links, and special entries before extraction.
-5. Require `box.json` and recursively compare every shared schema-v2 field: identity and version,
-   complete target, entry point, cache subdirectory, declared environment, consumer self-test,
-   weights/assets policy, and provenance.
-6. Require the declared interpreter entry inside the archive.
+5. Require `box.json` and recursively compare every shared schema-v3 field: identity and version,
+   complete target, runtime, cache subdirectory, bundled licence inventory, declared environment,
+   consumer self-test, execution, the deferred-asset list, and provenance.
+6. Require the declared runtime entry point inside the archive, where the runtime has one — a
+   `native` box declares none, and what it actually runs is checked as an execution file instead.
 7. With `--self-test`, require a matching native host, extract to a temporary directory, compare
    the logical extracted payload size, and run the signed import check with the box's interpreter
    under the signed environment declaration and target validation controls.
@@ -71,7 +72,7 @@ caller-supplied values are not masked. None of these diagnostics is a sandbox or
 The declaration is authenticated format data. The report is local consumer output that changes with
 the process inspecting or running the box.
 
-The builder's richer scroll checks—optional `pythonCode` and post-prune file assertions—are not
+The builder's richer scroll checks—optional `code` and post-prune file assertions—are not
 part of the signed release and therefore cannot be repeated by a consumer. See
 [The Scroll](/reference/scroll#self-test).
 

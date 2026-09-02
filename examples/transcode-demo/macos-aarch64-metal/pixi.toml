@@ -1,0 +1,16 @@
+# A `native` box: no interpreter at all, and a binary nobody wants to build themselves.
+#
+# ffmpeg is the archetype the `native` runtime exists for — a large compiled program with a long
+# tail of codec libraries, where "just install it" means a different version on every machine and a
+# different answer from each. The box pins one, carries everything it links against, and is signed,
+# so the transcode a user runs is the transcode that was tested.
+#
+# There is no `[dependencies]` entry for a runtime here, and that is the point: `native` installs no
+# interpreter. What the lock holds is what the binary needs to load.
+[workspace]
+name = "transcode-demo"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+ffmpeg = "9.*"

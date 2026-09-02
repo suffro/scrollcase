@@ -7,6 +7,8 @@
  * @property {string | Uint8Array} [input]
  * @property {number} [maxBuffer]
  * @property {boolean} [capture]
+ * @property {number} [expectExitCode] the status that means success, defaulting to 0. A self-test
+ *   command may legitimately require another one, and every other caller wants the default.
  */
 /**
  * Throws a consistent CLI error from validation helpers.
@@ -42,4 +44,9 @@ export type RunOptions = {
     input?: string | Uint8Array;
     maxBuffer?: number;
     capture?: boolean;
+    /**
+     * the status that means success, defaulting to 0. A self-test
+     * command may legitimately require another one, and every other caller wants the default.
+     */
+    expectExitCode?: number;
 };

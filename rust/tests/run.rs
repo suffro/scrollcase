@@ -219,7 +219,7 @@ fn a_missing_interpreter_is_refused_rather_than_spawned() {
     let fixture = support::valid("run-no-interpreter");
     let destination = fixture.directory.join("installed");
     let prepared = prepare(&fixture, &destination);
-    std::fs::remove_file(destination.join(support::native_python_entry_point())).unwrap();
+    std::fs::remove_file(destination.join(support::native_entry_point())).unwrap();
 
     let error = run_extracted_box(&prepared, &quiet()).unwrap_err();
     assert!(error.message().contains("Prepared box is missing venv/"), "{error}");

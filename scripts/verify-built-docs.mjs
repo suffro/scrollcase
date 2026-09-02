@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const distDir = resolve(process.argv[2] ?? join(root, 'docs', '.vitepress', 'dist'));
 const schemaSource = join(root, 'src', 'contract', 'schema');
-const schemaDist = join(distDir, 'schema', 'v2');
+const schemaDist = join(distDir, 'schema', 'v3');
 
 async function requireFile(path, label) {
   try {
@@ -23,7 +23,31 @@ async function requireFile(path, label) {
   }
 }
 
+/** Every rendered page, as `[route, file]`. The sitemap is the yardstick for what the site puts
+ *  forward; this is the yardstick for what it actually serves, deprecated documentation included. */
+async function builtPages(directory, prefix = '') {
+  const found = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...await builtPages(path, `${prefix}/${entry.name}`));
+    } else if (entry.name === 'index.html') {
+      found.push([`${prefix}/`, path]);
+    } else if (entry.name.endsWith('.html')) {
+      found.push([`${prefix}/${entry.name.slice(0, -'.html'.length)}`, path]);
+    }
+  }
+  return found;
+}
+
 await requireFile(join(distDir, 'privacy.html'), '/privacy');
+
+// `Number`, because package.json carries this as the string "3" while the format itself writes it
+// as the integer 3. The comparison below is about the version, not about which of the two spellings
+// a given file happens to use.
+const packageSchemaVersion = Number(JSON.parse(
+  (await requireFile(join(root, 'package.json'), 'package.json')).toString('utf8'),
+).schemaVersion);
 
 const schemaNames = (await readdir(schemaSource))
   .filter((name) => name.endsWith('.schema.json'))
@@ -94,7 +118,61 @@ for (const url of routes) {
   if (!markdown.includes(`\nsource: ${url}\n`)) {
     throw new Error(`${twin} does not name ${url} as its source.`);
   }
+  if (markdown.includes('\ndeprecated: true\n')) {
+    throw new Error(`${twin} is marked deprecated, but ${url} is the current documentation.`);
+  }
 }
+
+// The deprecated pages' own twins, which the loop above cannot reach: those routes are kept out of
+// the sitemap on purpose. They are also the reason this check exists. The banner a person sees is a
+// Vue component living in the rendered HTML, so it never reaches these files — leaving the audience
+// most likely to mistake a superseded manual for the current one as the only audience told nothing.
+// The notice has to be in the frontmatter, where a parser finds it, and in the text, where
+// everything that does not parse frontmatter finds it.
+// `/404` is excluded: VitePress renders it without a navbar at all, so it has no chrome to check.
+const pages = (await builtPages(distDir)).filter(([route]) => route !== '/404');
+
+let deprecatedTwins = 0;
+for (const [route] of pages) {
+  if (!route.startsWith('/v2/')) continue;
+  const twin = markdownPathFor(route);
+  const markdown = (await requireFile(join(distDir, twin), `the Markdown twin of ${route}`)).toString('utf8');
+  const [frontmatter, ...rest] = markdown.split('\n---\n');
+  if (!frontmatter.includes('\ndeprecated: true')) {
+    throw new Error(`${twin} serves version 2 documentation without a deprecated flag a parser can read.`);
+  }
+
+  // The two schema versions, which are the fact a consumer can act on: it holds a box carrying
+  // `schemaVersion`, and comparing that number is how it works out which manual describes what it
+  // has. So they are checked as numbers, against the package rather than against a literal — the
+  // day schema version 4 ships, a `current-schema-version: 3` left behind here is a lie told to
+  // every machine that reads it, and nothing else in the build would notice.
+  const field = (name) => frontmatter.match(new RegExp(`\\n${name}: (\\S+)`))?.[1];
+  const was = field('schema-version');
+  const now = field('current-schema-version');
+  if (was !== '2') {
+    throw new Error(`${twin} says it documents schema version ${was ?? 'nothing'}; these pages document 2.`);
+  }
+  if (Number(now) !== packageSchemaVersion) {
+    throw new Error(`${twin} names ${now ?? 'no'} as the current schema version; package.json says ${packageSchemaVersion}.`);
+  }
+  if (was === now) {
+    throw new Error(`${twin} says the deprecated and current schema versions are both ${now}.`);
+  }
+  if (!rest.join('\n---\n').trimStart().startsWith('> **DEPRECATED.**')) {
+    throw new Error(`${twin} does not open by saying it is deprecated, so anything reading the prose is not told.`);
+  }
+  // `current` claims a replacement page exists. Emitted only when one does, and it has to be built.
+  const current = frontmatter.match(/\ncurrent: (\S+)/)?.[1];
+  if (current) {
+    const path = new URL(current).pathname;
+    if (path === '/') throw new Error(`${twin} names the home page as its replacement, which replaces nothing.`);
+    const file = path.endsWith('/') ? `${path}index.html` : `${path}.html`;
+    await requireFile(join(distDir, file), `the replacement page ${current} named by ${twin}`);
+  }
+  deprecatedTwins += 1;
+}
+if (!deprecatedTwins) throw new Error('No deprecated Markdown twins were checked; this guard read nothing.');
 
 const llmsIndex = (await requireFile(join(distDir, 'llms.txt'), '/llms.txt')).toString('utf8');
 const llmsFull = (await requireFile(join(distDir, 'llms-full.txt'), '/llms-full.txt')).toString('utf8');
@@ -145,6 +223,58 @@ if (JSON.stringify(cataloguedSchemas) !== JSON.stringify(schemaNames)) {
   throw new Error('The API catalogue and the shipped contract disagree about which schemas exist.');
 }
 
+// The version switch is computed by Vue from each page's own route, so neither of its two links is
+// written down anywhere the dead-link pass can read. That is what makes it worth checking: a link
+// pointing at a route the build never emitted looks perfectly normal on the page, and 404s only for
+// the reader who used it.
+const switchBlock =/<div class="version-switch"[\s\S]*?<\/div>/;
+const switchTarget = /href="([^"]*)"[^>]*>(v2|v3)<\/a>/g;
+let checkedSwitches = 0;
+for (const [route, file] of pages) {
+  const html = (await readFile(file)).toString('utf8');
+  const block = html.match(switchBlock)?.[0];
+  if (!block) throw new Error(`${route} renders no version switch; a reader there cannot change version.`);
+  const targets = [...block.matchAll(switchTarget)].map((match) => match[1]);
+  if (targets.length !== 2) {
+    throw new Error(`${route} offers ${targets.length} versions to switch between rather than two.`);
+  }
+  for (const target of targets) {
+    const path = target.endsWith('/') ? `${target}index.html` : `${target}.html`;
+    await requireFile(join(distDir, path), `the version switch target ${target} on ${route}`);
+  }
+
+  // The navbar menu comes from the locale the page belongs to, and getting that wrong is silent:
+  // the menu renders, every link works, and it walks the reader into the other version's manual
+  // without saying so. Whichever set a page is in, its menu has to stay in that set.
+  const deprecated = route.startsWith('/v2/');
+
+  // The standing deprecation notice, on exactly the deprecated pages. It is the only thing telling
+  // a reader who arrived from a search result that they are in a superseded manual, and it is
+  // rendered by a component that decides for itself — so losing it everywhere, or gaining it on the
+  // current documentation, are both a silent one-line change away.
+  const notified = html.includes('deprecation-notice');
+  if (notified !== deprecated) {
+    throw new Error(notified
+      ? `${route} carries the deprecation notice, but it is the current documentation.`
+      : `${route} is deprecated documentation and says so nowhere on the page.`);
+  }
+
+  const menus = [...html.matchAll(/<nav\b[^>]*class="VPNav(?:Bar|Screen)Menu[\s\S]*?<\/nav>/g)]
+    .map((match) => match[0]);
+  // Found by writing this check against the wrong attribute order and watching it pass on markup it
+  // had never matched: a menu the regex misses is an empty string, and an empty string strays nowhere.
+  if (!menus.length) throw new Error(`${route} renders no navbar menu for this check to read.`);
+  for (const menu of menus) {
+    const strays = [...menu.matchAll(/href="(\/[^"]*)"/g)]
+      .map((match) => match[1])
+      .filter((href) => href.startsWith('/v2/') !== deprecated);
+    if (strays.length) {
+      throw new Error(`${route} has a navbar menu pointing at the other version: ${strays.join(', ')}`);
+    }
+  }
+  checkedSwitches += 1;
+}
+
 const platformHtml = (await requireFile(
   join(distDir, 'guides', 'platform-examples.html'),
   'the platform examples page',
@@ -181,6 +311,8 @@ if (panelTags.filter((tag) => !tag.includes('style="display:none;"')).length !==
 
 console.log(
   `Verified built privacy route, ${schemaNames.length} schemas, platform tab semantics, `
-  + `the API catalogue, and canonical, Markdown twin, llms.txt and llms-full.txt coverage `
+  + `the API catalogue, the version switch, navbar menu and deprecation notice on `
+  + `${checkedSwitches} built pages, `
+  + `and canonical, Markdown twin, llms.txt and llms-full.txt coverage `
   + `of ${routes.length} pages.`,
 );

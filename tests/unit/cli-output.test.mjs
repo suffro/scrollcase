@@ -73,9 +73,23 @@ describe('CLI output presentation', () => {
     expect(buildDistributionSummary({
       archivePath: join(distDir, 'boxes', 'demo', '1.2.3', 'macos-aarch64-metal', 'abc123.zip'),
       channelPath: join(distDir, 'channels', 'demo', 'beta', 'macos-aarch64-metal.json'),
+      published: true,
     }, distDir)).toBe(
       'Build complete — you can distribute the 2 files under boxes/demo/1.2.3/macos-aarch64-metal/ '
       + 'and channels/demo/beta/macos-aarch64-metal.json',
     );
+  });
+
+  it('does not tell the author to distribute a box whose documents point nowhere', () => {
+    // The build already said the box names no publish location. A closing line inviting the author
+    // to distribute it would contradict that, and send them to upload documents with no URLs in.
+    const distDir = join(process.cwd(), '.scrollcase', 'dist');
+    const summary = buildDistributionSummary({
+      archivePath: join(distDir, 'boxes', 'demo', '1.2.3', 'macos-aarch64-metal', 'abc123.zip'),
+      channelPath: join(distDir, 'channels', 'demo', 'beta', 'macos-aarch64-metal.json'),
+      published: false,
+    }, distDir);
+    expect(summary).not.toMatch(/distribute/);
+    expect(summary).toContain('boxes/demo/1.2.3/macos-aarch64-metal/');
   });
 });

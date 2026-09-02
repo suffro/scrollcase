@@ -11,7 +11,7 @@ import * as sign from '../../src/sign/index.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const schemaSource = join(root, 'src', 'contract', 'schema');
-const schemaPublic = join(root, 'docs', 'public', 'schema', 'v2');
+const schemaPublic = join(root, 'docs', 'public', 'schema', 'v3');
 
 const whitePaperPath = join(root, 'docs', 'white-paper.md');
 
@@ -105,8 +105,8 @@ describe('public documentation routes', () => {
     for (const name of names) {
       const source = await readFile(join(schemaSource, name), 'utf8');
       const schema = JSON.parse(source);
-      expect(new URL(schema.$id).pathname).toBe(`/schema/v2/${name}`);
-      for (const match of source.matchAll(/"\$ref":\s*"(https:\/\/scrollcase\.dev\/schema\/v2\/([^"#]+)(?:#[^"]*)?)"/g)) {
+      expect(new URL(schema.$id).pathname).toBe(`/schema/v3/${name}`);
+      for (const match of source.matchAll(/"\$ref":\s*"(https:\/\/scrollcase\.dev\/schema\/v3\/([^"#]+)(?:#[^"]*)?)"/g)) {
         expect(published.has(match[2]), match[1]).toBe(true);
       }
     }
@@ -154,7 +154,16 @@ describe('public documentation routes', () => {
   });
 
   it('documents every public runtime export', async () => {
-    const reference = await readFile(join(root, 'docs', 'reference', 'api.md'), 'utf8');
+    // The API reference is a section, not a page: `reference/api/` carries an index plus one file
+    // per consumer language. Every export still has to appear somewhere in it, so the whole section
+    // is the corpus — pinning this to the single file it used to be made a page split look like an
+    // undocumented export.
+    const apiDir = join(root, 'docs', 'reference', 'api');
+    const pages = (await readdir(apiDir)).filter((name) => name.endsWith('.md')).sort();
+    expect(pages.length).toBeGreaterThan(0);
+    const reference = (await Promise.all(
+      pages.map((name) => readFile(join(apiDir, name), 'utf8')),
+    )).join('\n');
     for (const [subpath, exports] of Object.entries({
       contract,
       build,
@@ -182,7 +191,7 @@ describe('public documentation routes', () => {
       const markdown = await readFile(path, 'utf8');
       for (const match of markdown.matchAll(/^```json\n([\s\S]*?)^```$/gm)) {
         const example = JSON.parse(match[1]);
-        if (example?.schemaVersion === 2 && typeof example?.scrollVersion === 'string' && example?.target) {
+        if (example?.schemaVersion === 3 && typeof example?.scrollVersion === 'string' && example?.target) {
           expect(validateScroll(example), `${path}: ${ajv.errorsText(validateScroll.errors)}`).toBe(true);
         }
       }

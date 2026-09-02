@@ -5,6 +5,14 @@
 # So: no conversion for anything a scroll can name. The example entry points are the files in this
 # repository that a scroll actually names; keep this list in step with `localFiles` if that changes.
 examples/**/entrypoint.py -text
+examples/**/entrypoint.js -text
+# Reference data a box ships and answers questions about. `codon-demo` pins its SHA-256, so a
+# checkout that rewrote its newlines would fail the build rather than ship different data.
+examples/**/codons.csv -text
+# `dataset-demo` ships a binary HDF5 file and pins its hash; `readings.txt` is the text it was
+# generated from, and a rewritten newline there would silently change what regeneration produces.
+examples/**/readings.h5 -text
+examples/**/readings.txt -text
 
 # Committed locks and licence inventories are compared byte for byte across platforms in CI.
 examples/**/pixi.lock -text

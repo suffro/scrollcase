@@ -1,16 +1,22 @@
 /**
  * Binds the self-description inside the archive to the signed release outside it.
  *
- * Only fields present in both schema-version-2 documents belong here. Release-only transport data
- * has no counterpart in box.json; every shared identity, target, layout, consumer self-test,
- * asset-policy, and provenance field must agree recursively.
+ * Only fields present in both schema-version-3 documents belong here. Release-only transport data
+ * has no counterpart in box.json; every shared identity, target, runtime, layout, consumer
+ * self-test, deferred-asset, and provenance field must agree recursively.
+ *
+ * `assets` carries the per-entry `embed` decision by construction: it lists exactly the deferred
+ * entries, and it is compared deeply, so a box that quietly changed its mind about one asset
+ * disagrees with its release. `bundledLicenses` is here for the same reason it is signed at all: a
+ * licence inventory that could differ between the document a reviewer read and the box a user
+ * installed would be worth nothing.
  */
 export function assertBoxManifestAgreement(box: any, release: any): void;
 /**
  * Performs the half of the trust chain that needs no archive.
  *
  * Everything here answers questions about the signed document alone — is the signature good, is the
- * payload a schema-version-2 release, does it describe a target this build understands. It is split
+ * payload a schema-version-3 release, does it describe a target this build understands. It is split
  * out because a box that is already extracted has no archive to check, and re-deriving these steps
  * beside the ones that do would create the second interpretation of a signed release that
  * `inspectBoxArchive` exists to prevent.

@@ -9,6 +9,8 @@ import Tab from './tabs-component/Tab.vue'
 import Button from './Button.vue'
 import Spacer from './Spacer.vue'
 import SubPagesList from './SubPagesList.vue'
+import VersionSwitch from './VersionSwitch.vue'
+import DeprecationNotice from './DeprecationNotice.vue'
 import './custom.css'
 
 export default {
@@ -24,7 +26,17 @@ export default {
     nextTick(() => initMermaid())
     watch(() => isDark.value, () => initMermaid())
 
-    return h(DefaultTheme.Layout, null, {})
+    // The version switch goes in both navbars, not one: the wide layout's menu is replaced by the
+    // hamburger screen below 768px, and a control that exists on a desktop and vanishes on a phone
+    // is how a reader gets stranded in the deprecated documentation.
+    return h(DefaultTheme.Layout, null, {
+      'nav-bar-content-after': () => h(VersionSwitch),
+      'nav-screen-content-after': () => h(VersionSwitch),
+      // Declared for every page; the component shows itself only under `/v2/`. Registering it here
+      // rather than writing a block into each deprecated page is what makes it impossible to forget
+      // on one, and what keeps the copied pages byte-identical to what version 2 published.
+      'doc-before': () => h(DeprecationNotice),
+    })
   },
   enhanceApp({ app }) {
     app.component('HomePage', HomePage),

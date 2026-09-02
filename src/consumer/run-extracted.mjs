@@ -13,6 +13,10 @@ import { collectFiles, safeRelativePath } from '../build/filesystem.mjs';
 import { assertExecutionFiles } from '../build/execution.mjs';
 import { fail } from '../build/process.mjs';
 import { assertNativeHost, boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
+import {
+  executionAffectingVariables,
+  runtimeAdapter,
+} from '../contract/runtimes.mjs';
 import { resolveEnvironment } from '../environment.mjs';
 import { preparedBoxState, verifyRequiredAssets } from './verify-and-extract.mjs';
 
@@ -113,22 +117,31 @@ export async function runExtractedBox(prepared, options = {}) {
     fail('Prepared box root no longer matches the prepared box.');
   }
   const files = new Set(await collectFiles(prepared.root));
-  if (!files.has(release.pythonEntryPoint)) {
-    fail(`Prepared box is missing ${release.pythonEntryPoint}.`);
+  if (release.runtime.entryPoint !== undefined && !files.has(release.runtime.entryPoint)) {
+    fail(`Prepared box is missing ${release.runtime.entryPoint}.`);
   }
   assertExecutionFiles({
     execution: release.execution,
     adapter,
-    pythonVersion: release.provenance.pythonVersion,
+    runtimeId: release.runtime.id,
+    runtimeVersion: release.provenance.runtimeVersion,
     files,
   });
   await verifyRequiredAssets(prepared.root, prepared.requiredAssets);
 
-  const python = join(prepared.root, ...safeRelativePath(release.pythonEntryPoint).split('/'));
-  const executionArgs = release.execution.kind === 'python-script'
-    ? [join(prepared.root, ...safeRelativePath(release.execution.script).split('/'))]
-    : ['-m', release.execution.module];
-  executionArgs.push(...release.execution.defaultArgs, ...callerArgs);
+  // The runtime states the command line in payload-relative terms and this end joins it: a box root
+  // is a real path on this host, and the format has no business deciding what one looks like. Which
+  // runtime states it is the box's declaration, not an assumption about what a box contains.
+  const { command, args } = runtimeAdapter(release.runtime.id).buildArgv({
+    execution: release.execution,
+    target: adapter,
+  });
+  const resolveArgument = (argument) => (argument.kind === 'payload-path'
+    ? join(prepared.root, ...safeRelativePath(argument.value).split('/'))
+    : argument.value);
+  const executionCommand = resolveArgument(command);
+  const executionArgs = args.map(resolveArgument);
+  executionArgs.push(...callerArgs);
 
   const { environment, report: environmentReport } = resolveEnvironment({
     platform: adapter.platform,
@@ -137,14 +150,14 @@ export async function runExtractedBox(prepared, options = {}) {
       { source: 'caller', values: options.env },
       { source: 'release', values: release.environment },
     ],
-    executionAffectingVariables: adapter.executionAffectingEnvironmentVariables,
+    executionAffectingVariables: executionAffectingVariables(release.runtime.id, adapter),
     expanded: Boolean(options.envReport || options.envReportValues),
     revealHostValues: Boolean(options.envReportValues),
   });
   await options.onEnvironmentReport?.(environmentReport);
 
   const spawn = options.spawn ?? spawnProcess;
-  const child = spawn(python, executionArgs, {
+  const child = spawn(executionCommand, executionArgs, {
     cwd: prepared.root,
     env: environment,
     stdio: [

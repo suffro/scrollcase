@@ -140,12 +140,19 @@ export type PreparedBox = {
      */
     root: string;
     boxId: string;
-    modelId: string;
-    runtimeId: string;
+    /**
+     * free-form annotations the publisher signed;
+     * empty when the box declared none
+     */
+    labels: Readonly<Record<string, string>>;
     version: string;
     target: import("../contract/types/index.d.ts").BoxTarget;
     targetId: string;
-    pythonEntryPoint: string;
+    runtime: Readonly<{
+        id: string;
+        version?: string;
+        entryPoint?: string;
+    }>;
     execution: import("../contract/types/index.d.ts").BoxExecution | null;
     /**
      * assets the caller must materialize, never

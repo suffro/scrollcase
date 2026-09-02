@@ -6,6 +6,7 @@ fields a consumer needs after that wire format has passed verification.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
@@ -74,7 +75,48 @@ class PythonModuleExecution:
     default_args: tuple[str, ...]
 
 
-BoxExecution: TypeAlias = PythonScriptExecution | PythonModuleExecution
+@dataclass(frozen=True, slots=True)
+class NodeScriptExecution:
+    """A signed direct-script entry point for the Node runtime.
+
+    Named by the format so implementing the runtime is code rather than another wire break. No
+    adapter answers for it yet, so a box declaring it is refused by name.
+    """
+
+    kind: Literal["node-script"]
+    script: str
+    default_args: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NativeBinaryExecution:
+    """A signed compiled executable, run with no interpreter in front of it."""
+
+    kind: Literal["native-binary"]
+    binary: str
+    default_args: tuple[str, ...]
+
+
+BoxExecution: TypeAlias = (
+    PythonScriptExecution
+    | PythonModuleExecution
+    | NodeScriptExecution
+    | NativeBinaryExecution
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BoxRuntime:
+    """What runs inside the box.
+
+    A target says which machine a box is for; this says what executes on it. Version 2 had no such
+    field: a box recorded a Python entry point and Python execution kinds and nothing that said
+    "Python", so a reader had to infer the runtime from the shape of a path.
+    """
+
+    id: str
+    version: str | None = None
+    entry_point: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +127,9 @@ class RequiredAsset:
     relative_path: str
     size_bytes: int
     sha256: str
+    #: True when the scroll declared the file executable. Whoever materializes it owns setting the
+    #: bit: the file never passes through the archive, so nothing Scrollcase writes carries a mode.
+    executable: bool = False
 
 
 # Deliberately without ``slots=True``, unlike every other model here: the instance must keep
@@ -106,12 +151,12 @@ class PreparedBox:
     status: Literal["prepared", "attached"]
     root: str
     box_id: str
-    model_id: str
-    runtime_id: str
+    #: Free-form annotations the publisher signed. Scrollcase attaches no meaning to any key.
+    labels: Mapping[str, str]
     version: str
     target: BoxTarget
     target_id: str
-    python_entry_point: str
+    runtime: BoxRuntime
     execution: BoxExecution | None
     required_assets: tuple[RequiredAsset, ...]
     signing_key_ids: tuple[str, ...]

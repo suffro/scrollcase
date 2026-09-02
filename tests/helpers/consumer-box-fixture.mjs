@@ -14,8 +14,9 @@ import {
   PAYLOAD_DIGEST_FORMAT,
   payloadDigestStream,
 } from '../../src/contract/payload-digest.mjs';
-import { documentKinds } from '../../src/contract/documents.mjs';
+import { BOX_SCHEMA_VERSION, documentKinds } from '../../src/contract/documents.mjs';
 import { boxTargetAdapter } from '../../src/contract/targets.mjs';
+import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 
 export function nativeTarget() {
@@ -70,14 +71,25 @@ export async function createConsumerBoxFixture({
   scriptContents = 'print("consumer fixture")\n',
   payloadDigest = true,
   environment = undefined,
+  labels = undefined,
+  runtimeId = 'python',
+  executablePaths = [],
+  extraFiles = {},
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'scrollcase-consumer-fixture-'));
   const payload = join(root, 'payload');
   await mkdir(payload);
   const adapter = boxTargetAdapter(target);
-  const pythonPath = join(payload, ...adapter.python.entryPoint.split('/'));
+  const layout = runtimeAdapter(runtimeId).layout(adapter);
+  const pythonPath = join(payload, ...layout.entryPoint.split('/'));
   await mkdir(dirname(pythonPath), { recursive: true });
   await writeFile(pythonPath, interpreterContents);
+
+  for (const [relativePath, contents] of Object.entries(extraFiles)) {
+    const filePath = join(payload, ...relativePath.split('/'));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, contents);
+  }
 
   if (execution?.kind === 'python-script') {
     const scriptPath = join(payload, ...execution.script.split('/'));
@@ -90,16 +102,15 @@ export async function createConsumerBoxFixture({
   }
 
   const shared = {
-    schemaVersion: 2,
+    schemaVersion: BOX_SCHEMA_VERSION,
     boxId: 'consumer-fixture',
-    modelId: 'example-consumer-model',
-    runtimeId: 'example-consumer-runtime',
+    ...(labels === undefined ? {} : { labels }),
     version: '2.0.0',
     target,
-    pythonEntryPoint: adapter.python.entryPoint,
-    modelCacheSubdir: 'model-cache/consumer-fixture',
+    runtime: { id: runtimeId, version: '3.11.15', entryPoint: layout.entryPoint },
+    cacheSubdir: 'cache/consumer-fixture',
     selfTest: {
-      pythonImports: ['json'],
+      probe: { imports: ['json'] },
       timeoutSeconds: 30,
     },
     ...(environment === undefined ? {} : { environment }),
@@ -110,15 +121,12 @@ export async function createConsumerBoxFixture({
       builderRevision: '0123456789abcdef0123456789abcdef01234567',
       sourceTreeDirty: false,
       sourceRevision: 'fedcba9876543210',
-      pythonVersion: '3.11.15',
+      runtimeVersion: '3.11.15',
       pixiVersion: '0.73.0',
       dependencyLockSha256: 'a'.repeat(64),
       builtAt: '2026-07-29T00:00:00.000Z',
     },
-    ...(requiredAsset ? {
-      weights: 'on-demand',
-      assets: [requiredAsset],
-    } : {}),
+    ...(requiredAsset ? { assets: [requiredAsset] } : {}),
   };
   await writeFile(join(payload, 'box.json'), `${JSON.stringify(shared, null, 2)}\n`);
   // Written last and never listed in itself, exactly as the build does it — a fixture that skipped
@@ -134,7 +142,7 @@ export async function createConsumerBoxFixture({
   }
   const installedSizeBytes = await payloadSize(payload);
   const archivePath = join(root, 'box.zip');
-  await createDeterministicZip(payload, archivePath, adapter);
+  await createDeterministicZip(payload, archivePath, adapter, { runtimeId, executablePaths });
   const archiveMetadata = await stat(archivePath);
   const release = {
     ...shared,

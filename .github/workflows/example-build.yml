@@ -102,7 +102,7 @@ jobs:
         run: node src/cli.mjs keygen
 
       - name: Build
-        run: node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples --weights embed
+        run: node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples
 
       # The check that matters: extract the box and import with the interpreter inside it.
       - name: Verify with self-test
@@ -132,23 +132,68 @@ jobs:
             console.log(`extracted ${mb(payload.installedSizeBytes)}`);
           ' "$release"
 
-      # Determinism is a promise the repository makes that nothing else verifies end to end. The
-      # archive is named by its own SHA-256, so a rebuild that differs lands beside the first rather
-      # than replacing it — the file count is the assertion.
+      # The other two runtimes, on the one target their example scrolls declare. They are the only
+      # thing in CI that builds a box with no interpreter, and a box whose interpreter is not
+      # Python — the paths where a Python assumption would hide, and where the unit suite's fake
+      # toolchain cannot follow. Each is built, verified with its own self-test, and run.
+      - name: Build, verify and run the node and native examples
+        if: matrix.target == 'macos-aarch64-metal'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_for() {
+            ls .scrollcase/dist/boxes/"$1"/1.0.0/${{ matrix.target }}/*.release.json
+          }
+
+          node src/cli.mjs build hello-box-node/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for hello-box-node)" --self-test
+          node src/cli.mjs run "$(release_for hello-box-node)"
+
+          node src/cli.mjs build hello-box-native/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for hello-box-native)" --self-test
+          node src/cli.mjs run "$(release_for hello-box-native)" -- --version
+
+          # A node box doing real work rather than proving it starts: reference data pinned by hash,
+          # queried through `node:sqlite`. It is the one example whose payload carries data the box
+          # is expected to answer questions about, so a wrong answer here is a build failure.
+          node src/cli.mjs build codon-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for codon-demo)" --self-test
+          node src/cli.mjs run "$(release_for codon-demo)" -- Leucine
+
+          # The native counterpart: a large compiled program with a long tail of codec libraries,
+          # whose self-test runs a real encode rather than a version check. Slower than the rest of
+          # this job put together, and the only thing here that would catch a break in the one case
+          # `native` exists for.
+          node src/cli.mjs build transcode-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for transcode-demo)" --self-test
+          node src/cli.mjs run "$(release_for transcode-demo)" -- -version
+
+          # The other native shape: small compiled tools reading a data file the box ships, rather
+          # than one large program driven by flags. Its self-test reads the shipped dataset both
+          # ways — structure and values — so a box whose data or reader stopped agreeing fails here.
+          node src/cli.mjs build dataset-demo/${{ matrix.target }} --scrolls-dir examples
+          node src/cli.mjs verify "$(release_for dataset-demo)" --self-test
+          node src/cli.mjs run "$(release_for dataset-demo)" -- -H readings.h5
+
+      # Determinism is a promise the repository makes that nothing else verifies end to end.
+      #
+      # The assertion is the archive's *name*, not the file count. The archive is named by its own
+      # SHA-256, but a build clears its own object directory before writing into it, so a rebuild
+      # replaces the first archive rather than landing beside it — counting the files afterwards
+      # always yields one and could never fail. Measured: changing the scroll's sourceRevision
+      # produced a completely different archive and left the count at one.
       - name: Rebuild and compare
         shell: bash
         run: |
+          set -euo pipefail
           dist=".scrollcase/dist/boxes/hello-box/1.0.0/${{ matrix.target }}"
-          before=$(ls "$dist"/*.zip | wc -l)
-          if [ "$before" -ne 1 ]; then
-            echo "Expected exactly one archive after the first build, found $before" >&2
+          before=$(basename "$(ls "$dist"/*.zip)")
+          node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples
+          after=$(basename "$(ls "$dist"/*.zip)")
+          if [ "$before" != "$after" ]; then
+            echo "Rebuild was not byte-identical:" >&2
+            echo "  first  $before" >&2
+            echo "  second $after" >&2
             exit 1
           fi
-          node src/cli.mjs build hello-box/${{ matrix.target }} --scrolls-dir examples --weights embed
-          after=$(ls "$dist"/*.zip | wc -l)
-          if [ "$after" -ne 1 ]; then
-            echo "Rebuild was not byte-identical: $after distinct archives" >&2
-            ls -l "$dist" >&2
-            exit 1
-          fi
-          echo "Rebuild produced a byte-identical archive."
+          echo "Rebuild produced a byte-identical archive: $after"

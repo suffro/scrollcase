@@ -51,7 +51,7 @@ pub fn native_target() -> Value {
 }
 
 /// The interpreter path the native target's adapter fixes.
-pub fn native_python_entry_point() -> &'static str {
+pub fn native_entry_point() -> &'static str {
     if std::env::consts::OS == "windows" {
         "venv/python.exe"
     } else {
@@ -103,15 +103,18 @@ fn scratch(name: &str) -> PathBuf {
 /// The `box.json` of a valid linux-x86_64-cpu box.
 pub fn box_manifest() -> Value {
     json!({
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "boxId": "fixture-box",
-        "modelId": "fixture-model",
-        "runtimeId": "fixture-runtime",
+        "labels": { "model": "fixture-model" },
         "version": "1.0.0",
         "target": native_target(),
-        "pythonEntryPoint": native_python_entry_point(),
-        "modelCacheSubdir": "model-cache/fixture",
-        "selfTest": { "pythonImports": ["json"], "timeoutSeconds": 30 },
+        "runtime": {
+            "id": "python",
+            "version": "3.11.9",
+            "entryPoint": native_entry_point()
+        },
+        "cacheSubdir": "cache/fixture",
+        "selfTest": { "probe": { "imports": ["json"] }, "timeoutSeconds": 30 },
         "execution": { "kind": "python-script", "script": "app/main.py", "defaultArgs": [] },
         "provenance": {
             "scrollId": "fixture-box",
@@ -119,7 +122,7 @@ pub fn box_manifest() -> Value {
             "builderRevision": "b".repeat(40),
             "sourceTreeDirty": false,
             "sourceRevision": "c".repeat(40),
-            "pythonVersion": "3.11.9",
+            "runtimeVersion": "3.11.9",
             "dependencyLockSha256": "d".repeat(64),
             "builtAt": "2026-01-01T00:00:00.000Z",
             "pixiVersion": "0.50.0"
@@ -146,7 +149,7 @@ pub fn default_entries(manifest: &Value) -> Vec<Entry> {
             serde_json::to_vec_pretty(manifest).unwrap(),
             0o644,
         ),
-        Entry::File(native_python_entry_point(), FIXTURE_INTERPRETER.to_vec(), 0o755),
+        Entry::File(native_entry_point(), FIXTURE_INTERPRETER.to_vec(), 0o755),
         Entry::File("app/main.py", b"print('fixture')\n".to_vec(), 0o644),
     ]
 }
@@ -202,7 +205,7 @@ pub fn sign(payload: &Value) -> Value {
     let bytes = serde_json::to_vec(payload).unwrap();
     let key = SigningKey::from_bytes(&SIGNING_SEED);
     json!({
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "payloadEncoding": "base64-json-utf8",
         "payloadBase64": BASE64.encode(&bytes),
         "payloadSha256": sha256_hex(&bytes),

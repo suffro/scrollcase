@@ -8,10 +8,11 @@ prev: false
 
 # Scrollcase — Technical White Paper
 
-Scrollcase turns a declarative **scroll** into a **box**: a portable, locked, self-contained Python
+Scrollcase turns a declarative **scroll** into a **box**: a portable, locked, self-contained
 environment for one operating system and one accelerator, packed so that it runs somewhere other
 than where it was built, signed so that whoever receives it can prove what they received, and
-accompanied by a dependency licence inventory.
+accompanied by a dependency licence inventory. What runs inside it is the box's **runtime** —
+`python`, `node`, or `native`, which starts a compiled binary and no interpreter at all.
 
 This document describes how that is done, module by module, together with the specifications of the
 substrate it is built on and a glossary of every technical term it uses. It is written to be
@@ -144,7 +145,7 @@ have separate glossary entries, and this document always makes clear which is me
 
 | Scrollcase version | 0.6.0 |
 | --- | --- |
-| Box format | `schemaVersion: 2` |
+| Box format | `schemaVersion: 3` |
 | Substrate | pixi + conda-pack + conda-forge |
 | Runtime dependencies | `tar`, `yauzl`, `yazl` |
 | Node engine | >= 20 |
@@ -152,10 +153,10 @@ have separate glossary entries, and this document always makes clear which is me
 
 </div>
 
-Version 2 is a clean break from version 1. A v2 verifier rejects a `schemaVersion: 1` document with
-an explicit unsupported-version error rather than reinterpreting it, and this paper describes v2
-only. Published v1 artefacts remain usable with the Scrollcase versions that produced them, and are
-otherwise out of scope here.
+Version 3 is a clean break from versions 1 and 2. A v3 verifier rejects an older document with an
+explicit unsupported-version error naming *which* version it holds, rather than reinterpreting it,
+and this paper describes v3 only. Published v1 and v2 artefacts remain usable with the Scrollcase
+versions that produced them, and are otherwise out of scope here.
 
 ## 2. Glossary
 
@@ -177,12 +178,13 @@ the error messages use no synonym for any of them.
 
 #### Box
 
-The built artefact: a single ZIP archive containing a complete, relocated Python environment, a
+The built artefact: a single ZIP archive containing a complete, relocated conda-forge environment, a
 self-describing manifest, any embedded assets, and — when the [scroll](#scroll) declares a reviewed
-licence audit — a dependency licence inventory. A box is built
-for exactly one [target](#target). It is never called an image or a container — it is neither, it
-carries no operating system and no isolation boundary, and borrowing either word would import
-expectations Scrollcase does not meet.
+licence audit — a dependency licence inventory. A box is built for exactly one [target](#target) and
+declares exactly one [runtime](#runtime), which is what says whether the environment holds a Python
+interpreter, a Node one, or no interpreter at all. It is never called an image or a container — it is
+neither, it carries no operating system and no isolation boundary, and borrowing either word would
+import expectations Scrollcase does not meet.
 
 Reference: `src/build/box.mjs`, `docs/reference/box-format.md`.
 
@@ -194,7 +196,7 @@ Reference: `src/build/box.mjs`, `docs/reference/box-format.md`.
 
 The stable identifier of the thing being packaged, declared by the [scroll](#scroll) as `boxId` and
 carried into `box.json` and the [release](#release). One box ID spans every version and every target
-of that box. It is distinct from `modelId` and `runtimeId`, which are the publishing project's own
+of that box. It is distinct from `labels`, which are the publishing project's own
 identifiers for what the box contains and what runs it; Scrollcase stores and transports all three
 without interpreting them.
 
@@ -297,11 +299,27 @@ Reference: `revocations-manifest.schema.json`.
 
 <div class="h4-section">
 
+#### Runtime
+
+What runs *inside* a box, declared by the scroll and signed into the release: where the interpreter
+sits, which execution kinds exist, how a declaration becomes a command line, and which inherited
+environment variables can change what that command loads. The format defines `python`, `node` and
+`native`, and this build implements all three. A [target](#target) says which machine a box runs on;
+a runtime says what runs on it, and keeping them separate is what makes a second runtime an adapter
+rather than a fork.
+
+Reference: `src/contract/runtimes.mjs`, `src/runtimes/`.
+
+</div>
+
+<div class="h4-section">
+
 #### Scroll
 
 The declarative input, stored as `scroll.json`, and the only input a build accepts. It states box
-identity, the target, versions, the dependencies to solve, asset declarations, weights policy, the
-self-test, execution intent, and optional compatibility and parity blocks. Scrolls live under
+identity, the target, the runtime, versions, the dependencies to solve, asset declarations with
+their per-entry `embed` decision, the self-test, execution intent, and optional compatibility,
+licence-declaration and parity blocks. Scrolls live under
 `scrolls/<boxId>/<targetId>/` by default, so that every target variant of one box is visible
 together.
 
@@ -432,10 +450,12 @@ property `embed` exists to preserve.
 
 #### Asset
 
-A file the box needs that is not a Python package — model weights, tokenizers, fixtures. Assets are
-declared in the scroll with a URL or local path, a size and a SHA-256, and are size- and
-hash-checked before they enter the payload. Under `embed` they are packed into the archive; under
-`on-demand` they are left out and their descriptors travel in the signed release.
+A file the box needs that its dependency solve does not provide — model weights, tokenizers,
+fixtures, a compiled binary. Assets are declared in the scroll with a URL or local path, a size and
+a SHA-256, and are size- and hash-checked before they enter the payload. The decision is per entry:
+`embed: true`, the default, packs the file into the archive, while `embed: false` leaves it out and
+sends its descriptor in the signed release for the consumer to materialise. One box does both at
+once.
 
 Reference: `src/build/assets.mjs`.
 
@@ -848,7 +868,7 @@ temporary directory.
 
 The record of where a box came from: which scroll and scroll version, the 40-hex commit of the
 source tree that built it, whether that tree was dirty, the upstream revision of the packaged model
-source as the scroll declared it, the Python and pixi versions, the SHA-256 of the lock the
+source as the scroll declared it, the runtime and pixi versions, the SHA-256 of the lock the
 environment was solved from, and the build timestamp taken from the commit. It is recorded from
 observed state and never accepted from caller input.
 
@@ -856,12 +876,16 @@ observed state and never accepted from caller input.
 
 <div class="h4-section">
 
-#### Weights mode
+#### Deferred asset
 
-Whether a box carries its assets or refers to them: `embed` packs them into the archive, so the box
-installs air-gapped at the cost of a large artefact; `on-demand` leaves them out and carries their
-URL, path, size and SHA-256 in the signed release and in `box.json`. The declared hash is what makes
-deferring safe — the release commits to exactly which bytes are expected, whatever host serves them.
+An [asset](#asset) the scroll declared `"embed": false`. It is left out of the archive, and its URL,
+path, size and SHA-256 travel in the signed release and in `box.json` instead, for the caller's
+distribution layer to materialize. The declared hash is what makes deferring safe — the release
+commits to exactly which bytes are expected, whatever host serves them.
+
+The choice is per entry, so one box can ship a small entry point inside the archive and defer a
+large dataset beside it. Everything else is embedded, which is the default and the behaviour that
+installs air-gapped.
 
 </div>
 
@@ -1425,7 +1449,7 @@ of consumer:
 | Artefact | Location | What it is | Who uses it |
 | --- | --- | --- | --- |
 | Reference implementation | `src/contract/*.mjs` | The rules as executable code | JavaScript callers, and the builder itself |
-| JSON Schemas | `src/contract/schema/*.json`, published at `/schema/v2/*.json` | The machine-readable specification | Validators, editors, any language with a schema library |
+| JSON Schemas | `src/contract/schema/*.json`, published at `/schema/v3/*.json` | The machine-readable specification | Validators, editors, any language with a schema library |
 | Golden fixtures | `src/contract/fixtures/*.json` | What "agreeing" means, concretely | Implementations in other languages, proving themselves |
 
 </div>
@@ -1477,12 +1501,21 @@ The contract is exposed twice, and the split is load-bearing:
 
 - **`scrollcase/contract`** — the complete surface, including payload decoding, which needs Node's
   `crypto` for hashing.
-- **`scrollcase/contract/browser`** — target identity, document naming, the constants, and the
-  structural envelope guard. No Node built-in is reachable from it, so it loads in a browser, in a
-  Worker, and in Node alike.
+- **`scrollcase/contract/browser`** — target identity, the [runtime](#runtime) model, document
+  naming, the constants, and the structural envelope guard. No Node built-in is reachable from it,
+  so it loads in a browser, in a Worker, and in Node alike.
 
-A test walks the browser entry point's entire import graph and fails if any module in it reaches a
-Node built-in (`tests/unit/package-surface.test.mjs`). The reason is practical: a client that only
+The split is subtractive, which is what gives a new contract export somewhere obvious to go: the
+browser entry point carries everything the full one does except payload decoding and the two helpers
+that resolve a file beside the installed package. Everything else the contract states is a statement
+about names, and answers the same wherever it is asked.
+
+Two tests hold that line. One walks the browser entry point's entire import graph and fails if any
+module in it reaches a Node built-in; the other links all five published entry points in a real Node
+process, because that graph walk reads source text without evaluating it and the test runner's own
+resolver forgives a re-export naming a symbol that no longer exists — which is how this entry point
+spent the whole of the version 3 work pointing at a function the runtime split had renamed
+(`tests/unit/package-surface.test.mjs`). The reason for the split is practical: a client that only
 needs to compute a [target ID](#target-id) or recognise a document `kind` should not have to bundle
 a hashing implementation to do it.
 
@@ -1560,28 +1593,27 @@ different one.
 #### Target adapters
 
 An adapter states what a target implies for the built payload. It is part of the format rather than
-an implementation detail, because a consumer unpacking a box relies on that layout to find the
-interpreter.
+an implementation detail, because a consumer unpacking a box relies on it.
 
 | Field | `macos-aarch64` | `linux-x86_64` | `windows-x86_64` |
 | --- | --- | --- | --- |
 | `host.platform` / `host.arch` | `darwin` / `arm64` | `linux` / `x64` | `win32` / `x64` |
 | `condaSubdir` | `osx-arm64` | `linux-64` | `win-64` |
-| `python.payloadRoot` | `venv` | `venv` | `venv` |
-| `python.entryPoint` | `venv/bin/python` | `venv/bin/python` | `venv/python.exe` |
-| `python.scriptsDirectory` | `venv/bin` | `venv/bin` | `venv/Scripts` |
-| `python.executableSuffix` | *(empty)* | *(empty)* | `.exe` |
-| `python.launcherKind` | `posix-polyglot` | `posix-polyglot` | `uv-windows-pe` |
 | `nativeLibraryInspection` | `otool -L`, `.dylib` `.so` | `ldd`, `.so` | `dumpbin /DEPENDENTS`, `.dll` `.pyd` |
 | `validationEnvironments` | `cpu`, `metal` | `cpu`, `cuda` | `cpu`, `cuda` |
-| `executionAffectingEnvironmentVariables` | Python controls + `DYLD_INSERT_LIBRARIES` | Python controls + `LD_PRELOAD` | Python controls |
-| `selfTestPython` | `assert sys.platform == 'darwin'` | `assert sys.platform.startswith('linux')` | `assert sys.platform == 'win32'` |
+| `executionAffectingEnvironmentVariables` | `DYLD_INSERT_LIBRARIES` | `LD_PRELOAD` | *(none)* |
 | `archive` | shared backend descriptor | shared backend descriptor | shared backend descriptor |
 
 Every adapter is deeply frozen, and `boxTargetAdapters()` hands out a fresh array, so a caller
 cannot mutate the format for everyone else in the process.
 
-Three details deserve their own note.
+**What an adapter deliberately does not state is the runtime inside the box.** The interpreter
+layout, the execution kinds and the runtime's own environment variables belong to
+[the runtime model](#_5-2a-the-runtime-model-—-runtimes-mjs). While they lived here, every target
+adapter was also a statement that a box is a Python box, and a second runtime would have been a fork
+of this table rather than one more adapter beside it.
+
+Two details deserve their own note.
 
 **`validationEnvironments` are how an accelerator is forced.** Each is a small environment map
 applied to validation runs — `CUDA_VISIBLE_DEVICES: ''` to force CPU, `CUDA_VISIBLE_DEVICES: '0'` to
@@ -1589,37 +1621,30 @@ force CUDA, `PYTORCH_ENABLE_MPS_FALLBACK: '0'` so a Metal run fails loudly inste
 falling back to CPU. Without that last one, a [parity](#parity) check comparing Metal against CPU
 could pass by comparing CPU against itself.
 
-**`executionAffectingEnvironmentVariables` drives diagnostics, not policy.** The shared Python set
-is `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, and `PYTHONBREAKPOINT`; the two POSIX loaders add
-their platform-specific injection variable. Their presence is reported because it can change which
-code runs. No adapter filters them.
-
-**`selfTestPython` is prepended to every self-test**, so the check begins by asserting it is running
-on the platform the box claims. A box that somehow reached the wrong operating system fails at the
-first line rather than at an import that happens to exist on both.
-
-**`launcherKind: 'uv-windows-pe'` is a frozen wire string.** It reads like a reference to a tool this
-project does not use, and it is: the value is inert, and only names a launcher shape. It is recorded
-here because it is the single most likely thing in the contract for a well-meaning cleanup to
-"correct", and changing it would change the format for every client that already reads it.
+**`executionAffectingEnvironmentVariables` drives diagnostics, not policy**, and is only half the
+list. A target contributes the operating system's own dynamic-linker controls — the two POSIX
+loaders have one each, and Windows has none worth naming, because `PATH` decides DLL resolution and
+is far too broad. The runtime contributes the rest, and
+`executionAffectingVariables(runtimeId, adapter)` is what joins the two halves, runtime first.
+Their presence is reported because it can change which code runs. No adapter filters them.
 
 </div>
 
 <div class="h4-section">
 
-#### Host and layout assertions
-
-Two guards are exported beside the model, and both are refusals rather than conveniences.
+#### Host assertion
 
 `assertNativeHost(adapter, host)` refuses to build or lock a target on a machine that is not the one
 it ships for. There is no cross-compilation: the environment being packed contains native code
 solved and installed for one platform, and a self-test run on the wrong host would prove nothing
 about the box.
 
-`assertPythonEntryPoint(adapter, entryPoint)` refuses a scroll whose declared interpreter path
-disagrees with the adapter's layout. The entry point is not free-form input — it is a fact about the
-target — and accepting a disagreement would produce a signed release whose `pythonEntryPoint`
-pointed at nothing.
+The layout assertion beside it — `assertRuntimeEntryPoint(runtimeId, adapter, entryPoint)` — asks
+the same question of any runtime, and delegates to
+`assertRuntimeEntryPoint()` in the runtime model. It refuses a scroll whose declared interpreter
+path disagrees with the runtime's layout for that target. The entry point is not free-form input —
+it is a fact about the runtime and the target together — and accepting a disagreement would produce
+a signed release whose `runtime.entryPoint` pointed at nothing.
 
 </div>
 
@@ -1641,6 +1666,175 @@ Reference: `tests/unit/contract-targets.test.mjs`.
 
 <div class="h3-section-initial-part">
 
+### 5.2a The runtime model — `runtimes.mjs`
+
+
+A [target](#target) says which machine a box runs on. A **runtime** says what runs inside it: where
+the interpreter sits in the payload, which `execution.kind` values exist, how a declared entry point
+becomes a command line, and which inherited environment variables can change what that command
+loads. Those are different questions, and until the seam was cut they lived in one table.
+
+The module is contract-level for the same reason `targets.mjs` is: a consumer unpacking a box relies
+on the layout, and a consumer running one relies on the argv rule. `fixtures/runtime-contract.json`
+is what "the implementations agree" means here, and both mirrors — `rust/src/contract/runtimes.rs`
+and `python/src/scrollcase_consumer/_contract.py` — validate themselves against it.
+
+</div>
+
+<div class="h4-section">
+
+#### What an adapter states
+
+| Member | Answer for `python` |
+| --- | --- |
+| `id` | `python` |
+| `executionKinds` | `python-script`, `python-module` |
+| `executionEnvironmentVariables` | `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PYTHONBREAKPOINT` |
+| `layout(target)` | `root`, `entryPoint`, `scriptsDirectory`, `standardLibrary`, `executableSuffix`, `launcherKind` |
+| `executablePayloadPaths(target)` | the interpreter by name, and the scripts directory by prefix |
+| `resolveExecutionFiles({ execution, runtimeVersion, target })` | every payload path the declaration could resolve to, and the message for when none does |
+| `buildArgv({ execution, target })` | the shell-free command line, in payload-relative terms |
+| `selfTestInvocations({ probe, execution, target })` | every command a self-test probe implies, each with the exit status it must produce |
+
+Beside the adapters, the module exports the vocabulary and the two questions every caller asks
+before reaching for one: `RUNTIME_IDS` names every runtime the *format* defines,
+`isImplementedRuntime()` says whether this build carries an adapter for one, and
+`unimplementedRuntimeMessage()` is the single wording the builder and all three consumers use when
+it does not. `isExecutablePayloadPath()` answers whether a payload path is one the runtime requires
+the executable bit on, and `executionAffectingVariables()` joins the runtime's loader controls to
+the operating system's.
+
+The layout is `venv` on every target; what differs is where the interpreter and its generated
+scripts land inside it — `venv/bin/python` and `venv/bin` on POSIX, `venv/python.exe` and
+`venv/Scripts` on Windows — and where the standard library is, which is `venv/lib/python<major>.<minor>`
+on POSIX and `venv/Lib` on Windows, with no interpreter version in the path.
+
+**`launcherKind: 'uv-windows-pe'` is a frozen wire string.** It reads like a reference to a tool this
+project does not use, and it is: the value is inert, and only names a launcher shape. It is recorded
+here because it is the single most likely thing in the contract for a well-meaning cleanup to
+"correct", and changing it would change the format for every client that already reads it.
+
+**The self-test opens with a platform assertion**, so the check begins by proving it is running on
+the platform the box claims. A box that somehow reached the wrong operating system fails at the
+first line rather than at an import that happens to exist on both.
+
+</div>
+
+<div class="h4-section">
+
+#### Two shapes, and why they are shaped that way
+
+**`buildArgv` returns payload-relative paths tagged as paths, not a joined command line.** Each
+element is `{ kind: 'literal' | 'payload-path', value }`, and the caller resolves the payload paths
+against the box root it is holding. A box root is a real filesystem path; returning a joined string
+would put "what a Windows path looks like" inside the format, and would make the golden fixture
+depend on the host that happened to read it. The three consumers join in their own platform's
+terms — Node with `path.join`, Rust with `PathBuf`, Python with `Path.joinpath` — and the fixture
+pins the part they must agree on.
+
+**`resolveExecutionFiles` returns candidates plus a message, rather than throwing.** The caller owns
+the error path: `fail()` in the builder, a typed error in each consumer. The wording is part of the
+contract, so it lives beside the rule that produces it instead of being restated at every call site.
+
+Nothing in the module reads a file, joins a host path or starts a process. Every function is a
+statement about names, which is what makes the mirror provable at all. The builder-side half —
+launcher repair, authoring templates, the pixi dependency a runtime contributes — lives under
+`src/runtimes/<id>/`, where all three are allowed.
+
+</div>
+
+<div class="h4-section">
+
+#### Two lists, on purpose
+
+`RUNTIME_IDS` is the vocabulary a box may declare — `python`, `node`, `native` — and it is fixed by
+the wire format. `RUNTIME_ADAPTERS` is what this build can actually run. They now hold the same
+three, which is exactly what the split was for: `node` and `native` arrived as adapters and the wire
+did not move.
+
+The two lists stay separate because they answer to different release cycles. The Python and Rust
+consumers version independently of the builder, so one published before a runtime landed still has
+to refuse a box naming it — `isImplementedRuntime()` asks the question and
+`unimplementedRuntimeMessage()` gives the one wording the builder and all three consumers use — and
+never misread it as the runtime it happens to be shaped like.
+
+Reference: `tests/unit/contract-runtimes.test.mjs`, `rust/tests/contract.rs`,
+`python/tests/test_contract.py`.
+
+</div>
+
+<div class="h4-section">
+
+#### What the three runtimes actually differ in
+
+| | `python` | `node` | `native` |
+| --- | --- | --- | --- |
+| Entry point | `venv/bin/python`, `venv/python.exe` | `venv/bin/node`, `venv/node.exe` | **none** |
+| Execution kinds | `python-script`, `python-module` | `node-script` | `native-binary` |
+| argv | interpreter, then the declaration | interpreter, then the declaration | the binary *is* the command |
+| Self-test probes | `imports`, `commands` | `imports`, `commands` | `commands` only |
+| Import probe source | `python -c "import a, b"` | `node -e "require('a')"` | — |
+| Environment variables | `PYTHON*` | `NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS` | none of its own |
+| pixi dependency | `python` | `nodejs` | **none** |
+| Launcher repair | rewrites the conda trampoline | scans and refuses | scans and refuses |
+| Generated starter | `entrypoint.py`, `self_test.py` | `entrypoint.js`, `self_test.js` | **none** |
+
+Two of those rows are the whole of what `native` means, and both propagate. Its layout's
+`entryPoint` and `standardLibrary` are `null` rather than a plausible-looking path nothing would
+find, so `assertRuntimeEntryPoint` gains a third answer: a runtime with an interpreter admits
+exactly one value, a runtime without one admits none and **refuses** a declaration rather than
+ignoring it, and a box that declares nothing at all is checked against nothing, because
+`runtime.entryPoint` is optional on the wire for exactly this reason. And its only probe shape is
+`commands`, so an `imports` probe in a native box is refused where the scroll is read —
+`unsupportedSelfTestProbeMessage()` — rather than silently dropped, which would report a pass for a
+check that never ran.
+
+A native box is not "no environment", only "no interpreter". It is built from a `pixi.lock` like
+every other box, its binary links against the shared libraries that lock installed, and those
+libraries get the same derived licence audit. What it contributes to `[dependencies]` is nothing at
+all: only the person who compiled the binary knows what it needs.
+
+**Link repair is deliberately out of scope.** A binary that resolves its libraries through an
+absolute path recorded at compile time will not find them inside a box, and fixing that means
+per-format work — rpath on Linux, `install_name` on macOS, the DLL search order on Windows — that
+deserves its own pass rather than a guess. A native box must ship a binary that already resolves:
+statically linked, or built with a relative rpath. This is a stated limitation, not an assumption
+left for someone to discover.
+
+It is not hypothetical, and it is not usually the box author's doing. The first native example built
+for this repository ran `sqlite3`, whose own linkage is entirely `@rpath` and perfectly relocatable —
+but conda-forge's `ncurses`, three dependencies down, ships a `libncurses.6.dylib` that re-exports
+`libtinfo.6.dylib` through an unrewritten *build machine* path. The box was correct; a package inside
+it was not, and no relocation step Scrollcase performs would have fixed it. **The self-test caught it
+before anything was signed**, which is the arrangement working: a native box that cannot start fails
+the build rather than the user.
+
+</div>
+
+<div class="h4-section">
+
+#### The one file a Node box has to carry
+
+Node decides whether a `.js` file is CommonJS or an ES module by walking *up* from the file to the
+nearest `package.json`. Inside a box there usually is none, so the walk **leaves the box** and asks
+whatever directory the box happened to be extracted into. A box extracted under a project whose
+`package.json` says `"type": "module"` runs its own entry point as ESM; the same box one directory
+higher runs it as CommonJS. That is a box whose behaviour depends on where it was put, which is the
+one thing a box exists not to be.
+
+So `src/runtimes/node/payload.mjs` writes the box its own, and the walk stops inside it. The contents
+are fixed, so two builds of one commit still produce the same bytes; it is written only when the
+payload does not already carry one, because a project that ships a `package.json` has said what it
+wants and overwriting that would replace an answer with a default; and it is written after the prunes
+and before the payload is read, so it is archived and digested like every other file.
+
+This too was found by building one: the example Node box failed its self-test against *this
+repository's* `package.json`.
+
+</div>
+
+<div class="h3-section-initial-part">
+
 ### 5.3 The envelope — `document-shape.mjs` and `documents.mjs`
 
 
@@ -1651,7 +1845,7 @@ type: the type is inside it, discriminated by the payload's `kind`.
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "payloadEncoding": "base64-json-utf8",
   "payloadBase64": "eyJraW5kIjoic2Nyb2xsY2FzZS5ib3gucmVsZWFzZSIsIn0=",
   "payloadSha256": "7d2c9a41…",
@@ -1679,7 +1873,7 @@ implementation.
 
 ```js
 // src/contract/document-shape.mjs
-export const BOX_SCHEMA_VERSION = 2;
+export const BOX_SCHEMA_VERSION = 3;
 export const PAYLOAD_ENCODING = 'base64-json-utf8';
 export const SIGNATURE_ALGORITHM = 'ed25519';
 export const DEFAULT_DOCUMENT_NAMESPACE = 'scrollcase.box';
@@ -1733,9 +1927,14 @@ signature.
 
 `decodeDocumentPayload(document)` does three things in a fixed order, and the order is the point:
 
-1. **Refuse `schemaVersion: 1` explicitly**, with the remedy in the message —
-   `Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.` A v1 document is not
-   reinterpreted, and it is not rejected as merely malformed either; it is named.
+1. **Refuse a superseded `schemaVersion` explicitly**, with the remedy in the message —
+   `Unsupported schemaVersion 2; rebuild this box with Scrollcase v3.` Both older versions are named
+   rather than lumped together as "too old": a v1 and a v2 box are different artefacts with
+   different rebuilds ahead of them, and whoever is holding one is entitled to know which. Neither
+   is reinterpreted, and neither is rejected as merely malformed. The wording comes from
+   `unsupportedSchemaVersionMessage()` in `document-shape.mjs`, so the payload decoder, the key
+   loader and the release verifier say one thing rather than three copies of it — which is what the
+   v3 bump changed in one place instead of four.
 2. **Refuse anything that fails the shape check.**
 3. **Hash the decoded bytes and compare against `payloadSha256`** *before* parsing them as JSON. A
    truncated or edited document is caught before its contents are read at all.
@@ -1761,7 +1960,7 @@ problem instead of solving it once per language. The cost is a slightly larger d
 payload that is not human-readable without a decode step, which is a fair price for a signature that
 means the same thing everywhere.
 
-Reference: `tests/unit/contract-schema.test.mjs`, `tests/unit/v2-migration.test.mjs`.
+Reference: `tests/unit/contract-schema.test.mjs`, `tests/unit/v3-migration.test.mjs`.
 
 </div>
 
@@ -1984,7 +2183,7 @@ evaluate a constraint must refuse the box rather than assume it passes.*
 
 | `$def` | Pattern | Used for |
 | --- | --- | --- |
-| `identifier` | `^[a-z0-9]+(?:[-.][a-z0-9]+)*$` | `boxId`, `modelId`, `runtimeId` |
+| `identifier` | `^[a-z0-9]+(?:[-.][a-z0-9]+)*$` | `boxId`, every `labels` key |
 | `sha256` | `^[a-f0-9]{64}$` | Every digest, lowercase hex only |
 | `payloadPath` | a negative-lookahead chain | Any path inside the payload |
 
@@ -1998,13 +2197,14 @@ schema level rather than leaving it to code:
 Not absolute, not a drive letter, no backslash anywhere, no `..` segment, no empty segment,
 non-empty. A path that fails this never reaches the code that would have to reject it.
 
-**`schemaVersion` is `const: 2` in every document schema.** Not a minimum, not a range: a v1
+**`schemaVersion` is `const: 3` in every document schema.** Not a minimum, not a range: an older
 document fails schema validation with the same finality as the code rejects it.
 
-**`weights` and `assets` are paired by `dependentRequired`** in both the release and the box
-manifest. Declaring one without the other is a contradiction — on-demand weights with no asset
-descriptors, or asset descriptors on a box claiming to be self-contained — and the schema refuses
-both directions.
+**`assets` needs no cross-field companion.** Version 2 paired a box-wide `weights` switch with the
+descriptor list through `dependentRequired`, because declaring one without the other was a
+contradiction. Version 3 moved the decision onto each asset's own `embed` flag, so the list *is* the
+declaration: it holds exactly the deferred entries, an all-embedded box carries none, and there is no
+second field left to disagree with.
 
 </div>
 
@@ -2013,13 +2213,13 @@ both directions.
 #### The scroll
 
 The largest schema, and the only one describing *input* rather than output. Nine fields are
-required: `schemaVersion`, `boxId`, `modelId`, `runtimeId`, `version`, `sourceRevision`,
-`pythonVersion`, `pixiVersion` and `selfTest`. A tenth, `target`, is required of every scroll a
+required: `schemaVersion`, `boxId`, `version`, `sourceRevision`, `runtime`, `pixiVersion` and
+`selfTest`. An eighth, `target`, is required of every scroll a
 build reads but not by the schema, because the base of a split scroll legitimately has none; the
 reader enforces it, so a base file still validates in an editor.
 
 That list is shorter than the format needs, because a scroll is a file someone writes by hand and
-several of its fields were only ever restatements of others. `pythonEntryPoint` is the clearest
+several of its fields were only ever restatements of others. `runtime.entryPoint` is the clearest
 case: the target adapter admits exactly one value and the reader rejected any other, so requiring it
 obliged the author to type the single string that was already implied. Those fields are now derived
 when the scroll is read, in one place, so every consumer of a scroll still sees a complete object:
@@ -2028,8 +2228,8 @@ when the scroll is read, in one place, so every consumer of a scroll still sees 
 | --- | --- |
 | `scrollVersion` | `1.0.0` |
 | `compatibility` | `{}` — declaring no constraint is an answer, and inventing one would be a claim the project never made |
-| `pythonEntryPoint` | The target adapter's interpreter path; still checked against the target when declared |
-| `modelCacheSubdir` | `model-cache/<boxId>` |
+| `runtime.entryPoint` | The runtime's own executable for this target; still checked against the layout when declared |
+| `cacheSubdir` | `cache/<boxId>` |
 | `assets` | `[]` |
 | `selfTest.files` | `[]` |
 
@@ -2041,11 +2241,11 @@ The optional fields are where a scroll expresses intent:
 | `extends` | `../scroll.json`, marking this file as one target's half of a split scroll |
 | `scrollId` | Provenance identity; derived deterministically as `<boxId>-<targetId>` when omitted |
 | `condaDependencyLicenseAudit` | Path to the reviewed licence inventory the build must still match |
-| `assetBaseUrl` | Base URL the built archive and its objects are published under |
+| `bundledLicenseDeclaration` | Path to the reviewed licences of what was linked *inside* a binary the box ships — the half `pixi.lock` cannot see |
+| `publishBaseUrl` | Where the built archive and its signed documents will be published, so each can point at the next. Optional: a box built to run locally is never published, and the build then omits both links rather than inventing an address |
 | `assetArchives` | Downloaded archives to expand into the payload, with `stripComponents` and `removeAfterExtract` |
 | `localFiles` | Files copied from the project's own repository, optionally pinned to a declared hash |
 | `prunePaths` | Payload paths deleted before packing |
-| `weights` | `embed` (default) or `on-demand` |
 | `execution` | The application entry point |
 | `parity` | The cross-accelerator numerical gate |
 
@@ -2061,7 +2261,7 @@ leaves the pin off what it is still writing. And `selfTest.files` lists what mus
 *after* pruning, which is what stops an over-aggressive `prunePaths` from shipping a broken box.
 
 `selfTest` carries one more choice: the extra Python it runs after the imports may be given inline
-as `pythonCode` or, mutually exclusively, as `pythonFile` — a path to a file in the project, read at
+as `code` or, mutually exclusively, as `script` — a path to a file in the project, read at
 build time and executed from the payload root. A self-test that is worth writing outgrows a JSON
 string almost immediately, and in a file it keeps its syntax highlighting, its linter and a readable
 diff.
@@ -2114,7 +2314,7 @@ after extraction. The schema states plainly that the builder also ran the scroll
 file assertions and that those are builder-only, rather than implying the signed check covers them.
 
 **`provenance`** requires all nine of its fields: `scrollId`, `scrollVersion`, `builderRevision`
-(exactly 40 hex characters), `sourceTreeDirty`, `sourceRevision`, `pythonVersion`, `pixiVersion`,
+(exactly 40 hex characters), `sourceTreeDirty`, `sourceRevision`, `pixiVersion`,
 `dependencyLockSha256` and `builtAt`. `sourceTreeDirty` is a required boolean rather than an
 optional flag, so "clean" is always an assertion somebody made and never the absence of one.
 
@@ -2169,8 +2369,8 @@ distributes boxes — this is the boundary of section 3, expressed as a format.
 
 #### Publication is checked, not assumed
 
-Each schema's `$id` is an absolute `https://scrollcase.dev/schema/v2/<name>` URL, and byte-identical
-copies are published under `docs/public/schema/v2/`. Two tests enforce it: one compares every
+Each schema's `$id` is an absolute `https://scrollcase.dev/schema/v3/<name>` URL, and byte-identical
+copies are published under `docs/public/schema/v3/`. Two tests enforce it: one compares every
 published file against its source byte for byte, and one asserts that every `$id` and every absolute
 `$ref` resolves to a schema that is actually published. A schema referencing a sibling that never
 shipped would validate locally and fail for everyone else.
@@ -2350,21 +2550,22 @@ interpreter first runs should be able to see it without following a call graph.
 | # | Stage | Module | State and files touched |
 | --- | --- | --- | --- |
 | 1 | Read and validate the scroll | `scroll.mjs` | Reads `scrolls/<boxId>/<targetId>/scroll.json`; resolves the adapter |
-| 2 | Validate the build options | `box.mjs` | Channel in `CHANNELS`; weights mode; on-demand refuses `assetArchives` |
+| 2 | Validate the build options | `box.mjs` | Channel in `CHANNELS`; the deferred-asset list is read off the scroll |
 | 3 | Refuse an unusable host, toolchain or tree | `targets.mjs`, `pixi.mjs`, `scroll.mjs` | `assertNativeHost`; pinned pixi and conda-pack located; `pixi.lock` present and hashed; git revision read, dirty tree refused |
 | 4 | Prepare the build tree | `box.mjs` | Removes and recreates `<buildDir>/<scrollId>/payload/`; clears the target's object directory under `dist/` |
-| 5 | Solve, pack and relocate | `pixi.mjs`, `launchers.mjs` | Installs into a build-local pixi workspace, packs it, extracts into `payload/venv/`, repairs it, deletes the workspace and tarball |
-| 6 | Stage assets | `assets.mjs` | Downloads verified assets, copies verified local files, expands asset archives — the downloads and the archives only when weights are embedded, the local files always |
+| 5 | Solve, pack and relocate | `pixi.mjs`, `runtimes/<id>/`, `runtimes/launchers.mjs` | Installs into a build-local pixi workspace, packs it, extracts into `payload/venv/`, repairs it through the runtime's own `repairLaunchers`, deletes the workspace and tarball |
+| 6 | Stage assets | `assets.mjs` | Downloads verified assets, copies verified local files, expands asset archives — an asset declared `embed: false` is skipped and travels as a descriptor instead, the local files always copied |
 | 7 | Prune | `box.mjs` | Deletes each `prunePaths` entry from the payload |
-| 8 | Licence inventory | `licenses.mjs` | When the scroll declares a reviewed audit: recomputes from the lock, compares against it, writes `payload/THIRD_PARTY_NOTICES/conda-distributions.json` |
-| 9 | Post-prune integrity | `box.mjs`, `execution.mjs` | Every `selfTest.files` entry still exists, except an asset deferred by `on-demand`; execution names a real script or discoverable module |
-| 10 | Describe | `box.mjs` | Writes `payload/box.json`, so the self-test runs against the payload the box will ship — an application that reads its own manifest to find its files can then be exercised by it |
-| 11 | Self-test | `box.mjs` | Runs the adapter's own entry point — `payload/venv/bin/python -c …`, or `venv/python.exe` on Windows — with the target's validation environment |
-| 12 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances |
-| 13 | Commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
-| 14 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
-| 15 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
-| 16 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
+| 8 | Runtime payload files | `runtimes/<id>/` | Whatever the runtime needs in the payload that nothing declares, through its optional `preparePayload` — for `node`, the box's own `package.json`. After the prunes, so a project cannot prune a file about to be written, and before the payload is read, so what it writes is archived and digested like everything else |
+| 9 | Licence inventories | `licenses.mjs` | When the scroll declares a reviewed conda audit: recomputes from the lock, compares against it, writes `payload/THIRD_PARTY_NOTICES/conda-distributions.json`. When it declares `bundledLicenseDeclaration`: validates it against the release schema's own `$defs/bundledLicenses`, checks every `linkedInto` path is a file the box carries, writes `payload/THIRD_PARTY_NOTICES/bundled-dependencies.json`, and returns it for the release |
+| 10 | Post-prune integrity | `box.mjs`, `execution.mjs` | Every `selfTest.files` entry still exists, except an asset declared `embed: false`; execution names a real script, discoverable module or carried binary, and whatever the box starts will come out of the archive executable |
+| 11 | Describe | `box.mjs` | Writes `payload/box.json`, so the self-test runs against the payload the box will ship — an application that reads its own manifest to find its files can then be exercised by it |
+| 12 | Self-test | `box.mjs` | Runs every invocation the runtime's probe implies — `payload/venv/bin/python -c …` for a Python box, `venv/bin/node -e …` for a Node one, the declared binary itself for a `native` one — with the target's validation environment |
+| 13 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances. Refused outright for `native`, which has no interpreter to run the check with |
+| 14 | Commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
+| 15 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
+| 16 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
+| 17 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
 
 Several properties of that order are load-bearing.
 
@@ -2383,13 +2584,17 @@ await rm(objectDir, { recursive: true, force: true });
 await mkdir(payloadDir, { recursive: true });
 ```
 
-**Pruning happens before every check that could catch an over-prune.** Stage 9 asks whether the
-files the box needs at run time are still present, and stage 11 asks whether it can still import
-what it claims. Neither would mean anything if pruning came after them.
+**Pruning happens before every check that could catch an over-prune.** Stage 10 asks whether the
+files the box needs at run time are still present, and stage 12 asks whether the box can still answer
+what it claims. Neither would mean anything if pruning came after them. Stage 8 sits between the
+prune and both checks for the same reason from the other direction: a file the runtime writes for
+itself must survive the prune and still be seen by everything that reads the payload.
 
 **The self-test runs before the payload can become an archive.** This is the step that earns the box
-its name: the modules are imported by the payload's *own* interpreter, in the payload directory,
-under the target's validation environment.
+its name: the probe is answered by the payload's *own* runtime, in the payload directory, under the
+target's validation environment — imports through the interpreter for `python` and `node`, and for
+`native`, which has no loader to ask, the box's own declared binary run with the arguments the probe
+names.
 The scroll's declared environment is present too; target validation is layered last so it cannot be
 disabled by a declaration.
 
@@ -2415,7 +2620,7 @@ is no second name for the same bytes.
     └── macos-aarch64-metal.json
 ```
 
-`boxes/` is the tree that goes under the asset base URL verbatim — the same prefix the signed
+`boxes/` is the tree that goes under the publish base URL verbatim — the same prefix the signed
 documents write into their own URLs, so uploading it is a copy rather than a mapping. `channels/` is
 separate because a channel is not part of any one version: it is a pointer that moves to the next
 one, and filing it under `1.0.0` would leave a stale copy claiming to be current the moment `1.0.1`
@@ -2465,23 +2670,31 @@ installed.
 
 </div>
 
-`readExactScroll()` performs seven checks in order:
+`readExactScroll()` performs nine checks in order:
 
 1. **The reference is well formed**: exactly `<boxId>/<targetId>`, screened by `safeRelativePath`.
 2. **The document validates** against the scroll, target and execution schemas, using the internal
    validator described in 6.4 — after a split scroll has been joined with its base, so what is
    validated is what the build will read.
-3. **A target is declared.** Required of the joined scroll rather than by the schema, so that the
+3. **The runtime is one this build implements.** The wire vocabulary is deliberately wider than the
+   implemented set, so the schema admits an id there is no adapter for and this is where that
+   becomes a refusal by name rather than a misreading.
+4. **The declaration is internally consistent for that runtime**: the execution kind belongs to it,
+   a `selfTest.commands` probe has an execution to invoke, and no probe shape is declared that the
+   runtime cannot answer — an `imports` probe in a `native` box is refused here rather than at
+   self-test time, after the whole build has been paid for.
+5. **A target is declared.** Required of the joined scroll rather than by the schema, so that the
    base of a split scroll still validates on its own.
-4. **Weights and archives are compatible**: `on-demand` with `assetArchives` is refused, because
-   those archives are expanded at build time and cannot be deferred.
-5. **Every declared path is safe.** One sweep screens `modelCacheSubdir`, every asset path, both
-   ends of every asset archive, both ends of every local file, every prune path, every self-test
-   file, the self-test Python file, the execution script, the parity script and the licence audit
-   path.
-6. **The directory names agree with the declarations.** The parent directory must equal `boxId` and
+6. **Parity is possible.** Refused when the runtime's layout names no entry point, because the gate
+   runs a source file with the box's own interpreter and a `native` box has none.
+7. **Every declared path is safe, and no two land in the same place.** One sweep screens
+   `cacheSubdir`, every asset path, both ends of every asset archive, both ends of every local file,
+   every prune path, every uncompressed path, every self-test file, the self-test script, the
+   execution script or binary, the parity script and both licence declaration paths.
+8. **The directory names agree with the declarations.** The parent directory must equal `boxId` and
    the child must equal the canonical [target ID](#target-id).
-7. **The entry point agrees with the adapter**, via `assertPythonEntryPoint`.
+9. **The entry point agrees with the runtime's layout for the target**, via
+   `assertRuntimeEntryPoint` — which for `native` means refusing one outright.
 
 Check 6 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
 are *checked context*, not identity: the scroll declares both facts, and the filesystem is required
@@ -2506,7 +2719,7 @@ declares both facts.
 
 Reading is also where a scroll becomes complete. `effectiveScroll()` runs between validation and the
 path sweep, filling in every field the target or the identity already determines — the interpreter
-path, `model-cache/<boxId>`, a `scrollVersion` of `1.0.0`, and the empty collections. Everything
+path, `cache/<boxId>`, a `scrollVersion` of `1.0.0`, and the empty collections. Everything
 downstream, including the provenance record, sees that one object and never has to ask whether a
 field was written down.
 
@@ -2524,7 +2737,7 @@ substance of the feature:
 | `assets`, `assetArchives`, `localFiles` | Joined base-first; a repeated `relativePath` is an error |
 | `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
 | `compatibility`, `environment` | Joined key by key, the fragment winning a shared key |
-| `selfTest.pythonCode` / `selfTest.pythonFile` | One slot; a fragment naming either replaces both |
+| `selfTest.code` / `selfTest.script` | One slot; a fragment naming either replaces both |
 | `extends` | Dropped — the joined scroll extends nothing |
 
 Each row is a rejection of the two obvious alternatives. Replace-everything would make a fragment
@@ -2550,8 +2763,9 @@ on its own.
 Deriving in the reader rather than at each use is the whole point. The alternative — a `??` at every
 call site — spreads the definition of "what this field means when absent" across the builder, where
 two of them eventually disagree. Here there is one place to read, and a scroll that spells a derived
-field out explicitly produces exactly the same object as one that omits it; `assertPythonEntryPoint`
-still runs either way, so declaring the wrong interpreter is as much an error as it ever was.
+field out explicitly produces exactly the same object as one that omits it;
+`assertRuntimeEntryPoint` still runs either way, so declaring the wrong interpreter is as much an
+error as it ever was.
 
 </div>
 
@@ -2808,7 +3022,7 @@ lexical check cannot see — and both must say yes.
 
 <div class="h3-section-initial-part">
 
-### 6.6 Repairing launchers — `launchers.mjs`
+### 6.6 Repairing launchers — `runtimes/python/launchers.mjs`
 
 
 Console scripts generated at solve time (`tqdm`, `isympy`, `f2py`, …) carry the build machine's
@@ -2969,7 +3183,7 @@ The result is sorted by name then version, which is what makes the inventory its
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.dependency-license-audit",
   "targetId": "macos-aarch64-metal",
   "dependencyLockSha256": "…",
@@ -3018,18 +3232,20 @@ For a **module**, the check enumerates the places Python would find it and asks 
 as a regular file:
 
 ```js
-// src/build/execution.mjs
+// src/contract/runtimes.mjs
 const relativeCandidates = [`${modulePath}.py`, `${modulePath}/__main__.py`];
-const standardLibrary = adapter.platform === 'windows'
-  ? 'venv/Lib'
-  : `venv/lib/python${pythonMajorMinor(pythonVersion)}`;
+const standardLibrary = target.platform === 'windows'
+  ? layout.standardLibrary
+  : `${layout.standardLibrary}/python${pythonMajorMinor(runtimeVersion)}`;
 const roots = ['', standardLibrary, `${standardLibrary}/site-packages`];
 ```
 
 Both `foo/bar.py` and `foo/bar/__main__.py` are accepted, since `python -m` runs either. The roots
 are the payload root, the standard library and `site-packages`, and the Windows standard library
 lives at `venv/Lib` rather than under a version-named directory — one of the three-target
-differences that no single-host test suite can catch.
+differences that no single-host test suite can catch. It is a *data* difference now rather than a
+branch: `standardLibrary` is a field of the runtime layout, and `src/build/execution.mjs` asks for
+candidates rather than deriving them.
 
 **Rejected:** proving a module by importing it. Importing runs `__init__.py`, which is application
 code, and would turn validation into execution before the trust chain has finished. The whole point
@@ -3327,7 +3543,7 @@ The two functions perform the complete read-only chain in this fixed order:
 1. Refuse `schemaVersion: 1` explicitly.
 2. Validate the **signed envelope** against its schema.
 3. **Verify the signature** against the trusted key.
-4. Refuse a payload that is not `schemaVersion: 2`.
+4. Refuse a payload that is not `schemaVersion: 3`.
 5. Validate the **release manifest** against its schema.
 6. Confirm the document's `kind` parses as a *release*.
 7. Resolve the target adapter and check the entry point against it.
@@ -3353,9 +3569,9 @@ ones come after the cheap ones that could have ended the check.
 ```js
 // src/build/verify.mjs
 const AGREEMENT_FIELDS = [
-  'schemaVersion', 'boxId', 'modelId', 'runtimeId', 'version', 'target',
-  'pythonEntryPoint', 'modelCacheSubdir', 'environment', 'selfTest', 'execution',
-  'weights', 'assets', 'provenance',
+  'schemaVersion', 'boxId', 'labels', 'version', 'target',
+  'runtime', 'cacheSubdir', 'bundledLicenses', 'environment',
+  'selfTest', 'execution', 'assets', 'provenance',
 ];
 ```
 
@@ -3364,7 +3580,13 @@ provenance block, the environment map, the asset descriptor list — must agree 
 present. This is what binds the archive's contents to its signed metadata: the release commits to
 the archive by hash, and the archive's own description of itself must match the release.
 
-Only fields that exist in *both* schema-version-2 documents belong in that list. Release-only
+Two entries there carry a reason of their own. `assets` holds the per-entry `embed` decision by
+construction — it lists exactly the deferred entries — so a box that quietly changed its mind about
+one asset disagrees with its release. `bundledLicenses` is compared for the same reason it is signed
+at all: a licence inventory that could differ between the document a reviewer read and the box a user
+installed would be worth nothing.
+
+Only fields that exist in *both* schema-version-3 documents belong in that list. Release-only
 transport data — `kind`, `archive`, `compatibility`, `installedSizeBytes`, `payloadDigest` — has no
 counterpart in `box.json`, and demanding one would be demanding agreement about a field that does
 not exist. The list itself already names and hashes `box.json`; placing its commitment inside that
@@ -3473,7 +3695,7 @@ both in one run instead of one per attempt, and every failing check carries its 
 
 #### `authoring.mjs` — `new scroll`
 
-The only command that authors real project identity, target, versions, compatibility, weights and
+The only command that authors real project identity, target, runtime, versions, compatibility and
 execution intent. Its guarantees are atomicity and non-destruction:
 
 - Every material value is validated **before the first write**. A non-terminal call that omits one
@@ -3488,7 +3710,7 @@ What it generates is deliberately short. Every field the reader can derive is le
 reads as the decisions its author made rather than a form they filled in; the generated starter
 script is recorded in `localFiles` **without a hash pin**, because the first thing an author does
 with a starter is edit it; and the self-test is written as a real `self_test.py` beside the scroll,
-with `selfTest.pythonFile` pointing at it.
+with `selfTest.script` pointing at it.
 
 Two constants live here rather than in a lookup: `DEFAULT_PYTHON_VERSION`, one minor behind the
 newest Python conda-forge publishes, and `LATEST_PYTHON_VERSION`, what `--python-version latest`
@@ -3504,12 +3726,10 @@ Execution intent is a closed set at this level too — `python-script`, `python-
 `library-only` — and a `library-only` scroll declaring a script, a module or default arguments is
 refused rather than silently simplified.
 
-The weights mode is not one of the decisions `new scroll` asks about. It says where declared assets
-live — inside the archive, or beside it for the caller to materialize — and a box that declares no
-assets, which is most of them, has nothing for it to decide. `createScroll` defaults it to `embed`
-and then leaves it out of the generated file, because that is the schema's own default and a scroll
-should read like the decisions its author actually made. `--weights on-demand` states the other
-choice for a box whose assets are published separately.
+Labels are not one of the decisions `new scroll` asks about. Scrollcase reads none of them, so
+prompting for one would be asking the author to fill in a field on the tool's behalf; `createScroll`
+leaves the map out of the generated file entirely, because a scroll should read like the decisions
+its author actually made. `--labels '{"model":"…"}'` states them when there is something to record.
 
 `ensureExampleScroll()` creates the disposable `example-box` that `init` offers, through the same
 validated authoring path as any real scroll. An existing target directory is treated as authored
@@ -3592,7 +3812,9 @@ No version is looked up. An added dependency defaults to `*` and the committed `
 what was actually solved. **Rejected:** asking the network for a "latest" to write into the manifest,
 which would put a second, weaker pin beside the real one and leave the two to drift.
 
-`readRequirements` translates a pip `requirements.txt`. The table of PyPI names whose conda-forge
+`readRequirements`, in `src/runtimes/python/dependencies.mjs`, translates a pip `requirements.txt` —
+a Python fact, kept beside the runtime rather than in the substrate module that edits the manifest.
+The table of PyPI names whose conda-forge
 package is called something else is deliberately short — every entry is one this project can state
 with confidence — and **every rename and every skip is reported**, because a name guessed wrongly
 produces a lock that resolves and a box that cannot import what it was built for. That failure
@@ -3920,7 +4142,7 @@ theatre. Every code path that consumes a signed document — `build` re-verifyin
 // src/sign/keys.mjs
 export function decodeSignedDocument(document) {
   if (document?.schemaVersion === 1) {
-    fail('Unsupported schemaVersion 1; rebuild this box with Scrollcase v2.');
+    fail(unsupportedSchemaVersionMessage(1));
   }
   if (document?.schemaVersion !== BOX_SCHEMA_VERSION || document?.payloadEncoding !== PAYLOAD_ENCODING) {
     fail('Unsupported signed document.');
@@ -4143,7 +4365,7 @@ The absences here are the same boundary the rest of the tool draws, applied to c
 
 Everything up to here produces a box. This section is about the other end: a machine that holds a
 signed [release](#release) document, a trusted public key, and either an archive plus destination or
-an already-extracted root, and wants a working Python environment whose identity it can establish.
+an already-extracted root, and wants a working box whose identity it can establish.
 
 Scrollcase ships **three** implementations of that — in Node, in Python, and in Rust — because the
 code that consumes a box usually is not the code that built it. They are not an original and its
@@ -4250,7 +4472,7 @@ implementation detail; it is part of the contract, and every consumer follows it
 
 ```text
    1  signed document        schema, signature, payload digest
-   2  release manifest       schema, schemaVersion 2, kind
+   2  release manifest       schema, schemaVersion 3, kind
    3  target                 adapter resolved, declared interpreter path
    4  archive                located, size, SHA-256
    5  every archive entry    safe path, kind, collisions, links
@@ -4437,9 +4659,9 @@ The root identity check is the one that is easy to leave out. Without it, prepar
 running it later would trust that nothing swapped the directory in between — which on a shared
 machine is precisely the assumption an attacker wants.
 
-::: warning On-demand assets are verified, never fetched
-When [weights mode](#weights-mode) is `on-demand`, the release carries signed descriptors and the
-receipt exposes them as `requiredAssets`. The caller places those bytes under the box root — often
+::: warning Deferred assets are verified, never fetched
+For every [deferred asset](#deferred-asset) the release carries a signed descriptor, and the receipt
+exposes them as `requiredAssets`. The caller places those bytes under the box root — often
 in an `onPrepared` callback. The consumer then checks each one's size and SHA-256 against the signed
 descriptor before spawning anything, and refuses to run if any is missing, is not a regular file, or
 does not match. Downloading them is the caller's job, always.
@@ -4621,8 +4843,8 @@ to the running host's interpreter path and target ID, and `$BOX` to the prepared
 therefore assert a complete absolute argument vector without hard-coding a platform or a temporary
 path.
 
-Note that the fixture's own `schemaVersion: 1` is the *fixture format's* version. It is unrelated to
-the box format's `schemaVersion: 2`.
+Note that the fixture's own `schemaVersion` is the *fixture format's* version. It is unrelated to
+the box format's `schemaVersion: 3`.
 
 </div>
 
@@ -4814,9 +5036,9 @@ reads. Its guarantee is worth stating exactly, because it is narrower than it lo
 A release built before the digest existed is refused by name rather than reported as verified. A
 box that carries no commitment must not be mistaken for one that satisfies it.
 
-The weights mode changes the cost honestly. Embedded weights are payload entries and verification
-reads all of them, which can mean tens of gigabytes. On-demand assets were absent when the list was
-built and appear later as ignored extras; their integrity is covered separately by the signed
+Deferring changes the cost honestly. An embedded asset is a payload entry and verification reads
+all of them, which can mean tens of gigabytes. A deferred asset was absent when the list was built
+and appears later as an ignored extra; their integrity is covered separately by the signed
 per-file `requiredAssets` descriptors that attachment and execution enforce. Mode and modification
 time are also outside the digest, because archive writing synthesises modes and extraction restores
 neither the build mode consistently across platforms nor the fixed build timestamp.
@@ -5115,7 +5337,6 @@ everything to `buildBox`:
 await ensureBuildSigningKeys(signing);
 // Asked at the CLI edge and passed down: buildBox never reads a terminal itself.
 const channel = await chooseCliValue('channel', ['beta', …], { flag: text(flags, 'channel') });
-const weights = text(flags, 'weights');
 ```
 
 The order is the point. The preflight is a read-only check that the keys exist (section 7.6), and it
@@ -5125,11 +5346,13 @@ second, not the twenty minutes it would cost if it were discovered at the signin
 `beta` is listed first so it is the highlighted default in the menu and the value taken when there is
 no terminal — the channel a build should land on unless someone deliberately says otherwise.
 
-The weights mode used to be a second menu, and that was a defect rather than a convenience. It was
-preselected on `embed`, so a build of a scroll declaring `on-demand` silently repacked the assets
+Where assets live used to be a second menu, and that was a defect rather than a convenience. It was
+preselected on `embed`, so a build of a scroll that had said otherwise silently repacked the assets
 into the archive for anyone who answered by pressing Enter — the scroll's own declaration overridden
-by the menu's default. It is not asked any more: `buildBox` takes the scroll's mode, `--weights`
-overrides it deliberately, and the mode in effect is logged rather than negotiated.
+by the menu's default. Version 3 removed the question *and* the `--weights` flag that replaced it:
+whether an asset ships inside the archive is a per-entry scroll declaration, and a build-time
+override of one would repack the box under an identity that no longer describes it. What the scroll
+decided is logged rather than negotiated.
 
 </div>
 
@@ -5581,7 +5804,7 @@ document different, which breaks the chain just as thoroughly.
 #### The exact scope of the promise
 
 Determinism is claimed **per commit, per target, per pinned toolchain**. Same commit, same host
-platform, same pinned pixi and conda-pack, same committed lock, same weights mode — same bytes.
+platform, same pinned pixi and conda-pack, same committed lock — same bytes.
 
 It is not a claim that two different operating systems produce the same archive: they cannot, because
 they package different native code, and section 5.2 is why a box is built on the host it ships for.
@@ -5697,16 +5920,18 @@ guard, because a rule with no guard survives exactly as long as everyone remembe
 
 | Rule | Why | Guard |
 | --- | --- | --- |
-| No consuming project's name anywhere in the tool | It must stay usable by projects with nothing to do with the one that first needed it | `tests/unit/v2-migration.test.mjs` greps the whole tracked tree, content and paths |
+| No consuming project's name anywhere in the tool | It must stay usable by projects with nothing to do with the one that first needed it | `tests/unit/v3-migration.test.mjs` greps the whole tracked tree, content and paths |
 | The document namespace belongs to the publishing project | A project with boxes in the field keeps emitting the kinds its clients recognise | `documentKinds(namespace)`; the schemas accept any well-formed namespace and nothing else |
 | One substrate, and only one | Two dependency backends means proving every guarantee twice | The absence of any second backend, and section 4's single-substrate description |
-| Published v1 is immutable; v2 is a clean break | A reinterpreted old document is a silent wrong answer | `decodeSignedDocument` rejects `schemaVersion: 1` with an explicit remedy |
+| Published v1 and v2 are immutable; v3 is a clean break | A reinterpreted old document is a silent wrong answer | `decodeSignedDocument` rejects both by name, each with its own remedy |
 
 The first guard is worth a note for anyone who reads it. It runs `git grep` over every tracked file
-*and* every tracked path, and the retired term it searches for is assembled from two string fragments
-inside the test so that the test file itself does not contain the word it forbids. That is not
-cleverness for its own sake: a guard that trips on itself gets weakened, and a weakened guard is how
-the name comes back.
+*and* every tracked path, once for the name of the project Scrollcase was extracted from and once for
+a product term retired before the rename. Each word is assembled from two string fragments inside the
+test so that the test file itself does not contain what it forbids. That is not cleverness for its
+own sake: a guard that trips on itself gets weakened, and a weakened guard is how the name comes
+back. Both searches must find nothing — `git grep` exiting 1 — and an invocation that fails for any
+other reason fails the test rather than passing quietly.
 
 <div class="h3-section-initial-part">
 
@@ -5742,21 +5967,23 @@ that assumes one is absent on POSIX, is wrong on one of the two.
 
 <div class="h4-section">
 
-#### 2. `embed` versus `on-demand` weights
+#### 2. Embedded versus [deferred](#deferred-asset) assets
 
-The two [weights modes](#weights-mode) produce different archives, different release documents and
-different consumer behaviour from the same scroll:
+The two produce different archives, different release documents and different consumer behaviour
+from the same scroll — and a box may now do both at once, one entry each way:
 
-| | `embed` | `on-demand` |
+| | `"embed": true` (default) | `"embed": false` |
 | --- | --- | --- |
-| Assets in the archive | Yes | No |
-| Descriptors in the signed release | Not needed | Required |
-| `assetArchives` | Allowed | **Refused** |
-| Air-gapped install | Works | Needs the assets materialised first |
-| Consumer before execution | Nothing extra | Verifies every materialised asset against its signed hash |
+| In the archive | Yes | No |
+| Descriptor in the signed release | Not needed | Required |
+| Air-gapped install | Works | Needs the asset materialised first |
+| Consumer before execution | Nothing extra | Verifies it against its signed hash |
+
+`assetArchives` has no `embed` field at all, so the combination version 2 refused with a cross-field
+check is now unspeakable.
 
 Any change to asset staging, to the manifest, or to what the consumer checks before spawning affects
-both, and a test that only covers the default mode covers half the behaviour.
+both, and a test whose assets are all embedded covers half the behaviour.
 
 </div>
 
@@ -5967,7 +6194,7 @@ Twenty-seven test files under `tests/unit/`, plus two shared fixtures under `tes
 | `scroll-authoring.test.mjs` | Every authored shape — library-only, wizard answers with no weights menu among them, a module with default arguments, the Windows interpreter and conda platform derived from the adapter — plus a staged script hashed at a safe payload path, a generated starter whose declared hash matches its bytes, an initialised example left untouched, consumer templates written without an example and never over an edited one, and refusal to overwrite anything |
 | `signing.test.mjs` | The external signer: a quoted command with spaces is parsed and its result verified locally; a signer that validly signs a *different* payload is rejected; an invalid signature is rejected even when the payload was echoed exactly |
 | `toolchain.test.mjs` | The published asset name and URLs per host, a null rather than a guessed URL for an unsupported host, digest parsing in both checksum-file forms, verified installation including across filesystems, a checksum mismatch installing **nothing**, the pinned digest preferred over the server's, the pinned conda-pack version, and the `init` offer — nothing downloaded on a no, only what is missing asked for, both pins recorded, an unsupported host reported |
-| `v2-migration.test.mjs` | Only the canonical v2 scroll schema is published; a v1 signed document is rejected with the migration remedy; the channel vocabulary is closed; the workspace exposes no legacy field; and no retired product terminology survives in tracked content or paths |
+| `v3-migration.test.mjs` | Only the canonical v3 scroll schema is published; a v1 and a v2 signed document are each rejected with the migration remedy; the channel vocabulary is closed; the workspace exposes no legacy field; and neither the extracted-from project's name nor retired product terminology survives in tracked content or paths |
 
 The two helpers are shared rather than duplicated: `consumer-box-fixture.mjs` builds a real signed box
 — through `createDeterministicZip`, `signDocument` and the real target adapter — for both the local
@@ -6001,7 +6228,7 @@ Seven test files under `rust/tests/`, plus one support module.
 | File | What it proves |
 | --- | --- |
 | `contract.rs` | The mirror is faithful: every canonical target-ID and payload-digest vector in the shared fixtures, and the link rule accepting and refusing exactly what the other implementations do |
-| `schema.rs` | The types the crate parses with and the canonical schemas reach the same verdict on the examples and on mutations chosen where a typed parse and a schema most plausibly drift — an unknown field, a missing required field, a pattern violation, a broken bound, the `weights`/`assets` co-requirement, and the one open object where agreement means accepting rather than refusing |
+| `schema.rs` | The types the crate parses with and the canonical schemas reach the same verdict on the examples and on mutations chosen where a typed parse and a schema most plausibly drift — an unknown field, a missing required field, a pattern violation, a broken bound, and the one open object where agreement means accepting rather than refusing |
 | `release_document.rs` | The half of the trust chain that needs no archive, over a real release signed the way `signWithLocalKey` signs — so the crate is proved against documents the signer it exists to read produced, not documents it produced itself |
 | `archive.rs` | The read-only chain over real archives: each case breaks exactly one thing and asserts *which* check fired, because a check that fires for the wrong reason has stopped working |
 | `prepare.rs` | Preparation, attachment and payload verification: the only three ways to obtain the receipt the execution surface accepts |
@@ -6089,6 +6316,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/contract/index.mjs` | The contract entry point: the single source of truth for what a box is | 5.1 |
 | `src/contract/browser.mjs` | The same model without any Node built-in, for a browser or an edge runtime | 5.1 |
 | `src/contract/targets.mjs` | The [target](#target) model, the identity rule, and the adapter per target | 5.2 |
+| `src/contract/runtimes.mjs` | The runtime model: layout, execution kinds, discovery and shell-free argv | 5.2 |
 | `src/contract/document-shape.mjs` | The platform-neutral parts of the [envelope](#envelope): shape checks and namespacing | 5.3 |
 | `src/contract/documents.mjs` | The envelope reference implementation, including payload decoding | 5.3 |
 | `src/contract/links.mjs` | The rule deciding which [symbolic links](#symbolic-link) a payload may carry | 5.4 |
@@ -6108,7 +6336,6 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/workspace.mjs` | [Workspace](#workspace) discovery and path resolution | 6.3 |
 | `src/build/schema-validation.mjs` | Dependency-free runtime validation against the shipped schemas | 6.4 |
 | `src/build/pixi.mjs` | Tool discovery, the exact pixi and conda-pack arguments, packing and relocation | 6.5 |
-| `src/build/launchers.mjs` | Repairing the console scripts a conda environment generates | 6.6 |
 | `src/build/assets.mjs` | Verified download, verified copy, archive expansion, and the publish-ready move | 6.7 |
 | `src/build/licenses.mjs` | The [SPDX](#spdx) licence inventory derived from the [lockfile](#lockfile) | 6.8 |
 | `src/build/audit.mjs` | `auditScroll` — the inventory as a command, with the reviewed-copy comparison | 6.8 |
@@ -6125,6 +6352,29 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/consumer-setup.mjs` | The optional consumer dependencies an initialised project may want | 6.16 |
 | `src/build/toolchain.mjs` | Checksum-verified installation of pixi and conda-pack, only on consent | 4.2 |
 | `src/build/process.mjs` | `fail`, `run` and `runResult` — the one error path and the subprocess seam | 6.17 |
+
+</div>
+
+<div class="h4-section">
+
+#### `src/runtimes/` — what the substrate packs
+
+The builder-side half of the runtime seam. `src/contract/runtimes.mjs` states what a consumer must
+agree with and is mirrored in every language; these modules are the builder's alone, and they are
+what a box's runtime is allowed to need that another runtime would not.
+
+| Module | Role | Section |
+| --- | --- | --- |
+| `src/runtimes/index.mjs` | The registry of builder-side runtime adapters | 6.6 |
+| `src/runtimes/launchers.mjs` | The launcher check shared by the runtimes that cannot rewrite one | 6.6 |
+| `src/runtimes/python/index.mjs` | The Python adapter: its pixi dependency, its launcher repair, its starter files | 6.6 |
+| `src/runtimes/python/launchers.mjs` | Repairing the console scripts a conda environment generates | 6.6 |
+| `src/runtimes/python/dependencies.mjs` | Reading a pip `requirements.txt` into conda-forge terms | 6.16 |
+| `src/runtimes/python/templates/index.mjs` | The Python source `new scroll` writes, and the interpreter constraint a generated manifest declares | 6.16 |
+| `src/runtimes/node/index.mjs` | The Node adapter: `nodejs` from conda-forge, and nothing to repair | 6.6 |
+| `src/runtimes/node/payload.mjs` | The `package.json` a Node box carries so nothing above it decides what its code is | 6.6 |
+| `src/runtimes/node/templates/index.mjs` | The JavaScript source `new scroll` writes, and the Node constraint a generated manifest declares | 6.16 |
+| `src/runtimes/native/index.mjs` | The native adapter: no interpreter, no dependency of its own, nothing to generate | 6.6 |
 
 </div>
 
@@ -6159,6 +6409,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/cli-init.mjs` | The order of `init`'s questions: the two scaffold questions first, then every answer before any installer | 9.4 |
 | `src/cli-signing.mjs` | The read-only signing preflight | 7.6 |
 | `src/cli-run.mjs` | Translating a child's terminal result into this process's own | 8.8 |
+| `src/cli-docs.mjs` | The one place the documentation site's URL is written, and the section each interactive question points at | 9.4 |
 | `src/cli-output.mjs` | Status symbols, the shared question layout, optional colour, and the distribution summary | 9.5 |
 
 </div>
@@ -6173,7 +6424,7 @@ Published separately, and listed here because it implements the same section 8 a
 | --- | --- | --- |
 | `error.rs` | One opaque error type and the `fail!` macro — the single failure path, deliberately not an enum a caller could match on and come to depend on | 8.1 |
 | `path.rs` | The path-safety primitive every extraction and attachment goes through | 8.2 |
-| `contract/` | The mirror: `targets.rs`, `documents.rs`, `links.rs`, `payload_digest.rs` | 5.2–5.5 |
+| `contract/` | The mirror: `targets.rs`, `runtimes.rs`, `documents.rs`, `links.rs`, `payload_digest.rs` | 5.2–5.5 |
 | `trust.rs` | Trust anchors from either source, key rotation, and strict ed25519 verification | 7.4 |
 | `release.rs` | The typed release and box manifests, refusing an unknown field where the others run a schema — except in `compatibility`, the one object the schema leaves open, whose unfamiliar constraints are carried to the caller | 8.1 |
 | `archive.rs` | Defensive reading and extraction, including the duplicate-name check the ZIP backend cannot make; that check locates EOCD or EOCD64 and streams only the declared central-directory records, because identical index bytes inside stored nested archives are payload data | 8.2, 8.6 |
@@ -6222,7 +6473,7 @@ consumer-only dependent avoid the entire build layer.
 
 | Export | Kind | Meaning |
 | --- | --- | --- |
-| `BOX_SCHEMA_VERSION` | constant | `2` — the only format version this release reads or writes |
+| `BOX_SCHEMA_VERSION` | constant | `3` — the only format version this release reads or writes |
 | `CHANNELS` | constant | The closed vocabulary: `nightly`, `beta`, `stable` |
 | `DEFAULT_DOCUMENT_NAMESPACE` | constant | `scrollcase.box`, used when a project declares none |
 | `PAYLOAD_ENCODING` | constant | The envelope's payload encoding identifier |
@@ -6233,7 +6484,12 @@ consumer-only dependent avoid the entire build layer.
 | `condaSubdir` | function | The [conda subdir](#conda-subdir) a target maps to |
 | `pixiAccelerator` | function | The accelerator descriptor a scroll selects |
 | `assertNativeHost` | function | Refuses a build on a host that is not the target it ships for |
-| `assertPythonEntryPoint` | function | Refuses an entry point that disagrees with the adapter layout |
+| `assertRuntimeEntryPoint` | function | Refuses an entry point that disagrees with the named runtime's layout for the target |
+| `RUNTIME_IDS` | array | Every runtime id the format defines: `python`, `node`, `native` |
+| `runtimeAdapter`, `runtimeAdapters` | function | The runtime model: layout, execution kinds, argv, self-test |
+| `isImplementedRuntime`, `unimplementedRuntimeMessage` | function | Whether this build carries an adapter, and the one wording for when it does not |
+| `executionAffectingVariables` | function | The runtime's loader controls followed by the operating system's |
+| `isExecutablePayloadPath` | function | Whether a payload path is one the runtime requires the executable bit on |
 | `documentKinds` | function | The three `kind` strings for a publishing project's namespace |
 | `parseDocumentKind` | function | Splits a `kind` back into namespace and document type |
 | `isSignedBoxDocument` | function | The structural envelope guard — shape only, never trust |
@@ -6299,8 +6555,8 @@ disk beside the installed package rather than something a browser can fetch.
 </div>
 
 Scrollcase is a small tool with a narrow promise, and almost every design decision in this document
-exists to keep the promise narrow. A [box](#box) is a Python environment for one operating system and
-one accelerator, built from a reviewed [lockfile](#lockfile), packed so that it runs elsewhere,
+exists to keep the promise narrow. A [box](#box) is one [runtime](#runtime)'s environment for one
+operating system and one accelerator, built from a reviewed [lockfile](#lockfile), packed so that it runs elsewhere,
 signed so that it can be proven, and accompanied by an inventory of what it contains. It is not a
 registry, not a scheduler, not a distribution system, and not a judge of whether the thing inside it
 is scientifically right.

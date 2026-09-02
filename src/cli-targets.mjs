@@ -119,11 +119,12 @@ export async function chooseScroll(candidates, {
 /** Shows a raw-key target menu and resolves to the selected index. */
 export function selectTargetMenu(targetIds, {
   hint = null,
+  docs = null,
   initialIndex = null,
   input = process.stdin,
   output = process.stdout,
 } = {}) {
-  return selectCliMenu('target', targetIds, { hint, initialIndex, input, output });
+  return selectCliMenu('target', targetIds, { hint, docs, initialIndex, input, output });
 }
 
 /**
@@ -140,6 +141,7 @@ export function selectTargetMenu(targetIds, {
 export async function chooseTarget(candidates, {
   requested = null,
   hint = null,
+  docs = null,
   terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY),
   host = { platform: process.platform, arch: process.arch },
   menu = selectTargetMenu,
@@ -186,6 +188,7 @@ export async function chooseTarget(candidates, {
 
   const selectedIndex = await menu(choices.map(({ targetId }) => targetId), {
     hint,
+    docs,
     initialIndex: fallback ? choices.indexOf(fallback) : null,
   });
   if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= choices.length) {

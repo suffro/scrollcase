@@ -1,0 +1,16 @@
+# A `node` box that ships reference data and the tool that queries it.
+#
+# Node and nothing else. The tool reads its table with `node:sqlite`, which is part of Node itself,
+# so the box has no dependency conda-forge did not install — and none from npm, which is not a
+# channel Scrollcase solves from. JavaScript that a project writes enters through `localFiles`.
+#
+# Pinned to 26 rather than the authoring default: `node:sqlite` is only usable without a flag from
+# a recent Node, and a box that needed `--experimental-sqlite` could not declare that through
+# `execution.defaultArgs`, which land after the script rather than before it.
+[workspace]
+name = "codon-demo"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+nodejs = "26.*"

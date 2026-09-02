@@ -49,7 +49,7 @@ fn preparing_a_box_yields_a_receipt_describing_what_was_verified() {
     assert_eq!(prepared.status(), PreparedStatus::Prepared);
     assert_eq!(prepared.root(), destination);
     assert_eq!(prepared.box_id(), "fixture-box");
-    assert_eq!(prepared.model_id(), "fixture-model");
+    assert_eq!(prepared.labels().unwrap()["model"], "fixture-model");
     assert_eq!(prepared.signing_key_ids(), [support::KEY_ID]);
     assert!(prepared.required_assets().is_empty());
     assert!(prepared.execution().is_some());
@@ -249,15 +249,15 @@ fn attaching_refuses_a_link_standing_in_for_the_box_root() {
 }
 
 #[test]
-fn an_on_demand_asset_must_match_its_signed_descriptor_before_a_receipt_exists() {
-    const ASSET: &[u8] = b"trusted on-demand bytes";
+fn a_deferred_asset_must_match_its_signed_descriptor_before_a_receipt_exists() {
+    const ASSET: &[u8] = b"trusted deferred bytes";
 
-    // The asset policy has to appear in both documents, or `box.json` would disagree with the
+    // The descriptor list has to appear in both documents, or `box.json` would disagree with the
     // release before the assets themselves are ever looked at.
     let policy = || {
         json!([{
-            "url": "https://example.invalid/weights.bin",
-            "relativePath": "weights/model.bin",
+            "url": "https://example.invalid/data.bin",
+            "relativePath": "cache/model.bin",
             "sizeBytes": ASSET.len(),
             "sha256": support::sha256_hex(ASSET),
         }])
@@ -265,12 +265,10 @@ fn an_on_demand_asset_must_match_its_signed_descriptor_before_a_receipt_exists()
     let fixture = support::build(
         "attach-assets",
         |manifest| {
-            manifest["weights"] = json!("on-demand");
             manifest["assets"] = policy();
         },
         |_| {},
         |release| {
-            release["weights"] = json!("on-demand");
             release["assets"] = policy();
         },
     );
@@ -288,22 +286,22 @@ fn an_on_demand_asset_must_match_its_signed_descriptor_before_a_receipt_exists()
     assert!(error.message().contains("asset is missing"), "{error}");
 
     // Placed, but truncated.
-    std::fs::create_dir_all(destination.join("weights")).unwrap();
-    std::fs::write(destination.join("weights/model.bin"), b"short").unwrap();
+    std::fs::create_dir_all(destination.join("cache")).unwrap();
+    std::fs::write(destination.join("cache/model.bin"), b"short").unwrap();
     let error =
         attach_extracted_box(&fixture.release_path, &attach_options(&fixture, &destination))
             .unwrap_err();
     assert!(error.message().contains("asset size mismatch"), "{error}");
 
     // Right size, wrong bytes — the case a size check alone waves through.
-    std::fs::write(destination.join("weights/model.bin"), vec![b'x'; ASSET.len()]).unwrap();
+    std::fs::write(destination.join("cache/model.bin"), vec![b'x'; ASSET.len()]).unwrap();
     let error =
         attach_extracted_box(&fixture.release_path, &attach_options(&fixture, &destination))
             .unwrap_err();
     assert!(error.message().contains("asset SHA-256 mismatch"), "{error}");
 
     // The real bytes.
-    std::fs::write(destination.join("weights/model.bin"), ASSET).unwrap();
+    std::fs::write(destination.join("cache/model.bin"), ASSET).unwrap();
     let attached =
         attach_extracted_box(&fixture.release_path, &attach_options(&fixture, &destination))
             .expect("the signed asset must be accepted");

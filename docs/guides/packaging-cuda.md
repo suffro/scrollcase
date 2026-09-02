@@ -24,11 +24,10 @@ only CUDA ABI the contract accepts.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "scrollVersion": "1.0.0",
   "boxId": "my-model",
-  "modelId": "example-org-my-model",
-  "runtimeId": "my-model-runtime",
+  "labels": { "model": "example-org/my-model" },
   "version": "1.0.0",
   "sourceRevision": "my-model-v1.2.0",
   "target": {
@@ -42,12 +41,12 @@ only CUDA ABI the contract accepts.
     "minNvidiaDriverVersion": "550.54.14",
     "minRamGb": 16
   },
-  "pythonVersion": "3.14",
+  "runtime": { "id": "python", "version": "3.14" },
   "pixiVersion": "0.73.0",
-  "assetBaseUrl": "https://assets.example.org/boxes",
+  "publishBaseUrl": "https://boxes.example.org",
   "selfTest": {
     "imports": ["torch"],
-    "pythonFile": "scrolls/my-model/linux-x86_64-cuda12.4/self_test.py"
+    "script": "scrolls/my-model/linux-x86_64-cuda12.4/self_test.py"
   }
 }
 ```
@@ -60,7 +59,7 @@ Three things are CUDA-specific:
    the installing host to check. Scrollcase never interprets it.
 3. **A self-test that actually exercises the GPU** — see below.
 
-`pythonEntryPoint`, `modelCacheSubdir` and an empty `assets` list are left out: the target and the
+`pythonEntryPoint`, `cacheSubdir` and an empty `assets` list are left out: the target and the
 box identity already determine them, and they are filled in when the scroll is read. A box that
 ships both a CUDA and a CPU target should keep what they share in one
 [base scroll](/reference/scroll#one-box-several-targets), with `cudaVersion`,
@@ -139,8 +138,8 @@ assert torch.cuda.is_available(), "CUDA runtime not usable inside the box"
 assert torch.version.cuda.startswith("12.4"), f"built against CUDA {torch.version.cuda}"
 ```
 
-A single assertion can also go inline as `selfTest.pythonCode`, but anything longer belongs in a
-file the editor and the linter can see — which is what `selfTest.pythonFile` names.
+A single assertion can also go inline as `selfTest.code`, but anything longer belongs in a
+file the editor and the linter can see — which is what `selfTest.script` names.
 
 **2. The parity gate.** Run a real computation on CPU and on CUDA and require the results to
 agree within a declared tolerance:
@@ -163,7 +162,7 @@ box's own interpreter, on a matching native host:
 scrollcase verify .scrollcase/dist/boxes/my-model/1.0.0/linux-x86_64-cuda12.4/*.release.json --self-test
 ```
 
-This consumer check does **not** repeat scroll `pythonCode`, so it does not by itself prove
+This consumer check does **not** repeat scroll `code`, so it does not by itself prove
 `torch.cuda.is_available()`. That stronger assertion and parity are builder gates. Building a
 target proves packaging and declared gates; it never proves scientific parity unless the scroll
 declares and passes a suitable parity check.
@@ -206,9 +205,9 @@ the box does not need at run time, and let the self-test guard the prune:
   "venv/lib/python3.14/site-packages/torch/test",
   "venv/lib/python3.14/site-packages/torch/include"
 ],
-"selfTest": { "imports": ["torch"], "files": [], "pythonCode": "import torch; assert torch.cuda.is_available()" }
+"selfTest": { "imports": ["torch"], "files": [], "code": "import torch; assert torch.cuda.is_available()" }
 ```
 
-See [Managing Model Weights](/guides/managing-weights#keeping-the-box-small) for the general
-approach, and consider `--weights on-demand` when the weights, rather than the runtime, are what
-makes the archive unwieldy.
+See [Managing Assets](/guides/managing-assets#keeping-the-box-small) for the general
+approach, and consider `"embed": false` on the weights themselves when they, rather than the CUDA
+runtime, are what makes the archive unwieldy.

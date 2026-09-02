@@ -149,5 +149,5 @@ record it in its own pipeline.
 
 Parity needs at least two accelerators available on the build machine — a CPU/CUDA gate needs a
 GPU present. If a box has only one meaningful accelerator, or your CI cannot provide the second
-device, leave `parity` out and lean on the self-test's `pythonCode` instead. The gate is optional
+device, leave `parity` out and lean on the self-test's `code` instead. The gate is optional
 by design; a scroll without it is complete.

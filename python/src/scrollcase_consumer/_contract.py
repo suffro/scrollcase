@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Collection, Iterable, Mapping, cast
+from typing import Any, Callable, Collection, Iterable, Mapping, Sequence, cast
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
@@ -24,7 +24,10 @@ from referencing import Registry, Resource
 from .errors import ScrollcaseConsumerError
 from .models import (
     BoxExecution,
+    BoxRuntime,
     BoxTarget,
+    NativeBinaryExecution,
+    NodeScriptExecution,
     PythonModuleExecution,
     PythonScriptExecution,
     RequiredAsset,
@@ -42,14 +45,16 @@ _CUDA_VERSION = re.compile(r"^[1-9][0-9]*\.[0-9]+$")
 
 @dataclass(frozen=True, slots=True)
 class TargetAdapter:
-    """Runtime-relevant target layout mirrored from the canonical target adapters."""
+    """What a target implies for the extracted tree, mirrored from the canonical adapters.
+
+    Deliberately no interpreter layout and no Python environment variables: those are facts about
+    what a box *runs*, not about the machine it runs on, and they live on :class:`RuntimeAdapter`.
+    """
 
     platform: str
     arch: str
     host_platform: str
     host_arch: str
-    python_entry_point: str
-    standard_library: str
     execution_affecting_environment_variables: tuple[str, ...]
 
 
@@ -59,44 +64,23 @@ _ADAPTERS = {
         arch="aarch64",
         host_platform="darwin",
         host_arch="aarch64",
-        python_entry_point="venv/bin/python",
-        standard_library="venv/lib",
-        execution_affecting_environment_variables=(
-            "PYTHONPATH",
-            "PYTHONHOME",
-            "PYTHONSTARTUP",
-            "PYTHONBREAKPOINT",
-            "DYLD_INSERT_LIBRARIES",
-        ),
+        execution_affecting_environment_variables=("DYLD_INSERT_LIBRARIES",),
     ),
     ("linux", "x86_64"): TargetAdapter(
         platform="linux",
         arch="x86_64",
         host_platform="linux",
         host_arch="x86_64",
-        python_entry_point="venv/bin/python",
-        standard_library="venv/lib",
-        execution_affecting_environment_variables=(
-            "PYTHONPATH",
-            "PYTHONHOME",
-            "PYTHONSTARTUP",
-            "PYTHONBREAKPOINT",
-            "LD_PRELOAD",
-        ),
+        execution_affecting_environment_variables=("LD_PRELOAD",),
     ),
     ("windows", "x86_64"): TargetAdapter(
         platform="windows",
         arch="x86_64",
         host_platform="win32",
         host_arch="x86_64",
-        python_entry_point="venv/python.exe",
-        standard_library="venv/Lib",
-        execution_affecting_environment_variables=(
-            "PYTHONPATH",
-            "PYTHONHOME",
-            "PYTHONSTARTUP",
-            "PYTHONBREAKPOINT",
-        ),
+        # Windows has no inherited loader control of its own worth reporting: ``PATH`` decides DLL
+        # resolution and is far too broad to name here, so the whole list is the runtime's.
+        execution_affecting_environment_variables=(),
     ),
 }
 _ACCELERATORS = {
@@ -104,6 +88,594 @@ _ACCELERATORS = {
     ("linux", "x86_64"): frozenset(("cpu", "cuda")),
     ("windows", "x86_64"): frozenset(("cpu", "cuda")),
 }
+
+
+def _python_major_minor(version: str) -> str:
+    """The ``major.minor`` prefix naming the standard-library directory a packed prefix carries.
+
+    A patch component is dropped rather than rejected: a scroll may pin ``3.14.2``, and the
+    directory conda-forge writes is ``python3.14`` either way.
+    """
+
+    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
+    if match is None:
+        raise ScrollcaseConsumerError(
+            f"Invalid Python version for execution discovery: {version}."
+        )
+    return f"{match.group(1)}.{match.group(2)}"
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeLayout:
+    """Where a runtime lives inside an extracted box.
+
+    Two fields are optional, and both mean the same thing: the runtime does not have that. A native
+    box carries no interpreter to name and no bundled library to search, so both are ``None`` rather
+    than a plausible-looking path nothing would find.
+    """
+
+    root: str
+    entry_point: str | None
+    scripts_directory: str
+    standard_library: str | None
+    executable_suffix: str
+    launcher_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutablePayloadPaths:
+    """Payload paths a runtime requires the executable bit on, as a rule rather than a list.
+
+    A conda prefix carries hundreds of generated console scripts and no scroll could name them by
+    hand, so the scripts directory matches by prefix while the runtime's own entry point — which
+    lives outside it on Windows — matches by name.
+    """
+
+    files: tuple[str, ...]
+    directories: tuple[str, ...]
+
+    def matches(self, relative_path: str) -> bool:
+        """Whether this path is one the runtime needs the executable bit on."""
+
+        if relative_path in self.files:
+            return True
+        return any(
+            relative_path.startswith(f"{directory}/") for directory in self.directories
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeArgument:
+    """One element of a shell-free command line.
+
+    A ``payload-path`` stays relative and tagged rather than joined, because a box root is a real
+    path on this host and each implementation joins one in its own terms.
+    """
+
+    kind: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeInvocation:
+    """A shell-free command line, before the caller's own arguments."""
+
+    command: RuntimeArgument
+    args: tuple[RuntimeArgument, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedExecutionFiles:
+    """Every payload path a declaration could resolve to, and what to say when none does."""
+
+    candidates: tuple[str, ...]
+    missing: str
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestCommand:
+    """One invocation of the box's declared execution, and the status it must exit with."""
+
+    args: tuple[str, ...]
+    expect_exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestProbe:
+    """What a self-test asks the box to prove, plus the builder-only extension a scroll may add.
+
+    ``imports`` asks the runtime's loader a question and only means something to a runtime that has
+    one. ``commands`` asks the box's declared execution a question, which every runtime can answer
+    and a native one can answer *only* that way. ``code`` never travels on the wire.
+    """
+
+    imports: tuple[str, ...] = ()
+    commands: tuple[SelfTestCommand, ...] = ()
+    code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SelfTestInvocation:
+    """One command a self-test runs, and the status it must exit with."""
+
+    command: RuntimeArgument
+    args: tuple[RuntimeArgument, ...]
+    expect_exit_code: int
+
+
+def _python_imports(imports: Sequence[str]) -> str:
+    return f"import {', '.join(imports)}"
+
+
+def _node_imports(imports: Sequence[str]) -> str:
+    """``require`` rather than a dynamic ``import()``.
+
+    ``-e`` source is evaluated as CommonJS, and Node 22 resolves an ES module through ``require`` as
+    well. ``json.dumps`` produces a JSON string literal, which is also a JavaScript one, so a module
+    name is safe to embed in the source the probe evaluates.
+    """
+
+    return "\n".join(f"require({json.dumps(specifier)});" for specifier in imports)
+
+
+@dataclass(frozen=True, slots=True)
+class ImportProbe:
+    """How a runtime turns a list of module names into the source its interpreter evaluates."""
+
+    #: The flag that makes the interpreter read source from the next argument.
+    flag: str
+    #: Renders every declared module into one statement per line.
+    render: Callable[[Sequence[str]], str]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeAdapter:
+    """What a runtime implies for a box, independent of the machine it runs on.
+
+    Mirrored from ``src/contract/runtimes.mjs`` and proven against
+    ``src/contract/fixtures/runtime-contract.json``. Keeping the interpreter layout here rather than
+    on :class:`TargetAdapter` is what stops every target from being a statement that a box is a
+    Python box.
+    """
+
+    id: str
+    execution_kinds: tuple[str, ...]
+    execution_environment_variables: tuple[str, ...]
+    _layouts: Mapping[str, RuntimeLayout]
+    _platform_assertions: Mapping[str, str]
+    #: How an import probe's modules become one line of source, and the flag that evaluates it.
+    #: ``None`` for a runtime with no module system to ask.
+    _import_probe: ImportProbe | None
+
+    @property
+    def self_test_probe_kinds(self) -> tuple[str, ...]:
+        """The probe shapes this runtime can answer.
+
+        Derived from whether it has an import probe at all rather than declared beside it: two
+        statements of one fact are two things that can disagree, and the fixture asserts this one.
+        Every runtime can answer a command probe — the box says how it is run, and the probe appends
+        arguments to that — so the two lists differ by exactly the one entry.
+        """
+
+        return ("imports", "commands") if self._import_probe else ("commands",)
+
+    def layout(self, platform: str) -> RuntimeLayout:
+        """Where this runtime sits inside a box built for *platform*."""
+
+        layout = self._layouts.get(platform)
+        if layout is None:
+            raise ScrollcaseConsumerError(
+                f"No {self.id} runtime layout exists for platform {platform}"
+            )
+        return layout
+
+    def executable_payload_paths(self, platform: str) -> ExecutablePayloadPaths:
+        """Payload paths this runtime requires the executable bit on."""
+
+        layout = self.layout(platform)
+        # A runtime with no interpreter of its own contributes only the directory: the file it runs
+        # is one the scroll declared, and the scroll is what says the bit belongs on it.
+        files = () if layout.entry_point is None else (layout.entry_point,)
+        return ExecutablePayloadPaths(
+            files=files, directories=(layout.scripts_directory,)
+        )
+
+    def resolve_execution_files(
+        self,
+        execution: BoxExecution,
+        platform: str,
+        runtime_version: str,
+    ) -> ResolvedExecutionFiles:
+        """Every payload path a declaration could resolve to, and the message when none does."""
+
+        if execution.kind not in self.execution_kinds:
+            raise ScrollcaseConsumerError(
+                f"Unsupported execution kind: {execution.kind}."
+            )
+        layout = self.layout(platform)
+        if isinstance(execution, (PythonScriptExecution, NodeScriptExecution)):
+            return ResolvedExecutionFiles(
+                candidates=(execution.script,),
+                missing=(
+                    f"Execution script is missing from the box: {execution.script}."
+                ),
+            )
+        if isinstance(execution, NativeBinaryExecution):
+            return ResolvedExecutionFiles(
+                candidates=(execution.binary,),
+                missing=(
+                    f"Execution binary is missing from the box: {execution.binary}."
+                ),
+            )
+        module_path = execution.module.replace(".", "/")
+        relative = (f"{module_path}.py", f"{module_path}/__main__.py")
+        bundled_library = layout.standard_library
+        if bundled_library is None:
+            raise ScrollcaseConsumerError(
+                f"The {self.id} runtime layout for {platform} names no standard library"
+            )
+        # Windows names its standard library once, with no interpreter version in the path; every
+        # other platform carries ``python<major>.<minor>`` under it.
+        standard_library = (
+            bundled_library
+            if platform == "windows"
+            else f"{bundled_library}/python{_python_major_minor(runtime_version)}"
+        )
+        roots = ("", standard_library, f"{standard_library}/site-packages")
+        return ResolvedExecutionFiles(
+            candidates=tuple(
+                f"{root}/{candidate}" if root else candidate
+                for root in roots
+                for candidate in relative
+            ),
+            missing=(
+                f"Execution module is not discoverable in the box: {execution.module}."
+            ),
+        )
+
+    def build_argv(self, execution: BoxExecution, platform: str) -> RuntimeInvocation:
+        """The shell-free command line that runs a declaration, in payload-relative terms."""
+
+        if execution.kind not in self.execution_kinds:
+            raise ScrollcaseConsumerError(
+                f"Unsupported execution kind: {execution.kind}."
+            )
+        # A binary *is* the command. Every other runtime puts its own entry point first and the
+        # declaration second; here there is nothing to put first, which is the whole of what
+        # ``native`` means.
+        if isinstance(execution, NativeBinaryExecution):
+            command = RuntimeArgument("payload-path", execution.binary)
+            args: list[RuntimeArgument] = []
+        else:
+            command = RuntimeArgument("payload-path", self._entry_point(platform))
+            if isinstance(execution, (PythonScriptExecution, NodeScriptExecution)):
+                args = [RuntimeArgument("payload-path", execution.script)]
+            else:
+                args = [
+                    RuntimeArgument("literal", "-m"),
+                    RuntimeArgument("literal", execution.module),
+                ]
+        args.extend(
+            RuntimeArgument("literal", value) for value in execution.default_args
+        )
+        return RuntimeInvocation(command=command, args=tuple(args))
+
+    def _entry_point(self, platform: str) -> str:
+        """The runtime's own executable, for the rules that cannot proceed without one."""
+
+        entry_point = self.layout(platform).entry_point
+        if entry_point is None:
+            raise ScrollcaseConsumerError(
+                f"The {self.id} runtime has no entry point of its own"
+            )
+        return entry_point
+
+    def self_test_invocations(
+        self,
+        probe: SelfTestProbe,
+        execution: BoxExecution | None,
+        platform: str,
+    ) -> tuple[SelfTestInvocation, ...]:
+        """Every command a self-test probe implies, in declaration order."""
+
+        invocations: list[SelfTestInvocation] = []
+        if probe.imports:
+            # An import probe asks a module system a question, and a runtime without one has
+            # nothing to ask. Refused rather than silently dropped, which would report a pass for a
+            # check that never ran.
+            import_probe = self._import_probe
+            if import_probe is None:
+                raise ScrollcaseConsumerError(
+                    unsupported_self_test_probe_message(self.id, "imports")
+                )
+            assertion = self._platform_assertions.get(platform)
+            if assertion is None:
+                raise ScrollcaseConsumerError(
+                    f"No {self.id} self-test assertion exists for platform {platform}"
+                )
+            body = import_probe.render(probe.imports)
+            source = (
+                f"{assertion}\n{body}\n{probe.code}"
+                if probe.code
+                else f"{assertion}\n{body}"
+            )
+            invocations.append(
+                SelfTestInvocation(
+                    command=RuntimeArgument(
+                        "payload-path", self._entry_point(platform)
+                    ),
+                    args=(
+                        RuntimeArgument("literal", import_probe.flag),
+                        RuntimeArgument("literal", source),
+                    ),
+                    expect_exit_code=0,
+                )
+            )
+        for command in probe.commands:
+            # A command probe appends arguments to the box's own declared execution. With none
+            # declared there is nothing to append them to, which is a contradiction in the
+            # declaration rather than a property of the box.
+            if execution is None:
+                raise ScrollcaseConsumerError(
+                    "A self-test command needs a declared execution to invoke"
+                )
+            invocation = self.build_argv(execution, platform)
+            invocations.append(
+                SelfTestInvocation(
+                    command=invocation.command,
+                    args=(
+                        *invocation.args,
+                        *(
+                            RuntimeArgument("literal", value)
+                            for value in command.args
+                        ),
+                    ),
+                    expect_exit_code=command.expect_exit_code,
+                )
+            )
+        return tuple(invocations)
+
+
+_POSIX_PYTHON_LAYOUT = RuntimeLayout(
+    root="venv",
+    entry_point="venv/bin/python",
+    scripts_directory="venv/bin",
+    standard_library="venv/lib",
+    executable_suffix="",
+    launcher_kind="posix-polyglot",
+)
+
+_WINDOWS_PYTHON_LAYOUT = RuntimeLayout(
+    root="venv",
+    entry_point="venv/python.exe",
+    scripts_directory="venv/Scripts",
+    standard_library="venv/Lib",
+    executable_suffix=".exe",
+    # Reads like a stale reference to a tool this project does not use. It is a frozen wire string
+    # under the published format; it must not be "cleaned".
+    launcher_kind="uv-windows-pe",
+)
+
+_POSIX_NODE_LAYOUT = RuntimeLayout(
+    root="venv",
+    entry_point="venv/bin/node",
+    scripts_directory="venv/bin",
+    standard_library="venv/lib",
+    executable_suffix="",
+    launcher_kind="posix-polyglot",
+)
+
+_WINDOWS_NODE_LAYOUT = RuntimeLayout(
+    root="venv",
+    # conda-forge installs a Windows package's own executables at the prefix root and its generated
+    # launchers under ``Scripts``, which is why node.exe sits beside python.exe rather than under it.
+    entry_point="venv/node.exe",
+    scripts_directory="venv/Scripts",
+    standard_library="venv/Lib",
+    executable_suffix=".exe",
+    launcher_kind="uv-windows-pe",
+)
+
+#: A native box has no interpreter, so its layout names none — and no standard library either,
+#: because there is no loader that would search one. The packed prefix is still there: ``native`` is
+#: not "no environment", it is "no interpreter".
+_POSIX_NATIVE_LAYOUT = RuntimeLayout(
+    root="venv",
+    entry_point=None,
+    scripts_directory="venv/bin",
+    standard_library=None,
+    executable_suffix="",
+    launcher_kind="posix-polyglot",
+)
+
+_WINDOWS_NATIVE_LAYOUT = RuntimeLayout(
+    root="venv",
+    entry_point=None,
+    scripts_directory="venv/Scripts",
+    standard_library=None,
+    executable_suffix=".exe",
+    launcher_kind="uv-windows-pe",
+)
+
+_RUNTIMES = {
+    "python": RuntimeAdapter(
+        id="python",
+        execution_kinds=("python-script", "python-module"),
+        execution_environment_variables=(
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "PYTHONSTARTUP",
+            "PYTHONBREAKPOINT",
+        ),
+        _layouts={
+            "macos": _POSIX_PYTHON_LAYOUT,
+            "linux": _POSIX_PYTHON_LAYOUT,
+            "windows": _WINDOWS_PYTHON_LAYOUT,
+        },
+        _platform_assertions={
+            "macos": "import sys; assert sys.platform == 'darwin'",
+            "linux": "import sys; assert sys.platform.startswith('linux')",
+            "windows": "import sys; assert sys.platform == 'win32'",
+        },
+        _import_probe=ImportProbe(flag="-c", render=_python_imports),
+    ),
+    "node": RuntimeAdapter(
+        id="node",
+        # One kind, deliberately. Node has no ``-m`` analogue worth inventing: a package entry point
+        # resolves to a file, and naming that file is what every other declaration in the format
+        # does.
+        execution_kinds=("node-script",),
+        execution_environment_variables=(
+            "NODE_OPTIONS",
+            "NODE_PATH",
+            "NODE_EXTRA_CA_CERTS",
+        ),
+        _layouts={
+            "macos": _POSIX_NODE_LAYOUT,
+            "linux": _POSIX_NODE_LAYOUT,
+            "windows": _WINDOWS_NODE_LAYOUT,
+        },
+        _platform_assertions={
+            "macos": (
+                "if (process.platform !== 'darwin') "
+                "throw new Error('platform mismatch: ' + process.platform)"
+            ),
+            "linux": (
+                "if (process.platform !== 'linux') "
+                "throw new Error('platform mismatch: ' + process.platform)"
+            ),
+            "windows": (
+                "if (process.platform !== 'win32') "
+                "throw new Error('platform mismatch: ' + process.platform)"
+            ),
+        },
+        _import_probe=ImportProbe(flag="-e", render=_node_imports),
+    ),
+    "native": RuntimeAdapter(
+        id="native",
+        execution_kinds=("native-binary",),
+        # Nothing of its own. A compiled binary is loaded by the operating system's dynamic linker,
+        # and the variables that steer it are the target's, which the target adapter contributes.
+        execution_environment_variables=(),
+        _layouts={
+            "macos": _POSIX_NATIVE_LAYOUT,
+            "linux": _POSIX_NATIVE_LAYOUT,
+            "windows": _WINDOWS_NATIVE_LAYOUT,
+        },
+        _platform_assertions={},
+        _import_probe=None,
+    ),
+}
+
+
+def assert_runtime_entry_point(
+    runtime_id: str, adapter: TargetAdapter, entry_point: str | None
+) -> None:
+    """Ensure a declared entry point agrees with where the runtime sits in the payload.
+
+    Three answers, because there are three cases. A runtime with an interpreter admits exactly one
+    value for a given target. A runtime without one — a native box — admits none, and a declaration
+    there is refused rather than ignored: it would name a file the box never starts, and a reader
+    would believe it. And a box that declares nothing at all is checked against nothing, because
+    ``runtime.entryPoint`` is optional on the wire for exactly this reason.
+    """
+
+    runtime = runtime_adapter(runtime_id)
+    expected = runtime.layout(adapter.platform).entry_point
+    if expected is None:
+        if entry_point is not None:
+            raise ScrollcaseConsumerError(
+                f"{runtime.id} boxes have no runtime entry point to declare; the executable a "
+                f"{runtime.id} box runs is named by its execution"
+            )
+        return
+    if entry_point is not None and entry_point != expected:
+        raise ScrollcaseConsumerError(
+            f"{adapter.platform}-{adapter.arch} boxes with the {runtime.id} runtime must use "
+            f"entry point {expected}"
+        )
+
+
+def unsupported_self_test_probe_message(runtime_id: str, probe_kind: str) -> str:
+    """The message for a self-test probe shape the runtime cannot answer.
+
+    Stated here, beside the rule, for the same reason :attr:`ResolvedExecutionFiles.missing` is: the
+    wording is part of the contract, and the builder and all three consumers should refuse an
+    impossible probe identically instead of each inventing a phrasing.
+    """
+
+    kinds = " and ".join(
+        f"selfTest.{kind}" for kind in runtime_adapter(runtime_id).self_test_probe_kinds
+    )
+    return (
+        f"The {runtime_id} runtime cannot answer a selfTest.{probe_kind} probe; "
+        f"it answers {kinds}."
+    )
+
+
+#: Every runtime id the box format admits, in the order the schema lists them.
+#:
+#: The wire enum and the implemented set are deliberately two different things: schema version 3
+#: fixed the vocabulary once, and ``node`` and ``native`` then arrived as adapters without another
+#: wire break. They hold the same three today; the lists stay separate because this package versions
+#: independently of the builder, so a release published before a runtime landed still has to refuse a
+#: box naming it by name rather than misread it.
+RUNTIME_IDS: tuple[str, ...] = ("python", "node", "native")
+
+
+def is_implemented_runtime(runtime_id: str) -> bool:
+    """Whether this build carries an adapter — the question to ask before ``runtime_adapter``."""
+
+    return runtime_id in _RUNTIMES
+
+
+def unimplemented_runtime_message(runtime_id: str) -> str:
+    """The message for a box declaring a runtime this build has no adapter for.
+
+    The wire vocabulary is fixed and the implemented set is not, so this case is expected rather
+    than exceptional, and the wording says which of the two the box fell foul of.
+    """
+
+    implemented = ", ".join(_RUNTIMES)
+    if runtime_id in RUNTIME_IDS:
+        return (
+            f"Runtime {runtime_id} is not implemented by this version of Scrollcase; "
+            f"it implements {implemented}."
+        )
+    return f"Unknown runtime: {runtime_id}. The box format defines {', '.join(RUNTIME_IDS)}."
+
+
+def runtime_adapter(runtime_id: str) -> RuntimeAdapter:
+    """Return the runtime adapter for a runtime id."""
+
+    runtime = _RUNTIMES.get(runtime_id)
+    if runtime is None:
+        raise ScrollcaseConsumerError(
+            f"No box runtime adapter exists for {runtime_id}"
+        )
+    return runtime
+
+
+def runtime_adapters() -> tuple[RuntimeAdapter, ...]:
+    """Every runtime adapter, for contract tests and callers enumerating what a box may be."""
+
+    return tuple(_RUNTIMES.values())
+
+
+def execution_affecting_variables(
+    adapter: TargetAdapter, runtime_id: str
+) -> tuple[str, ...]:
+    """The complete list of inherited variables that can change what a box executes.
+
+    Two halves, because they have two owners: the runtime contributes the variables its own loader
+    reads, and the target contributes the operating system's dynamic-linker controls. The order is
+    what a diagnostic report is printed in, so it is part of the answer.
+    """
+
+    return (
+        *runtime_adapter(runtime_id).execution_environment_variables,
+        *adapter.execution_affecting_environment_variables,
+    )
 
 
 def safe_relative_path(value: object) -> str:
@@ -215,10 +787,23 @@ def execution_from_json(value: Mapping[str, Any] | None) -> BoxExecution | None:
     if value is None:
         return None
     default_args = tuple(cast(list[str], value["defaultArgs"]))
-    if value["kind"] == "python-script":
+    kind = value["kind"]
+    if kind == "python-script":
         return PythonScriptExecution(
             kind="python-script",
             script=cast(str, value["script"]),
+            default_args=default_args,
+        )
+    if kind == "node-script":
+        return NodeScriptExecution(
+            kind="node-script",
+            script=cast(str, value["script"]),
+            default_args=default_args,
+        )
+    if kind == "native-binary":
+        return NativeBinaryExecution(
+            kind="native-binary",
+            binary=cast(str, value["binary"]),
             default_args=default_args,
         )
     return PythonModuleExecution(
@@ -228,8 +813,37 @@ def execution_from_json(value: Mapping[str, Any] | None) -> BoxExecution | None:
     )
 
 
+def runtime_from_json(value: Mapping[str, Any]) -> BoxRuntime:
+    """Convert a validated runtime block into an immutable value."""
+
+    return BoxRuntime(
+        id=cast(str, value["id"]),
+        version=cast("str | None", value.get("version")),
+        entry_point=cast("str | None", value.get("entryPoint")),
+    )
+
+
+def self_test_probe_from_json(value: Mapping[str, Any]) -> SelfTestProbe:
+    """Convert a validated signed probe into an immutable value."""
+
+    return SelfTestProbe(
+        imports=tuple(cast(list[str], value.get("imports", ()))),
+        commands=tuple(
+            SelfTestCommand(
+                args=tuple(cast(list[str], command["args"])),
+                expect_exit_code=cast(int, command["expectExitCode"]),
+            )
+            for command in cast(list[Mapping[str, Any]], value.get("commands", ()))
+        ),
+    )
+
+
 def required_assets_from_json(values: list[Mapping[str, Any]] | None) -> tuple[RequiredAsset, ...]:
-    """Convert signed on-demand descriptors into immutable values."""
+    """Convert the signed deferred descriptors into immutable values.
+
+    The list is exactly the assets the scroll declared ``embed: false``; a release whose assets are
+    all embedded carries none, and the box needs nothing fetched before it runs.
+    """
 
     if values is None:
         return ()
@@ -239,59 +853,39 @@ def required_assets_from_json(values: list[Mapping[str, Any]] | None) -> tuple[R
             relative_path=safe_relative_path(value["relativePath"]),
             size_bytes=cast(int, value["sizeBytes"]),
             sha256=cast(str, value["sha256"]),
+            executable=bool(value.get("executable", False)),
         )
         for value in values
     )
 
 
-def _python_major_minor(version: str) -> str:
-    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
-    if match is None:
-        raise ScrollcaseConsumerError(
-            f"Invalid Python version for execution discovery: {version}."
-        )
-    return f"{match.group(1)}.{match.group(2)}"
-
-
 def assert_execution_files(
     execution: BoxExecution | None,
     target: BoxTarget,
-    python_version: str,
+    runtime_id: str,
+    runtime_version: str,
     resolvable_paths: Collection[str],
 ) -> None:
     """Prove a signed script or module resolves from a payload path.
 
     A payload link resolves to a regular file inside the same payload, so the caller passes
     links alongside regular files: a box may reach its entry point through one.
+
+    Which paths a declaration could resolve to is the runtime's rule; what stays here is the
+    traversal rule every candidate goes through, applied to all of them rather than only the one a
+    scroll wrote by hand.
     """
 
     if execution is None:
         return
-    if isinstance(execution, PythonScriptExecution):
-        script = safe_relative_path(execution.script)
-        if script not in resolvable_paths:
-            raise ScrollcaseConsumerError(
-                f"Execution script is missing from the box: {script}."
-            )
-        return
-    adapter = target_adapter(target)
-    module_path = execution.module.replace(".", "/")
-    candidates = (f"{module_path}.py", f"{module_path}/__main__.py")
-    version = _python_major_minor(python_version)
-    standard_library = (
-        adapter.standard_library
-        if target.platform == "windows"
-        else f"{adapter.standard_library}/python{version}"
+    target_adapter(target)
+    resolved = runtime_adapter(runtime_id).resolve_execution_files(
+        execution, target.platform, runtime_version
     )
-    roots = ("", standard_library, f"{standard_library}/site-packages")
-    if not any(
-        (f"{root}/{candidate}" if root else candidate) in resolvable_paths
-        for root in roots
-        for candidate in candidates
-    ):
-        raise ScrollcaseConsumerError(
-            f"Execution module is not discoverable in the box: {execution.module}."
-        )
+    for candidate in resolved.candidates:
+        if safe_relative_path(candidate) in resolvable_paths:
+            return
+    raise ScrollcaseConsumerError(resolved.missing)
 
 
 @lru_cache(maxsize=1)

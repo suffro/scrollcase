@@ -1,0 +1,137 @@
+---
+title: Workspace Configuration
+description: scrollcase.config.json — where scrolls live and where builds, artefacts and keys go.
+---
+
+# Workspace Configuration
+
+Paths come from the project, not from Scrollcase. A `scrollcase.config.json` at the project root
+declares where scrolls live and where Scrollcase writes what it builds; the CLI discovers it by
+walking up from the working directory, so every command works from anywhere inside the project.
+
+A project that declares nothing gets sensible defaults — the config file exists for projects that
+already keep their scrolls elsewhere, or that adopted Scrollcase after building their own
+convention.
+
+## The file
+
+```json
+{
+  "version": 1,
+  "paths": {
+    "scrolls": "scrolls",
+    "build": ".scrollcase/build",
+    "dist": ".scrollcase/dist",
+    "keys": ".scrollcase/keys",
+    "toolchain": ".scrollcase/toolchain"
+  }
+}
+```
+
+| Key | Default | What lives there |
+| --- | --- | --- |
+| `paths.scrolls` | `scrolls` | One directory per box, then one per target; each target holds `scroll.json`, `pixi.toml`, and the committed `pixi.lock` |
+| `paths.build` | `.scrollcase/build` | Payload scratch space, wiped and regenerated on every build |
+| `paths.dist` | `.scrollcase/dist` | Built artefacts under publish-ready `boxes/` and `channels/` trees |
+| `paths.keys` | `.scrollcase/keys` | Local signing keys (`signing-private.pem`, `signing-public.json`) |
+| `paths.toolchain` | `.scrollcase/toolchain` | `pixi` and `conda-pack`, when `init` installed them for the project |
+
+Rules:
+
+- `version` is optional, but when present must be `1`.
+- Every `paths` entry is optional; an omitted entry falls back to its default.
+- Unknown `paths` keys, non-string values, and malformed JSON are hard errors — a typo fails
+  loudly rather than being silently ignored behind defaults.
+- Relative paths in the config resolve **against the project root** (the config's directory), so
+  the file is portable across machines and checkouts.
+
+Commit the config and the scrolls; never commit `.scrollcase/` (build state and artefacts are
+regenerated, and the private key must not enter history — `init` writes the ignore rules for
+you).
+
+## Discovery and precedence
+
+The project root is chosen with this precedence, highest first:
+
+1. `--project-root <dir>` — treat this directory as the root.
+2. The directory of an explicit `--config <file>`. A named config that does not exist is a hard
+   error.
+3. The nearest `scrollcase.config.json` found walking up from the working directory.
+4. The working directory itself (defaults apply).
+
+Each individual path is then resolved with its own precedence, highest first:
+
+1. **CLI flag** — `--scrolls-dir`, `--build-dir`, `--out-dir`, `--keys-dir`,
+   `--toolchain-dir`. Flag values resolve
+   against the **current working directory**, which is what a shell user expects.
+2. **Config value** — resolves against the **project root**.
+3. **Built-in default** — resolves against the project root.
+
+| Flag | Overrides |
+| --- | --- |
+| `--config <file>` | Use this workspace config explicitly |
+| `--project-root <dir>` | Treat this directory as the project root |
+| `--scrolls-dir <dir>` | `paths.scrolls` |
+| `--build-dir <dir>` | `paths.build` |
+| `--out-dir <dir>` | `paths.dist` |
+| `--keys-dir <dir>` | `paths.keys` |
+| `--toolchain-dir <dir>` | `paths.toolchain` |
+
+## Examples
+
+Run against the example scrolls shipped in the Scrollcase repository, from your own project:
+
+```sh
+scrollcase build hello-box/macos-aarch64-metal --scrolls-dir ../scrollcase/examples
+```
+
+A monorepo that keeps packaging assets under `packaging/`:
+
+```jsonc
+{
+  "version": 1,
+  "paths": {
+    "scrolls": "packaging/scrolls",
+    "build": "packaging/.build",
+    "dist": "packaging/dist",
+    "keys": "packaging/keys"
+  }
+}
+```
+
+Note that the git checkout the build records its provenance from is the **project root** — the
+box's `builderRevision` is the HEAD of the repository the workspace resolves to.
+
+## The toolchain pin {#toolchain}
+
+When [`init` installs the toolchain](/v2/reference/cli#the-toolchain-step) it adds a `toolchain`
+block recording the digest it verified:
+
+```jsonc
+{
+  "version": 1,
+  "paths": { "…": "…" },
+  "toolchain": {
+    "pixi": {
+      "version": "0.73.0",
+      "assets": {
+        "pixi-aarch64-apple-darwin.tar.gz": "63e7cc91ef10eda71765c42e951362a084b2cbcbc93fb55c375c4f3acbfd7d00"
+      }
+    },
+    "condaPack": {
+      "version": "0.9.2"
+    }
+  }
+}
+```
+
+**Commit this block.** The pixi entry records the release digest: the first install trusts the
+checksum published beside the release, and every install after it is checked against the value
+recorded here. One pixi asset entry accumulates per host, so a mixed-platform team gets one digest
+per host asset. The conda-pack entry records the exact package release the managed installer asks
+pixi to install.
+
+Scrollcase writes the block itself; you never have to author it. To change Pixi intentionally,
+edit the scroll's `pixiVersion`, install that exact release with consent, relock, rerun the licence
+audit, review the changes, and rebuild. Removing `.scrollcase/toolchain/` only removes managed
+executables; it does not erase the committed pin or make a floating resolver acceptable.

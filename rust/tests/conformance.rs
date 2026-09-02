@@ -72,7 +72,7 @@ fn named_targets() -> BTreeMap<String, Value> {
         .collect()
 }
 
-fn python_entry_point(target: &Value) -> &'static str {
+fn entry_point_for(target: &Value) -> &'static str {
     if target["platform"] == "windows" {
         "venv/python.exe"
     } else {
@@ -154,7 +154,7 @@ impl Fixture {
             Some(name) => named_targets().get(name).cloned().unwrap(),
             None => native_target(),
         };
-        let entry_point = python_entry_point(&target);
+        let entry_point = entry_point_for(&target);
 
         let execution = if spec.get("execution").and_then(Value::as_str) == Some("module") {
             json!({
@@ -167,15 +167,13 @@ impl Fixture {
         };
 
         let mut manifest = json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "boxId": "consumer-fixture",
-            "modelId": "consumer-fixture-model",
-            "runtimeId": "consumer-fixture-runtime",
             "version": "1.0.0",
             "target": target,
-            "pythonEntryPoint": entry_point,
-            "modelCacheSubdir": "model-cache/consumer-fixture",
-            "selfTest": { "pythonImports": ["json"], "timeoutSeconds": 30 },
+            "runtime": { "id": "python", "version": "3.11.9", "entryPoint": entry_point },
+            "cacheSubdir": "cache/consumer-fixture",
+            "selfTest": { "probe": { "imports": ["json"] }, "timeoutSeconds": 30 },
             "execution": execution.clone(),
             "provenance": {
                 "scrollId": "consumer-fixture",
@@ -183,7 +181,7 @@ impl Fixture {
                 "builderRevision": "b".repeat(40),
                 "sourceTreeDirty": false,
                 "sourceRevision": "c".repeat(40),
-                "pythonVersion": "3.11.9",
+                "runtimeVersion": "3.11.9",
                 "dependencyLockSha256": "d".repeat(64),
                 "builtAt": "2026-01-01T00:00:00.000Z",
                 "pixiVersion": "0.50.0"
@@ -192,11 +190,14 @@ impl Fixture {
         if let Some(environment) = spec.get("environment") {
             manifest["environment"] = environment.clone();
         }
+        if let Some(labels) = spec.get("labels") {
+            manifest["labels"] = labels.clone();
+        }
+        // The list is exactly the deferred entries; there is no second field to keep in step.
         if spec.get("requiredAsset").is_some() {
-            manifest["weights"] = json!("on-demand");
             manifest["assets"] = json!([{
-                "url": "https://assets.example.org/weights.bin",
-                "relativePath": "model-cache/consumer-fixture/weights.bin",
+                "url": "https://assets.example.org/data.bin",
+                "relativePath": "cache/consumer-fixture/data.bin",
                 "sizeBytes": ASSET_BYTES.len(),
                 "sha256": support::sha256_hex(ASSET_BYTES),
             }]);
@@ -207,6 +208,11 @@ impl Fixture {
             Entry::file("box.json", &serde_json::to_vec_pretty(&manifest).unwrap(), 0o644),
             Entry::file(entry_point, b"#!/bin/sh\nexit 0\n", 0o755),
         ];
+        // A declared-executable asset: the mode is synthesised from the scroll's declaration, and
+        // extraction has to hand it back whatever umask the process is running under.
+        if spec.get("executableAsset").is_some() {
+            entries.push(Entry::file("bin/tool", b"#!/bin/sh\nexit 0\n", 0o755));
+        }
         if execution["kind"] == "python-module" {
             entries.push(Entry::file("example/application.py", b"print('module')\n", 0o644));
         } else {
@@ -403,7 +409,7 @@ fn replace_tokens(value: &Value, root: Option<&Path>) -> Value {
         Value::String(text) => {
             let target = native_target();
             let replaced = text
-                .replace("$NATIVE_PYTHON", python_entry_point(&target))
+                .replace("$NATIVE_ENTRY_POINT", entry_point_for(&target))
                 .replace("$NATIVE_TARGET", &target_id_of(&target));
             Value::String(match root {
                 Some(root) => replaced.replace("$BOX", &root.to_string_lossy()),
@@ -463,6 +469,8 @@ fn execution_kind(execution: Option<&Execution>) -> Value {
     match execution {
         Some(Execution::PythonScript { .. }) => json!("python-script"),
         Some(Execution::PythonModule { .. }) => json!("python-module"),
+        Some(Execution::NodeScript { .. }) => json!("node-script"),
+        Some(Execution::NativeBinary { .. }) => json!("native-binary"),
         None => Value::Null,
     }
 }
@@ -491,19 +499,69 @@ fn report_value(report: &EnvironmentReport, names: &[String]) -> Value {
     })
 }
 
+/// Sets the process umask for as long as the returned guard lives, then puts back what was there.
+#[cfg(unix)]
+fn set_umask(octal: &str) -> UmaskGuard {
+    let mode = rustix::fs::Mode::from_bits_truncate(rustix::fs::RawMode::from_str_radix(octal, 8).unwrap());
+    UmaskGuard(rustix::process::umask(mode))
+}
+
+#[cfg(unix)]
+struct UmaskGuard(rustix::fs::Mode);
+
+#[cfg(unix)]
+impl Drop for UmaskGuard {
+    fn drop(&mut self) {
+        rustix::process::umask(self.0);
+    }
+}
+
+/// No umask on Windows: the platform carries no POSIX modes for one to mask. The stub keeps the
+/// call site free of `cfg` branches, and the cases that actually assert a mode are skipped there.
+#[cfg(not(unix))]
+fn set_umask(_octal: &str) {}
+
 fn receipt_value(prepared: &PreparedBox, expected: &Value, names: &[String]) -> Value {
     let mut receipt = json!({
         "status": if prepared.status() == PreparedStatus::Prepared { "prepared" } else { "attached" },
         "boxId": prepared.box_id(),
         "executionKind": execution_kind(prepared.execution()),
         "requiredAssetCount": prepared.required_assets().len(),
-        "pythonEntryPoint": prepared.python_entry_point(),
+        "runtimeId": prepared.runtime().id,
+        "entryPoint": prepared.runtime().entry_point.as_deref().unwrap_or_default(),
         "targetId": prepared.target_id(),
     });
     if expected.get("environmentReport").is_some() {
         receipt["environmentReport"] = report_value(prepared.environment_report(), names);
     }
+    if let Some(paths) = expected.get("executableModes").and_then(Value::as_object) {
+        receipt["executableModes"] = executable_modes(prepared.root(), paths.keys());
+    }
     receipt
+}
+
+/// The permission bits an extracted box actually carries, for the paths a case names.
+///
+/// Windows has no bit to read, so every path reports null there and the fixture says so rather
+/// than the driver quietly skipping the case.
+fn executable_modes<'a>(root: &Path, paths: impl Iterator<Item = &'a String>) -> Value {
+    let mut modes = serde_json::Map::new();
+    for path in paths {
+        let metadata = std::fs::metadata(root.join(path)).unwrap();
+        modes.insert(path.clone(), mode_value(&metadata));
+    }
+    Value::Object(modes)
+}
+
+#[cfg(unix)]
+fn mode_value(metadata: &std::fs::Metadata) -> Value {
+    use std::os::unix::fs::PermissionsExt as _;
+    json!(format!("{:o}", metadata.permissions().mode() & 0o777))
+}
+
+#[cfg(not(unix))]
+fn mode_value(_metadata: &std::fs::Metadata) -> Value {
+    Value::Null
 }
 
 fn materialize_asset(prepared: &PreparedBox, state: Option<&str>) {
@@ -625,8 +683,19 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
             fixture.release["archive"]["sizeBytes"] = json!(size + 1);
             fixture.sign();
         }
-        "alter-release-model" => {
-            fixture.release["modelId"] = json!("altered-model");
+        "alter-release-labels" => {
+            fixture.release["labels"] = json!({ "model": "altered-model" });
+            fixture.sign();
+        }
+        "alter-release-runtime-version" => {
+            fixture.release["runtime"]["version"] = json!("3.99.0");
+            fixture.sign();
+        }
+        // A Python box relabelled as native after it was built. Everything about the payload
+        // still says Python, so the consumer must refuse it rather than read the declaration as
+        // the truth about a box that disagrees with it.
+        "alter-release-runtime-id" => {
+            fixture.release["runtime"]["id"] = json!("native");
             fixture.sign();
         }
         "alter-release-execution" => {
@@ -635,6 +704,24 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
         }
         "alter-release-environment" => {
             fixture.release["environment"] = json!({ "SCROLLCASE_CHANGED_AFTER_BUILD": "1" });
+            fixture.sign();
+        }
+        // A licence inventory added to the signed release after the box was built. It is signed,
+        // so the signature still verifies; what refuses it is that box.json says something else,
+        // which is the whole reason the inventory is compared field by field rather than carried.
+        // A box built without a publish base URL: it was never published, so its release names no
+        // address for the archive. Every consumer must prepare it exactly as it prepares any other, because
+        // the URL was never part of the trust chain — the archive is found beside the release document and
+        // identified by its sha256.
+        "strip-release-archive-url" => {
+            fixture.release["archive"]
+                .as_object_mut()
+                .expect("archive is an object")
+                .remove("url");
+            fixture.sign();
+        }
+        "alter-release-bundled-licenses" => {
+            fixture.release["bundledLicenses"] = json!([{"name": "zlib", "version": "1.3.1", "declaredLicense": "Zlib", "linkedInto": ["box.json"]}]);
             fixture.sign();
         }
         // Not a tamper: a signed constraint in a publishing project's own vocabulary, which the
@@ -647,7 +734,7 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
         "create-destination" => std::fs::create_dir_all(destination).unwrap(),
         "remove-interpreter" | "remove-script" | "remove-module" => {
             let removed = match mutation {
-                "remove-interpreter" => fixture.release["pythonEntryPoint"]
+                "remove-interpreter" => fixture.release["runtime"]["entryPoint"]
                     .as_str()
                     .unwrap()
                     .to_string(),
@@ -670,7 +757,7 @@ fn mutate_fixture(fixture: &mut Fixture, mutation: &str, destination: &Path) {
         // shape — `venv/bin/python` is a link to the versioned binary beside it — so a consumer that
         // only accepts regular files here rejects every box the builder produces on macOS and Linux.
         "link-interpreter" => {
-            let entry_point = fixture.release["pythonEntryPoint"]
+            let entry_point = fixture.release["runtime"]["entryPoint"]
                 .as_str()
                 .unwrap()
                 .to_string();
@@ -773,7 +860,7 @@ fn mutate_extracted_root(fixture: &Fixture, mutation: &str, root: &Path) -> Path
             std::fs::write(&script, bytes).unwrap();
         }
         "remove-interpreter" => {
-            std::fs::remove_file(root.join(fixture.release["pythonEntryPoint"].as_str().unwrap()))
+            std::fs::remove_file(root.join(fixture.release["runtime"]["entryPoint"].as_str().unwrap()))
                 .unwrap();
         }
         "remove-script" => std::fs::remove_file(&script).unwrap(),
@@ -782,7 +869,7 @@ fn mutate_extracted_root(fixture: &Fixture, mutation: &str, root: &Path) -> Path
             #[cfg(unix)]
             {
                 let interpreter =
-                    root.join(fixture.release["pythonEntryPoint"].as_str().unwrap());
+                    root.join(fixture.release["runtime"]["entryPoint"].as_str().unwrap());
                 let target = std::fs::read_link(&interpreter).unwrap();
                 std::fs::remove_file(&interpreter).unwrap();
                 std::os::unix::fs::symlink(
@@ -900,6 +987,10 @@ fn run_case(case: &Value, patterns: &Map<String, Value>) -> Outcome {
             mutate_fixture(&mut fixture, name, &destination);
         }
     }
+
+    // A restrictive umask is the condition under which the three consumers used to disagree: two
+    // applied the archive's mode through open(2) and lost it, one chmod'd and kept it.
+    let _umask = runtime.get("umask").and_then(Value::as_str).map(set_umask);
 
     let state = Arc::new(Mutex::new(FakeSpawnState::default()));
     let spawner = FakeSpawner {
@@ -1191,13 +1282,18 @@ fn the_shared_consumer_conformance_suite_passes() {
     let suite: Value = serde_json::from_str(SUITE).unwrap();
     let patterns = suite["errorPatterns"].as_object().unwrap();
     let cases = suite["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 81, "the suite changed size");
+    assert_eq!(cases.len(), 86, "the suite changed size");
 
     let mut failures: Vec<String> = Vec::new();
     let mut ran = 0usize;
     for case in cases {
         let id = case["id"].as_str().unwrap();
         if case.get("requiresSymlinks").is_some() && cfg!(not(unix)) {
+            continue;
+        }
+        // Windows carries no POSIX modes at all, so a case asserting one is inapplicable there
+        // rather than weaker — the same reason a link case is skipped.
+        if case.get("requiresPosixModes").is_some() && cfg!(not(unix)) {
             continue;
         }
         ran += 1;

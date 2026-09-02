@@ -92,7 +92,6 @@ jobs:
         run: |
           node src/cli.mjs build "$BOX_ID/${{ matrix.target }}" \
             --scrolls-dir examples \
-            --weights embed \
             --private-key "$RUNNER_TEMP/demo-signing-private.pem" \
             --public-key examples/keys/example-signing-public.json
 

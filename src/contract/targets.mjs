@@ -8,13 +8,20 @@
  * `fixtures/target-id-contract.json` are what "agree" means, and are the fixtures other languages
  * validate their mirrors against.
  *
- * The adapters below describe what a target implies for the built payload: the Python layout inside
- * the box, the archive backend, how native libraries are inspected, and the environment a validation
- * run gets. They are part of the format because a consumer unpacking a box relies on that layout.
+ * The adapters below describe what a target implies for the built payload: the conda subdir it
+ * solves for, the archive backend, how native libraries are inspected, and the environment a
+ * validation run gets. They are part of the format because a consumer unpacking a box relies on
+ * them.
+ *
+ * What a target deliberately no longer describes is the *runtime* inside the box. The interpreter
+ * layout, the execution kinds and the runtime's own environment variables live in `runtimes.mjs`,
+ * because they are facts about what a box runs rather than about the machine it runs on. Keeping
+ * them here made every target adapter a statement that a box is a Python box, and made a second
+ * runtime a fork of this table rather than one more adapter beside it.
  */
 /**
  * What a target implies for the built payload. Part of the format rather than an implementation
- * detail: a consumer unpacking a box relies on this layout.
+ * detail: a consumer unpacking a box relies on this.
  *
  * @typedef {object} BoxTargetAdapter
  * @property {string} id canonical adapter id, e.g. `macos-aarch64`
@@ -22,17 +29,15 @@
  * @property {'aarch64' | 'x86_64'} arch
  * @property {{ platform: string, arch: string }} host the Node platform/arch a build must run on
  * @property {'osx-arm64' | 'linux-64' | 'win-64'} condaSubdir the scroll's pixi `platforms` value
- * @property {{ payloadRoot: string, entryPoint: string, scriptsDirectory: string,
- *   executableSuffix: string, launcherKind: string }} python layout of the interpreter in the box
  * @property {{ format: 'zip', writer: string, reader: string, assetTarReader: string,
  *   zip64: boolean }} archive the pinned archive backend
  * @property {{ command: string, argsPrefix: readonly string[],
  *   extensions: readonly string[] }} nativeLibraryInspection
  * @property {Readonly<Record<string, Readonly<Record<string, string>>>>} validationEnvironments
  *   the environment that forces a run onto one accelerator, keyed by accelerator
- * @property {readonly string[]} executionAffectingEnvironmentVariables inherited variables whose
- *   presence can change which code the box interpreter loads or executes
- * @property {string} selfTestPython the platform assertion prepended to every self-test
+ * @property {readonly string[]} executionAffectingEnvironmentVariables the operating system's own
+ *   dynamic-linker controls; the runtime adds the variables its loader reads, and
+ *   `executionAffectingVariables()` in `runtimes.mjs` is what joins the two halves
  */
 
 const TARGET_ACCELERATORS = {
@@ -41,12 +46,6 @@ const TARGET_ACCELERATORS = {
   windows: { x86_64: ['cpu', 'cuda'] },
 };
 const CUDA_VERSION = /^[1-9][0-9]*\.[0-9]+$/;
-const PYTHON_EXECUTION_ENVIRONMENT = Object.freeze([
-  'PYTHONPATH',
-  'PYTHONHOME',
-  'PYTHONSTARTUP',
-  'PYTHONBREAKPOINT',
-]);
 
 // The exact libraries that wrote and read a box, so a consumer knows what produced the bytes it
 // holds rather than inferring it. Each version is the one this package installs: they are pinned in
@@ -68,13 +67,6 @@ const TARGET_ADAPTERS = Object.freeze([
     host: Object.freeze({ platform: 'darwin', arch: 'arm64' }),
     // conda platform subdir: the `platforms` value in the scroll's pixi.toml.
     condaSubdir: 'osx-arm64',
-    python: Object.freeze({
-      payloadRoot: 'venv',
-      entryPoint: 'venv/bin/python',
-      scriptsDirectory: 'venv/bin',
-      executableSuffix: '',
-      launcherKind: 'posix-polyglot',
-    }),
     archive: ARCHIVE_BACKEND,
     nativeLibraryInspection: Object.freeze({
       command: 'otool',
@@ -85,11 +77,7 @@ const TARGET_ADAPTERS = Object.freeze([
       cpu: Object.freeze({ CUDA_VISIBLE_DEVICES: '' }),
       metal: Object.freeze({ PYTORCH_ENABLE_MPS_FALLBACK: '0' }),
     }),
-    executionAffectingEnvironmentVariables: Object.freeze([
-      ...PYTHON_EXECUTION_ENVIRONMENT,
-      'DYLD_INSERT_LIBRARIES',
-    ]),
-    selfTestPython: "import sys; assert sys.platform == 'darwin'",
+    executionAffectingEnvironmentVariables: Object.freeze(['DYLD_INSERT_LIBRARIES']),
   }),
   Object.freeze({
     id: 'linux-x86_64',
@@ -97,13 +85,6 @@ const TARGET_ADAPTERS = Object.freeze([
     arch: 'x86_64',
     host: Object.freeze({ platform: 'linux', arch: 'x64' }),
     condaSubdir: 'linux-64',
-    python: Object.freeze({
-      payloadRoot: 'venv',
-      entryPoint: 'venv/bin/python',
-      scriptsDirectory: 'venv/bin',
-      executableSuffix: '',
-      launcherKind: 'posix-polyglot',
-    }),
     archive: ARCHIVE_BACKEND,
     nativeLibraryInspection: Object.freeze({
       command: 'ldd',
@@ -114,11 +95,7 @@ const TARGET_ADAPTERS = Object.freeze([
       cpu: Object.freeze({ CUDA_VISIBLE_DEVICES: '' }),
       cuda: Object.freeze({ CUDA_VISIBLE_DEVICES: '0' }),
     }),
-    executionAffectingEnvironmentVariables: Object.freeze([
-      ...PYTHON_EXECUTION_ENVIRONMENT,
-      'LD_PRELOAD',
-    ]),
-    selfTestPython: "import sys; assert sys.platform.startswith('linux')",
+    executionAffectingEnvironmentVariables: Object.freeze(['LD_PRELOAD']),
   }),
   Object.freeze({
     id: 'windows-x86_64',
@@ -126,13 +103,6 @@ const TARGET_ADAPTERS = Object.freeze([
     arch: 'x86_64',
     host: Object.freeze({ platform: 'win32', arch: 'x64' }),
     condaSubdir: 'win-64',
-    python: Object.freeze({
-      payloadRoot: 'venv',
-      entryPoint: 'venv/python.exe',
-      scriptsDirectory: 'venv/Scripts',
-      executableSuffix: '.exe',
-      launcherKind: 'uv-windows-pe',
-    }),
     archive: ARCHIVE_BACKEND,
     nativeLibraryInspection: Object.freeze({
       command: 'dumpbin',
@@ -143,8 +113,9 @@ const TARGET_ADAPTERS = Object.freeze([
       cpu: Object.freeze({ CUDA_VISIBLE_DEVICES: '' }),
       cuda: Object.freeze({ CUDA_VISIBLE_DEVICES: '0' }),
     }),
-    executionAffectingEnvironmentVariables: PYTHON_EXECUTION_ENVIRONMENT,
-    selfTestPython: "import sys; assert sys.platform == 'win32'",
+    // Windows has no inherited loader control of its own worth reporting: `PATH` decides DLL
+    // resolution and is far too broad to name here, so the whole list is the runtime's.
+    executionAffectingEnvironmentVariables: Object.freeze([]),
   }),
 ]);
 
@@ -206,22 +177,6 @@ export function assertNativeHost(adapter, host = process) {
     throw new TypeError(
       `${adapter.id} boxes must be built natively on ${adapter.host.platform}/${adapter.host.arch}; `
       + `current host is ${host.platform}/${host.arch}`,
-    );
-  }
-}
-
-/**
- * Ensures the scroll entry point agrees with the adapter's standalone Python layout.
- *
- * @param {BoxTargetAdapter} adapter
- * @param {string} entryPoint
- * @returns {void}
- * @throws {TypeError} when the entry point does not match the adapter's layout
- */
-export function assertPythonEntryPoint(adapter, entryPoint) {
-  if (entryPoint !== adapter.python.entryPoint) {
-    throw new TypeError(
-      `${adapter.id} scrolls must use Python entry point ${adapter.python.entryPoint}`,
     );
   }
 }

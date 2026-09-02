@@ -17,6 +17,8 @@ import { mergeEnvironmentLayers } from '../environment.mjs';
  * @property {string | Uint8Array} [input]
  * @property {number} [maxBuffer]
  * @property {boolean} [capture]
+ * @property {number} [expectExitCode] the status that means success, defaulting to 0. A self-test
+ *   command may legitimately require another one, and every other caller wants the default.
  */
 
 /**
@@ -57,11 +59,13 @@ export function runResult(command, args, options = {}) {
  * @returns {string}
  */
 export function run(command, args, options = {}) {
+  const expected = options.expectExitCode ?? 0;
   const result = runResult(command, args, options);
   if (result.error) fail(`${command} failed to start: ${result.error.message}`);
-  if (result.status !== 0) {
+  if (result.status !== expected) {
     const detail = options.capture ? `\n${result.stderr || result.stdout}` : '';
-    fail(`${command} exited with status ${result.status}${detail}`);
+    const wanted = expected === 0 ? '' : ` (expected ${expected})`;
+    fail(`${command} exited with status ${result.status}${wanted}${detail}`);
   }
   return (result.stdout ?? '').trim();
 }

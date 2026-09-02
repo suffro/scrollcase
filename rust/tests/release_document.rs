@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+use scrollcase_consumer::contract::runtimes::runtime_adapter;
 use scrollcase_consumer::trust::TrustAnchors;
 use scrollcase_consumer::verify::inspect_release_document;
 
@@ -45,12 +46,16 @@ fn a_genuine_signed_release_is_accepted_and_fully_interpreted() {
         inspect_release_document(&fixture("signed-release.json"), TrustAnchors::KeyFile(&fixture("trusted-key.json")))
             .expect("the fixture release must verify");
 
-    assert_eq!(inspected.release.schema_version, 2);
+    assert_eq!(inspected.release.schema_version, 3);
     assert!(inspected.release.kind.ends_with(".release"));
     // The adapter is resolved from the signed target, and the entry point agreed with it.
     assert_eq!(
-        inspected.release.python_entry_point,
-        inspected.adapter.python.entry_point
+        inspected.release.runtime.entry_point.as_deref(),
+        runtime_adapter(&inspected.release.runtime.id)
+            .unwrap()
+            .layout(inspected.adapter.platform)
+            .unwrap()
+            .entry_point
     );
     assert_eq!(inspected.signed.signatures.len(), 1);
 }
@@ -74,7 +79,7 @@ fn nothing_survives_an_edit_to_the_signed_bytes() {
     let restated = mutated(&directory, |document| {
         use base64::engine::general_purpose::STANDARD as BASE64;
         use base64::Engine as _;
-        let payload = br#"{"schemaVersion":2,"kind":"scrollcase.box.release"}"#;
+        let payload = br#"{"schemaVersion":3,"kind":"scrollcase.box.release"}"#;
         document["payloadBase64"] = serde_json::json!(BASE64.encode(payload));
         document["payloadSha256"] = serde_json::json!(sha256_hex(payload));
     });

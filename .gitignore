@@ -156,6 +156,10 @@ vite.config.ts.timestamp-*
 # scrollcase build state
 .scrollcase/
 
+# `npm run types` stages a copy of src/ here before running tsc over it. One escaped into a commit
+# once, leaving a stale second copy of the contract in the tree.
+.scrollcase-runtime-types-*/
+
 # Python development and packaging state
 __pycache__/
 *.py[cod]

@@ -62,7 +62,7 @@ describe('CLI target selection', () => {
     expect(selected.targetId).toBe('macos-aarch64-cpu');
     expect(menu).toHaveBeenCalledWith(
       ['macos-aarch64-cpu', 'macos-aarch64-metal'],
-      { hint: null, initialIndex: 1 },
+      { hint: null, docs: null, initialIndex: 1 },
     );
   });
 
@@ -170,8 +170,9 @@ describe('CLI target selection', () => {
       'utf8',
     ));
     expect(scroll).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       boxId: 'example-box',
+      runtime: { id: 'python' },
       target: {
         platform: adapter.platform,
         arch: adapter.arch,
@@ -342,7 +343,7 @@ describe('CLI target selection', () => {
       '--python-version', '3.11.15',
       '--pixi-version', '0.73.0',
       '--min-host-app-version', '1.0.0',
-      '--asset-base-url', 'https://assets.example.org',
+      '--publish-base-url', 'https://assets.example.org',
       '--weights', 'embed',
       '--execution', 'library-only',
     ], { encoding: 'utf8' });
@@ -388,7 +389,7 @@ describe('CLI build choices', () => {
     expect(menu).toHaveBeenCalledWith(
       'channel',
       ['beta', 'stable', 'nightly'],
-      { hint: null, initialIndex: 0 },
+      { hint: null, docs: null, initialIndex: 0 },
     );
   });
 

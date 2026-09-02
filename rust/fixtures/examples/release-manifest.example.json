@@ -1,9 +1,11 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "kind": "scrollcase.box.release",
   "boxId": "example-model",
-  "modelId": "example-org-example-model",
-  "runtimeId": "example-model-runtime",
+  "labels": {
+    "model": "example-org/example-model",
+    "owner": "platform-team"
+  },
   "version": "1.0.0",
   "target": {
     "platform": "macos",
@@ -22,13 +24,19 @@
     "sizeBytes": 655752216
   },
   "installedSizeBytes": 1892340112,
-  "pythonEntryPoint": "venv/bin/python",
-  "modelCacheSubdir": "model-cache/example-model",
+  "runtime": {
+    "id": "python",
+    "version": "3.11.15",
+    "entryPoint": "venv/bin/python"
+  },
+  "cacheSubdir": "cache/example-model",
   "selfTest": {
-    "pythonImports": [
-      "torch",
-      "numpy"
-    ],
+    "probe": {
+      "imports": [
+        "torch",
+        "numpy"
+      ]
+    },
     "timeoutSeconds": 180
   },
   "provenance": {
@@ -37,7 +45,7 @@
     "builderRevision": "4c1d9b7e2a0f5836d419e7c05b3a8f61d2704e93",
     "sourceTreeDirty": false,
     "sourceRevision": "9f0d3a1c4b5e6f7081920a3b4c5d6e7f80910a2b",
-    "pythonVersion": "3.11.15",
+    "runtimeVersion": "3.11.15",
     "pixiVersion": "0.73.0",
     "dependencyLockSha256": "3b1f8c47a2d9e05b6c7418af23d5e69017b4c8ad91e2f350768bd4ca19e0f5b7",
     "builtAt": "2026-07-25T12:00:00+00:00"

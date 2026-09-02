@@ -33,7 +33,8 @@ import {
   installTypeScriptConsumerDependencies,
   SCROLLCASE_NPM_VERSION,
 } from './build/consumer-setup.mjs';
-import { addDependency, readRequirements } from './build/dependencies.mjs';
+import { addDependency } from './build/dependencies.mjs';
+import { readRequirements } from './runtimes/python/dependencies.mjs';
 import { findPixi, pixiLockArguments } from './build/pixi.mjs';
 import { fail, run } from './build/process.mjs';
 import { diagnose, ensureToolchain, initProject } from './build/project.mjs';
@@ -42,12 +43,14 @@ import {
   ALL_TARGETS,
   addAsset,
   addFile,
+  addSelfTestCommand,
   addSelfTestImport,
   editableScrollFields,
   readScrollFamily,
   refreshScroll,
   removeEnvironmentVariable,
   removeScrollEntry,
+  removeSelfTestCommand,
   removeSelfTestImport,
   setEnvironmentVariable,
   setScrollField,
@@ -68,7 +71,9 @@ import {
   resolvePythonConsumerSource,
   resolveTemplatesChoice,
   runInitDependencySetup,
+  toolchainReportLines,
 } from './cli-init.mjs';
+import { DOCS_BASE_URL, questionDocs } from './cli-docs.mjs';
 import { chooseCliValue, chooseCliValues } from './cli-menu.mjs';
 import {
   buildDistributionSummary,
@@ -151,11 +156,11 @@ async function lock(name, flags) {
  * explanation: consent questions are laid out the same way as the rest, so a person reading a
  * session sees one shape throughout.
  */
-async function confirm(question, hint = null) {
+async function confirm(question, hint = null, docs = null) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    process.stdout.write(promptHeading(question, { hint }));
+    process.stdout.write(promptHeading(question, { hint, docs }));
     return defaultYesConfirmation(await readline.question(`${promptMarker()}[Y/n] `));
   } finally {
     readline.close();
@@ -186,8 +191,7 @@ async function init(flags) {
     'accelerator',
     'cuda-version',
     'box-id',
-    'model-id',
-    'runtime-id',
+    'labels',
   ].filter((name) => flags.has(name));
   if (authoringFlags.length > 0) {
     fail(`init accepts only the fixed example; pass ${authoringFlags.map((name) => `--${name}`).join(', ')} to scrollcase new scroll.`);
@@ -200,6 +204,7 @@ async function init(flags) {
     confirmExample: () => confirm(
       'Include the runnable example?',
       'A disposable example-box scroll for trying the whole workflow once.',
+      questionDocs('example'),
     ),
   });
   const wantsTemplates = await resolveTemplatesChoice({
@@ -208,6 +213,7 @@ async function init(flags) {
     confirmTemplates: () => confirm(
       'Include the consumer templates?',
       'Working Node, Python and Rust starting points for the application that runs your boxes.',
+      questionDocs('consumerTemplates'),
     ),
   });
   const exampleTarget = wantsExample ? nativeExampleTarget() : null;
@@ -265,6 +271,7 @@ async function init(flags) {
         {
           hint: `What consumer-templates/ needs to run, installed in ${workspace.root}. `
             + 'Selecting none is a valid answer.',
+          docs: questionDocs('consumerDependencies'),
         },
       );
       return offered.filter((language) => chosen.includes(labels[language]));
@@ -273,6 +280,7 @@ async function init(flags) {
       const selectedSource = await chooseCliValue(
         'Python consumer package source',
         ['PyPI with pip', 'conda-forge with conda'],
+        { docs: questionDocs('pythonConsumerSource') },
       );
       const source = selectedSource.startsWith('PyPI') ? 'pypi' : 'conda-forge';
       return resolvePythonConsumerSource({
@@ -281,18 +289,23 @@ async function init(flags) {
         confirmPyPIFallback: () => confirm(
           'Install scrollcase-consumer from PyPI with pip instead?',
           'Conda is not installed, so the conda-forge package cannot be installed here.',
+          questionDocs('pythonConsumerSource'),
         ),
       });
     },
     installToolchain: () => ensureToolchain({
       workspace,
       pixiVersion,
+      // Only when a person is watching and has not said to leave the toolchain alone. The lookup is
+      // one request to a rate-limited public API, and nothing depends on its answer.
+      checkLatest: interactive && !never,
       confirm: async (missing) => {
         if (never) return false;
         if (always) return true;
         return confirm(
           `Install ${missing.join(' and ')} into ${workspace.toolchainDir}?`,
           `This project needs ${missing.length > 1 ? 'them' : 'it'} to build a box.`,
+          questionDocs('toolchain'),
         );
       },
     }),
@@ -305,15 +318,9 @@ async function init(flags) {
   });
   const { toolchain } = setup;
 
-  if (toolchain.installed.length > 0) {
-    success(`Installed ${toolchain.installed.join(' and ')} into ${workspace.toolchainDir}`);
-    info('Nothing was added to PATH; scrollcase finds them there on its own.');
-    if (toolchain.configPath) success(`Recorded the toolchain pins in ${toolchain.configPath}`);
-  } else if (toolchain.unsupportedHost) {
-    warning(`pixi publishes no build for ${toolchain.unsupportedHost}; install ${toolchain.missing.join(' and ')} manually.`);
-  } else if (toolchain.missing.length > 0) {
-    warning(`Skipped installing ${toolchain.missing.join(' and ')}.`);
-    info('Install them yourself, or re-run with --install-toolchain. `scrollcase doctor` reports what is missing.');
+  const report = { success, info, warning };
+  for (const [level, message] of toolchainReportLines(toolchain, { toolchainDir: workspace.toolchainDir })) {
+    report[level](message);
   }
 
   if (setup.typescript) {
@@ -369,19 +376,50 @@ const reportWritten = (written) => {
 };
 
 /** `add asset|file|dep` — record something in a scroll, or in a box's pixi manifests. */
-async function add(kind, positional, flags) {
+async function add(kind, positional, flags, passthrough = []) {
   const [name, value] = positional;
+  if (kind === 'command') return addCommand(name, passthrough, flags);
   if (kind === 'dep') return addDep(name, value, flags);
   if (kind === 'env' || kind === 'import') return addDeclaration(kind, name, value, flags);
-  if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--target <targetId>|all]`);
+  if (!value) fail(`Usage: scrollcase add ${kind} <box> <${kind === 'asset' ? 'url' : 'path'}> [--to <payload path>] [--on-demand] [--executable] [--target <targetId>|all]`);
   const { boxId, target } = await editScope(name, flags);
   const to = text(flags, 'to');
+  const executable = Boolean(flags.get('executable'));
   const result = kind === 'asset'
-    ? await addAsset({ boxId, target, url: value, to, log: (message) => step(message) })
-    : await addFile({ boxId, target, sourcePath: value, to });
+    ? await addAsset({
+      boxId,
+      target,
+      url: value,
+      to,
+      embed: !flags.get('on-demand'),
+      executable,
+      log: (message) => step(message),
+    })
+    : await addFile({ boxId, target, sourcePath: value, to, executable, pin: Boolean(flags.get('pin')) });
   success(`Added ${result.entry.relativePath} to ${boxId}${target === ALL_TARGETS ? '' : `/${target}`}`);
-  if (kind === 'asset') info(`${result.entry.sizeBytes} bytes, sha256 ${result.entry.sha256}`);
+  if (result.entry.sha256) info(`sha256 ${result.entry.sha256}${kind === 'asset' ? '' : ' (pinned)'}`);
+  if (kind === 'asset') info(`${result.entry.sizeBytes} bytes`);
   reportWritten(result.written);
+}
+
+/**
+ * `add command <box> -- <args>` — one invocation of the box's own execution, as a self-test probe.
+ *
+ * The arguments come after `--` rather than as a quoted list, because they *are* a command line and
+ * the parser already preserves everything after that boundary byte for byte. It is also the only
+ * shape that survives flags of its own: `-version` would otherwise be read as Scrollcase's.
+ */
+async function addCommand(name, args, flags) {
+  if (args.length === 0) {
+    fail('Usage: scrollcase add command <box> [--expect-exit-code <n>] -- <arguments>');
+  }
+  const requested = text(flags, 'expect-exit-code');
+  const expectExitCode = requested === null ? 0 : Number(requested);
+  const { boxId, target } = await editScope(name, flags);
+  const result = await addSelfTestCommand({ boxId, target, args, expectExitCode });
+  const status = expectExitCode === 0 ? '' : `, expecting exit ${expectExitCode}`;
+  success(`Added the self-test command \`${result.probe.args.join(' ')}\`${status}`);
+  return reportWritten(result.written);
 }
 
 /** `add env NAME=VALUE` and `add import <module>` — the two declarations that are not a file. */
@@ -449,8 +487,18 @@ async function addDep(name, dependency, flags) {
 }
 
 /** `remove asset|file` — the inverse of `add`, so leaving is as easy as arriving. */
-async function remove(kind, positional, flags) {
-  const [name, value] = positional;
+async function remove(kind, positional, flags, passthrough = []) {
+  const [name] = positional;
+  if (kind === 'command') {
+    if (passthrough.length === 0) {
+      fail('Usage: scrollcase remove command <box> -- <arguments> [--target <targetId>|all]');
+    }
+    const { boxId, target } = await editScope(name, flags);
+    const result = await removeSelfTestCommand({ boxId, target, args: passthrough });
+    success(`Removed the self-test command \`${result.args.join(' ')}\` from ${boxId}`);
+    return reportWritten(result.written);
+  }
+  const [, value] = positional;
   if (!value) {
     const argument = { env: 'NAME', import: 'module' }[kind] ?? 'payload path';
     fail(`Usage: scrollcase remove ${kind} <box> <${argument}> [--target <targetId>|all]`);
@@ -556,19 +604,18 @@ async function build(name, flags) {
   const channel = await chooseCliValue(
     'channel',
     ['beta', ...CHANNELS.filter((value) => value !== 'beta')],
-    { flag: text(flags, 'channel') },
+    { flag: text(flags, 'channel'), docs: questionDocs('channel') },
   );
-  // The weights mode is not asked. The scroll declares it, and a menu preselected on `embed` in
-  // front of every build was an override waiting to happen: pressing Enter silently repacked a box
-  // whose scroll said `on-demand`. `--weights` still overrides deliberately.
-  const weights = text(flags, 'weights');
-  step(`Building ${reference} (${channel}${weights ? `, ${weights}` : ''})`);
+  // Whether an asset ships inside the archive is a per-entry scroll declaration with no build-time
+  // override. There was one, and a menu preselected on `embed` in front of every build turned out to
+  // be an override waiting to happen: pressing Enter silently repacked a box whose scroll had said
+  // otherwise, under an identity that no longer described it.
+  step(`Building ${reference} (${channel})`);
   const built = await buildBox(reference, {
     ...signing,
     allowDirty: Boolean(flags.get('allow-dirty')),
     channel,
-    weights,
-    assetBaseUrl: text(flags, 'asset-base-url'),
+    publishBaseUrl: text(flags, 'publish-base-url'),
     namespace: text(flags, 'namespace') || undefined,
     pixiPath: text(flags, 'pixi'),
     condaPackPath: text(flags, 'conda-pack'),
@@ -645,7 +692,7 @@ function usage() {
 Commands:
   init                       Initialize a workspace with a runnable example
   new scroll                 Create one guided target-specific scroll
-  add asset|file|dep|env|import <box> <value>
+  add asset|file|dep|env|import|command <box> <value>
                              Record a remote file with the size and hash it has, a file from
                              this project, a dependency in the box's pixi manifests, an
                              environment variable (NAME=VALUE), or a self-test import
@@ -677,29 +724,35 @@ Init options:
                              offers a PyPI fallback.
 
 New scroll options:
-                             Interactively it asks four things — target, box id, upstream
-                             revision, and where boxes will be published — plus the execution
-                             kind, and derives the rest. Every derived value below is a flag.
+                             Interactively it asks five things — target, runtime, box id,
+                             upstream revision, and where boxes will be published — plus the
+                             execution kind, and derives the rest. Every derived value below is
+                             a flag.
   --target <targetId>        Complete target, including the CUDA ABI when applicable
+  --runtime <id>             python, node or native (default python)
   --box-id <id>              Box identity
   --source-revision <rev>    Upstream source revision recorded in provenance
-  --asset-base-url <url>     Base URL used in built release documents
-  --model-id <id>            Identity of what the box packages (default: the box id)
-  --runtime-id <id>          Runtime identity (default: <box-id>-runtime)
+  --publish-base-url <url>   Where built boxes will be published, so the signed documents can
+                             point at each other. Omit it for a box you only run locally
+  --labels <json>            JSON object of free-form annotations carried into the signed
+                             release. Scrollcase reads none of them.
   --version <version>        Box version (default 1.0.0)
   --scroll-version <version> Scroll authoring version (default 1.0.0)
-  --python-version <version> Python dependency version, or latest
+  --runtime-version <version> Interpreter version solved into the box, or latest. Refused for
+                             native, which installs no interpreter
   --pixi-version <version>   pixi resolver version (default: the installed pixi)
   --min-host-app-version <v> Minimum compatible host application version
-  --weights <mode>           embed (default) or on-demand; only matters once the box declares
-                             assets, so it is a flag rather than a question
-  --execution <kind>         python-script, python-module, or library-only
-  --script <path>            Existing project script for python-script
-  --generate-script          Generate a minimal project script instead
-  --script-destination <path> Payload path for the script (default entrypoint.py)
+  --execution <kind>         The runtime's own kinds, plus library-only where the box can still
+                             prove something without an entry point
+  --from-environment <path>  Payload path to an entry point a package already installs into the
+                             box, such as venv/bin/ffmpeg. Nothing of the project is copied in
+  --script <path>            Existing project file the box runs, copied into the box
+  --generate-script          Generate a minimal starter instead, where the runtime has one
+  --script-destination <path> Payload path for that file (default: the runtime's own name)
   --generated-script-path <path> Project path for a generated starter
   --module <name>            Dotted module name for python-module
-  --default-args <json>      JSON array of default application arguments
+  --default-args <arg|json>  Arguments the box always passes to its entry point. One argument as
+                             itself, several as a JSON array: --default-args '["-a", "-b"]'
   --max-host-app-version-exclusive <v>
   --min-macos-version <v>
   --min-ram-gb <number>
@@ -712,7 +765,16 @@ Add, remove and edit options:
                              is no base. Without it, a box with one target uses that one and a
                              box with several asks; without a terminal it stops instead.
   --to <payload path>        Where the file lands inside the box. Defaults to the URL's last
-                             segment under the model cache, or the file's own name at the root.
+                             segment under the box's cache directory, or the file's own name at
+                             the root.
+  --on-demand                For add asset: leave this file out of the archive and carry its
+                             descriptor in the signed release for the caller to materialize.
+  --expect-exit-code <n>     For add command: the status the probe must exit with (default 0)
+  --pin                      For add file: record the file's SHA-256, so a changed byte fails the
+                             build. For reference data the box answers from, not for a file you are
+                             about to edit
+  --executable               Mark the added file as one that needs the executable bit. A
+                             download and a copy both arrive without one.
   --version <spec>           Version constraint for add dep (default *, letting the lock pin it)
   --from-requirements <file> Read dependencies from a pip requirements.txt instead
   --field <name>             Field for edit scroll; without it, a menu built from the schema
@@ -742,10 +804,8 @@ Build options:
   --target <targetId>        Select a target when <scroll> names a box
   --channel <name>           Channel the signed pointer names (nightly, beta, or stable;
                              default beta)
-  --weights <mode>           embed (assets packed in, works air-gapped) or on-demand
-                             (caller-materialized; verified before execution). Overrides the
-                             scroll for this build; without it the scroll's own mode is used.
-  --asset-base-url <url>     Override the scroll's published base URL
+  --publish-base-url <url>   Override the scroll's publishBaseUrl. Without either, the release
+                             and channel carry no links and the box is local-only
   --namespace <ns>           Document kind namespace (default scrollcase.box)
   --allow-dirty              Permit a build from an uncommitted source tree
   --pixi <path>              Use this pixi executable
@@ -794,6 +854,10 @@ Workspace:
   --out-dir <dir>            Built artefacts (default .scrollcase/dist)
   --keys-dir <dir>           Local signing keys (default .scrollcase/keys)
   --toolchain-dir <dir>      Project-local pixi/conda-pack (default .scrollcase/toolchain)
+
+Documentation:
+  ${DOCS_BASE_URL}
+  Every interactive question also prints the section that explains it in full.
 `);
 }
 
@@ -816,17 +880,17 @@ async function main() {
   }
   if (command === 'add') {
     const [kind, ...rest2] = positional;
-    if (!['asset', 'file', 'dep', 'env', 'import'].includes(kind)) {
-      fail('Usage: scrollcase add asset|file|dep|env|import <box> <value> [options]');
+    if (!['asset', 'file', 'dep', 'env', 'import', 'command'].includes(kind)) {
+      fail('Usage: scrollcase add asset|file|dep|env|import|command <box> <value> [options]');
     }
-    return add(kind, rest2, flags);
+    return add(kind, rest2, flags, passthrough);
   }
   if (command === 'remove') {
     const [kind, ...rest2] = positional;
-    if (!['asset', 'file', 'env', 'import'].includes(kind)) {
-      fail('Usage: scrollcase remove asset|file|env|import <box> <value> [options]');
+    if (!['asset', 'file', 'env', 'import', 'command'].includes(kind)) {
+      fail('Usage: scrollcase remove asset|file|env|import|command <box> <value> [options]');
     }
-    return remove(kind, rest2, flags);
+    return remove(kind, rest2, flags, passthrough);
   }
   if (command === 'edit') return editScroll(positional, flags);
   if (command === 'refresh') return refresh(positional[0], flags);

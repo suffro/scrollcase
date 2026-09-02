@@ -17,6 +17,10 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import {
+  runtimeAdapter,
+  unsupportedSelfTestProbeMessage,
+} from '../contract/runtimes.mjs';
 import { compareStableStrings, fileExists, safeRelativePath, sha256File } from './filesystem.mjs';
 import { fail } from './process.mjs';
 import { readScroll, scrollDirectory } from './scroll.mjs';
@@ -175,11 +179,11 @@ function withoutSelfTestFile(selfTest, relativePath) {
 /**
  * The payload path an asset URL lands at when the caller does not name one.
  *
- * The last segment of the URL path, under the box's model cache. A URL that ends in a slash, or
+ * The last segment of the URL path, under the box's cache directory. A URL that ends in a slash, or
  * whose last segment is not a filename, gets no default: guessing a name for a file whose hash is
  * about to be pinned would be the wrong kind of helpful.
  */
-function defaultAssetPath(url, modelCacheSubdir) {
+function defaultAssetPath(url, cacheSubdir) {
   let name;
   try {
     name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? '');
@@ -189,7 +193,7 @@ function defaultAssetPath(url, modelCacheSubdir) {
   if (!name || name === '.' || name === '..') {
     fail(`Cannot tell what to call ${url} in the box; pass --to <path>.`);
   }
-  return `${modelCacheSubdir}/${name}`;
+  return `${cacheSubdir}/${name}`;
 }
 
 /**
@@ -222,22 +226,40 @@ async function measureAsset(url, { fetchImpl = fetch, log = () => {} } = {}) {
 /**
  * `add asset` — records a remote file in the scroll, with the size and hash it actually has.
  *
- * @param {{ boxId: string, target: string, url: string, to?: string | null,
- *   fetchImpl?: typeof fetch, log?: (message: string) => void }} options
+ * @param {{ boxId: string, target: string, url: string, to?: string | null, embed?: boolean,
+ *   executable?: boolean, fetchImpl?: typeof fetch, log?: (message: string) => void }} options
  */
-export async function addAsset({ boxId, target, url, to = null, fetchImpl = fetch, log = () => {} }) {
+export async function addAsset({
+  boxId,
+  target,
+  url,
+  to = null,
+  embed = true,
+  executable = false,
+  fetchImpl = fetch,
+  log = () => {},
+}) {
   let relativePath;
   if (to) {
     relativePath = safeRelativePath(to);
   } else {
-    const modelCacheSubdir = await agreedValue(boxId, 'modelCacheSubdir');
-    if (!modelCacheSubdir) {
-      fail(`${boxId}'s targets use different model cache directories; pass --to <path>.`);
+    const cacheSubdir = await agreedValue(boxId, 'cacheSubdir');
+    if (!cacheSubdir) {
+      fail(`${boxId}'s targets use different cache directories; pass --to <path>.`);
     }
-    relativePath = safeRelativePath(defaultAssetPath(url, modelCacheSubdir));
+    relativePath = safeRelativePath(defaultAssetPath(url, cacheSubdir));
   }
   const { sizeBytes, sha256 } = await measureAsset(url, { fetchImpl, log });
-  const entry = { url, relativePath, sizeBytes, sha256 };
+  // Both flags are written only when they differ from the schema's default, so an ordinary asset
+  // still reads as four lines rather than six.
+  const entry = {
+    url,
+    relativePath,
+    sizeBytes,
+    sha256,
+    ...(embed ? {} : { embed: false }),
+    ...(executable ? { executable: true } : {}),
+  };
   const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
     ...scroll,
     assets: [...(scroll.assets ?? []), entry],
@@ -253,9 +275,10 @@ export async function addAsset({ boxId, target, url, to = null, fetchImpl = fetc
  * added is usually one being worked on, and a pin there fails the next build over an edit the
  * author meant to make.
  *
- * @param {{ boxId: string, target: string, sourcePath: string, to?: string | null }} options
+ * @param {{ boxId: string, target: string, sourcePath: string, to?: string | null,
+ *   executable?: boolean }} options
  */
-export async function addFile({ boxId, target, sourcePath, to = null }) {
+export async function addFile({ boxId, target, sourcePath, to = null, executable = false, pin = false }) {
   const source = safeRelativePath(sourcePath);
   const absolute = join(getWorkspace().root, ...source.split('/'));
   let details;
@@ -268,7 +291,18 @@ export async function addFile({ boxId, target, sourcePath, to = null }) {
     fail(`A box file must be a regular file: ${source}`);
   }
   const relativePath = safeRelativePath(to ?? basename(source));
-  const entry = { sourcePath: source, relativePath };
+  // The source file's own mode is deliberately not read: it varies with the umask of whoever
+  // checked the project out, and a build that copied it would not rebuild byte-identically.
+  // Pinning is opt-in because most added files are about to be edited, and a hash recorded now would
+  // fail the next build. Reference data is the other case: a file the box answers from, where a
+  // changed byte should stop the build rather than ship a different answer under the same signature.
+  const sha256 = pin ? await sha256File(absolute) : null;
+  const entry = {
+    sourcePath: source,
+    relativePath,
+    ...(executable ? { executable: true } : {}),
+    ...(sha256 ? { sha256 } : {}),
+  };
   const { written } = await updateScrollFiles(boxId, target, (scroll) => ({
     ...scroll,
     localFiles: [...(scroll.localFiles ?? []), entry],
@@ -351,6 +385,34 @@ export async function removeEnvironmentVariable({ boxId, target, name }) {
 }
 
 /**
+ * What an importable name looks like, per runtime.
+ *
+ * A dotted identifier is a Python fact, not a format one: `node:path` and `@scope/pkg` are perfectly
+ * good Node specifiers and the Python pattern refuses both. The list here is narrow on purpose —
+ * enough to catch a shell fragment or a quoted string that would end up inside generated source, and
+ * no more, because deciding what resolves is the runtime's job at self-test time and not this
+ * command's.
+ */
+const IMPORT_SPECIFIERS = Object.freeze({
+  python: /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/,
+  node: /^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z_][A-Za-z0-9._-]*(?::[A-Za-z0-9._/-]+|\/[A-Za-z0-9._/-]+)?$/,
+});
+
+/** Refuses a specifier this box's runtime could not be asked about, or could never resolve. */
+async function assertImportSpecifier(boxId, module) {
+  const scrolls = await readEffectiveScrolls(boxId);
+  for (const scroll of scrolls) {
+    const runtime = runtimeAdapter(scroll.runtime.id);
+    if (!runtime.selfTestProbeKinds.includes('imports')) {
+      fail(unsupportedSelfTestProbeMessage(runtime.id, 'imports'));
+    }
+    if (!IMPORT_SPECIFIERS[runtime.id].test(String(module))) {
+      fail(`Not an importable ${runtime.id} module name: ${module}`);
+    }
+  }
+}
+
+/**
  * `add import` — adds a module to the list the box must be able to import.
  *
  * These names are signed into the release and repeated by `verify --self-test`, so they are the one
@@ -360,9 +422,7 @@ export async function removeEnvironmentVariable({ boxId, target, name }) {
  * @param {{ boxId: string, target: string, module: string }} options
  */
 export async function addSelfTestImport({ boxId, target, module }) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(String(module))) {
-    fail(`Not an importable module name: ${module}`);
-  }
+  await assertImportSpecifier(boxId, module);
   let added = 0;
   const { written } = await updateScrollFiles(boxId, target, (scroll) => {
     const imports = scroll.selfTest?.imports ?? [];
@@ -401,17 +461,76 @@ export async function removeSelfTestImport({ boxId, target, module }) {
 }
 
 /**
+ * `add command` — records one invocation of the box's own execution as a self-test probe.
+ *
+ * The counterpart of `add import` for a runtime with no module system. A `native` box can only
+ * prove itself by running what it declares, so without this its probes could not be authored at
+ * all — the scroll had to be edited by hand, which is exactly what every other declaration here
+ * exists to avoid.
+ *
+ * Argument lists are compared as lists, so the same flags in a different order are a different
+ * probe. `new scroll` writes an empty one as a placeholder; adding a real probe replaces it, since
+ * "run it with no arguments" stops being a claim anyone made once a real one exists.
+ *
+ * @param {{ boxId: string, target: string, args: string[], expectExitCode?: number }} options
+ */
+export async function addSelfTestCommand({ boxId, target, args, expectExitCode = 0 }) {
+  if (!Array.isArray(args) || args.some((value) => typeof value !== 'string')) {
+    fail('A self-test command is a list of arguments.');
+  }
+  if (!Number.isInteger(expectExitCode) || expectExitCode < 0 || expectExitCode > 255) {
+    fail('--expect-exit-code must be a whole number between 0 and 255.');
+  }
+  const probe = { args: [...args], ...(expectExitCode === 0 ? {} : { expectExitCode }) };
+  const same = (candidate) =>
+    JSON.stringify(candidate.args ?? []) === JSON.stringify(probe.args)
+    && (candidate.expectExitCode ?? 0) === expectExitCode;
+  let added = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const commands = scroll.selfTest?.commands ?? [];
+    if (commands.some(same)) return null;
+    added += 1;
+    // The placeholder `new scroll` leaves behind: an empty argument list, asserting only that the
+    // box starts. A real probe supersedes it rather than sitting beside it.
+    const kept = commands.filter((candidate) => (candidate.args ?? []).length > 0);
+    return { ...scroll, selfTest: { ...scroll.selfTest, commands: [...kept, probe] } };
+  });
+  if (added === 0) fail(`${boxId} already runs that self-test command.`);
+  return { written, probe };
+}
+
+/**
+ * `remove command` — drops one self-test probe, matched on its exact argument list.
+ *
+ * @param {{ boxId: string, target: string, args: string[] }} options
+ */
+export async function removeSelfTestCommand({ boxId, target, args }) {
+  const wanted = JSON.stringify(args);
+  let removed = 0;
+  const { written } = await updateScrollFiles(boxId, target, (scroll) => {
+    const commands = scroll.selfTest?.commands ?? [];
+    const kept = commands.filter((candidate) => JSON.stringify(candidate.args ?? []) !== wanted);
+    if (kept.length === commands.length) return null;
+    removed += 1;
+    return { ...scroll, selfTest: { ...scroll.selfTest, commands: kept } };
+  });
+  if (removed === 0) fail(`${boxId} does not run that self-test command.`);
+  return { written, args };
+}
+
+/**
  * Fields `edit scroll` refuses, and why each one is not an edit.
  *
  * Three kinds. Structural values a project does not choose (`$schema`, `schemaVersion`, `extends`).
  * Values the layout or the target fixes, where a text prompt would only let someone contradict a
- * check they cannot win — `boxId` and `target` name the directories, and `pythonEntryPoint` has one
- * legal value per target. And the collections, which have their own commands or their own file:
- * editing a list through a single value prompt is how a list gets destroyed.
+ * check they cannot win — `boxId` and `target` name the directories, and `runtime` holds an id that
+ * decides the whole payload layout and an entry point with one legal value per target. And the
+ * collections, which have their own commands or their own file: editing a list through a single
+ * value prompt is how a list gets destroyed.
  */
 const UNEDITABLE_FIELDS = Object.freeze(new Set([
-  '$schema', 'schemaVersion', 'extends', 'boxId', 'target', 'pythonEntryPoint',
-  'compatibility', 'environment', 'assets', 'assetArchives', 'localFiles',
+  '$schema', 'schemaVersion', 'extends', 'boxId', 'target', 'runtime',
+  'labels', 'compatibility', 'environment', 'assets', 'assetArchives', 'localFiles',
   'prunePaths', 'uncompressedPaths', 'selfTest', 'execution', 'parity',
 ]));
 

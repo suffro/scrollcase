@@ -7,9 +7,9 @@ comes from, what it may reasonably be used for, and where its documented limitat
 
 | File | Origin |
 | --- | --- |
-| `model-cache/distilbert-sst2/model_int8.onnx` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
-| `model-cache/distilbert-sst2/tokenizer.json` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
-| `model-cache/distilbert-sst2/config.json` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
+| `cache/distilbert-sst2/model_int8.onnx` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
+| `cache/distilbert-sst2/tokenizer.json` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
+| `cache/distilbert-sst2/config.json` | ONNX INT8 conversion, revision `fd49941c1b822846cb14970cdf430a7cfbe0f5b9` |
 
 Every file is fetched from an immutable, commit-pinned URL and hashed in the scroll. The box
 performs no download at run time.

@@ -8,13 +8,14 @@ description: Understand when Scrollcase is useful, compare it and see how it dif
 Scrollcase is not a replacement for every Python packaging or deployment tool.
 
 ::: info Scrollcase is designed for a specific problem:
-A project needs to deliver a complete, target-specific Python environment as a verifiable product artifact that can run on another machine without asking the end user to assemble that environment.
+A project needs to deliver a complete, target-specific environment as a verifiable product artifact that can run on another machine without asking the end user to assemble that environment.
 :::
 
 That means carrying more than application code. A box may include:
 
-- a specific Python interpreter;
-- Conda and PyPI dependencies;
+- a specific interpreter — Python or Node — or no interpreter at all, for a box that starts a
+  compiled binary;
+- conda-forge dependencies;
 - native libraries;
 - model code and supporting files;
 - embedded or separately delivered model weights;
