@@ -91,6 +91,14 @@ const sidebar = [
             { text: 'Local LLM', link: '/demos/llm-box-demo' },
             { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
           ]},
+          // Grouped by runtime rather than by subject, because that is the axis these three differ
+          // on: everything above them is a `python` box, and what they demonstrate is that a box
+          // can start something else, or start no interpreter at all.
+          { text: 'Other runtimes', items: [
+            { text: 'Genetic code (node)', link: '/demos/codon-demo' },
+            { text: 'Transcode (native)', link: '/demos/transcode-demo' },
+            { text: 'Dataset (native)', link: '/demos/dataset-demo' }
+          ]},
         ]
       }
     ]

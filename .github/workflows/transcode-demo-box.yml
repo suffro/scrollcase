@@ -1,0 +1,212 @@
+# Builds, signs and publishes the public transcode demo box.
+#
+# It exists so a newcomer can see what a `native` box is for without installing a toolchain: no
+# interpreter inside it at all, a large compiled program and the long tail of codec libraries it
+# links against, pinned and signed together.
+#
+# Manual only. This publishes public artefacts, and it is worth running whenever the example itself
+# changes. Nothing here runs on a push.
+#
+# Two targets, not three. The demo page sends a reader into a Linux Codespace, so a Linux box is the
+# one that has to exist; macOS is the other machine a maintainer is likely to be holding. Windows
+# would need its own scroll, and adding one is deliberate work rather than a matrix entry.
+#
+# On signing: CI builds because a Linux box cannot be built on a maintainer's Mac at all —
+# conda-pack packs the host's own environment — so it signs too, with a key that exists for this one
+# purpose. That key signs nothing but example boxes and no trust chain depends on it.
+name: transcode demo box
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish the transcode demo box under'
+        default: 'transcode-demo-v1'
+        required: true
+      draft:
+        description: 'Hold the release as a draft instead of publishing it live'
+        type: boolean
+        # False for the same reason as the other demo workflows: once the tag has a release, a
+        # re-publish is all this ever does, and drafting one takes the live box offline.
+        default: false
+
+env:
+  PIXI_VERSION: '0.73.0'
+  BOX_ID: transcode-demo
+  BOX_VERSION: '1.0.0'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64-cpu
+          - os: macos-latest
+            target: macos-aarch64-metal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Install the pinned toolchain
+        run: node src/cli.mjs init --install-toolchain --no-example --pixi-version ${{ env.PIXI_VERSION }}
+
+      # `init` scaffolds a workspace; `build` refuses a dirty tree, and that refusal is worth
+      # keeping rather than working around with --allow-dirty.
+      - name: Restore a clean tree
+        shell: bash
+        run: |
+          git clean -fd
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Tree is still dirty after cleaning up init's scaffolding:" >&2
+            git status --porcelain >&2
+            exit 1
+          fi
+
+      # Written under RUNNER_TEMP rather than into the checkout, which would both dirty the tree and
+      # risk committing a private key. Never echoed: the value reaches the file through stdin.
+      - name: Materialize the demo signing key
+        shell: bash
+        env:
+          DEMO_SIGNING_KEY: ${{ secrets.SCROLLCASE_DEMO_SIGNING_KEY }}
+        run: |
+          if [ -z "$DEMO_SIGNING_KEY" ]; then
+            echo "SCROLLCASE_DEMO_SIGNING_KEY is not set on this repository." >&2
+            exit 1
+          fi
+          printf '%s' "$DEMO_SIGNING_KEY" > "$RUNNER_TEMP/demo-signing-private.pem"
+          chmod 600 "$RUNNER_TEMP/demo-signing-private.pem"
+
+      - name: Build and sign
+        shell: bash
+        run: |
+          node src/cli.mjs build "$BOX_ID/${{ matrix.target }}" \
+            --scrolls-dir examples \
+            --private-key "$RUNNER_TEMP/demo-signing-private.pem" \
+            --public-key examples/keys/example-signing-public.json
+
+      # Verified against the public key committed in the repository — the same file a newcomer will
+      # pass to `verify`. If these disagree, the published box would fail for everyone who tried it.
+      # `--self-test` matters more here than anywhere else: the box's own probes synthesise a test
+      # pattern and encode it with libx264, so a box whose codecs did not load never gets published.
+      - name: Verify exactly as a newcomer will
+        shell: bash
+        run: |
+          release=$(ls ".scrollcase/dist/boxes/$BOX_ID/$BOX_VERSION/${{ matrix.target }}"/*.release.json)
+          node src/cli.mjs verify "$release" --self-test \
+            --public-key examples/keys/example-signing-public.json
+          node src/cli.mjs run "$release" --public-key examples/keys/example-signing-public.json \
+            -- -version
+
+      - name: Discard the key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/demo-signing-private.pem"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcode-demo-box-${{ matrix.target }}
+          path: .scrollcase/dist/boxes/${{ env.BOX_ID }}/${{ env.BOX_VERSION }}/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          pattern: transcode-demo-box-*
+
+      # A box archive must be named for its own SHA-256 and sit beside its release document, because
+      # that is how `verify` finds it. Published flat, that would give four hex names on the release
+      # page and no way to tell which two are yours before downloading them. So each target ships as
+      # one plainly named container: the pair keeps content-addressed names and stays adjacent under
+      # `box/`, while the name outside says which machine it is for.
+      #
+      # The release notes travel with it as the README. Unlike the three older demo boxes this does
+      # not ship `run-box.ts` and `run_box.py`: those templates run a box with no arguments, and this
+      # box is interesting precisely when you pass it one.
+      - name: Wrap each target as one plainly named archive
+        shell: bash
+        run: |
+          # Without this an unmatched glob stays literal, and the pair check below would count a
+          # filename that does not exist as one file and wrap nothing.
+          shopt -s nullglob
+          mkdir wrapped
+          for dir in staged/transcode-demo-box-*; do
+            target=${dir#staged/transcode-demo-box-}
+            zips=("$dir"/*.zip)
+            releases=("$dir"/*.release.json)
+            if [ "${#zips[@]}" -ne 1 ] || [ "${#releases[@]}" -ne 1 ]; then
+              echo "Expected one archive and one release document in $dir, found:" >&2
+              ls -l "$dir" >&2
+              exit 1
+            fi
+            stage="staging/$target"
+            mkdir -p "$stage/box"
+            cp "${zips[0]}" "${releases[0]}" "$stage/box/"
+            cp .github/transcode-demo-release-notes.md "$stage/README.md"
+            # Entries named explicitly rather than with `.`, so the archive carries no `./` prefix
+            # and no stray dotfile the runner happens to leave in the staging directory.
+            ( cd "$stage" && zip -0 -X -r -q \
+                "$GITHUB_WORKSPACE/wrapped/$BOX_ID-$BOX_VERSION-$target.zip" \
+                box README.md )
+            unzip -l "wrapped/$BOX_ID-$BOX_VERSION-$target.zip"
+          done
+          ls -l wrapped
+
+      # A rebuilt box lands under a new hash and so never overwrites the one it replaces. Uploading
+      # alone would leave the previous boxes sitting beside the new ones, downloadable and stale, so
+      # anything not in this build is removed once the new set is safely up.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(ls wrapped/*.zip | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "Expected two archives, one per target, found $count" >&2
+            exit 1
+          fi
+          # The notes are rewritten on every run, not only at creation: a re-publish that changed
+          # the assets would otherwise leave the previous instructions sitting above the new files.
+          # `--draft` is passed on both branches so the input means the same thing whether the
+          # release is being created or replaced.
+          if gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release edit "${{ inputs.tag }}" \
+              --title "Transcode demo box" \
+              --notes-file .github/transcode-demo-release-notes.md \
+              --draft=${{ inputs.draft }}
+          else
+            gh release create "${{ inputs.tag }}" \
+              --title "Transcode demo box" \
+              --notes-file .github/transcode-demo-release-notes.md \
+              ${{ inputs.draft && '--draft' || '' }}
+          fi
+          gh release upload "${{ inputs.tag }}" wrapped/* --clobber
+          # Deleted only after the upload succeeded: a failed upload must leave the previous boxes
+          # in place rather than empty the release.
+          for asset in $(gh release view "${{ inputs.tag }}" --json assets -q '.assets[].name'); do
+            if [ ! -e "wrapped/$asset" ]; then
+              echo "Removing superseded asset: $asset"
+              gh release delete-asset "${{ inputs.tag }}" "$asset" --yes
+            fi
+          done

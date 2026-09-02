@@ -8,6 +8,8 @@ outline: [2,3]
 
 <big> **Run a demo box easily, without installing any toolchain** </big>
 
+> <small> Runtime: **`python`** — a stdlib-only Python 3.11 environment inside the box. </small>
+
 ## Try it now
 
 See how to run a Scrollcase box with our guided scenario, all in a disposable cloud Linux environment. Every Scrollcase command and its result are shown in the terminal.

@@ -8,6 +8,8 @@ outline: [2,3]
 
 Model: *[DistilBERT SST-2 (ONNX INT8)](https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english)*
 
+> <small> Runtime: **`python`** — the box starts its own interpreter on a declared entry point. </small>
+
 ---
 
 Sentiment analysis reads a piece of text and judges the opinion in it. This model is binary: it says

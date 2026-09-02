@@ -8,6 +8,8 @@ outline: [2,3]
 
 Model: *[SmolLM2-1.7B-Instruct (GGUF Q4_K_M)](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct)*
 
+> <small> Runtime: **`python`** — the box starts its own interpreter on a declared entry point. </small>
+
 ---
 
 A large language model is the thing behind a chat assistant: you give it text, it continues it. Every
