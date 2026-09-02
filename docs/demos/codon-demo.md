@@ -13,7 +13,7 @@ runtime: node
 
 ---
 
-The other demos prove a box *starts*. This one proves a box can carry data and be trusted to answer
+This demo proves a box can carry data and be trusted to answer
 from it.
 
 It ships the standard genetic code — NCBI translation table 1 — and the tool that queries it. The

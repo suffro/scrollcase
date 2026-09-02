@@ -11,6 +11,14 @@ runtime: python
 
 > <small> Runtime: **`python`** — a stdlib-only Python 3.11 environment inside the box. </small>
 
+::: info A minimal demo, not a real project
+This is here to give you the idea in as few steps as possible. `example-box` is the disposable box
+`scrollcase init` writes — Python and a small entry point, no assets, no dependencies of its own —
+so the pipeline stays readable rather than realistic. A real scroll declares its targets, its pinned
+assets and what the box executes; [`new scroll`](/reference/cli#new) is where that starts, and the
+[other demos](/demos/) are what it leads to.
+:::
+
 ## Try it now
 
 This is the whole path end to end — from an empty directory to a signed box you built and then ran,

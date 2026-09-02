@@ -11,6 +11,13 @@ runtime: python
 
 > <small> Runtime: **`python`** — a stdlib-only Python 3.11 environment inside the box. </small>
 
+::: info A minimal demo, not a real project
+This is here to give you the idea in as few steps as possible. The box it runs prints a line and
+exits: enough to watch the trust chain work end to end, and deliberately not an example of what is
+worth packing. For boxes that carry something real — a language model, ffmpeg, a dataset — see the
+[other demos](/demos/).
+:::
+
 ## Try it now
 
 This demo is only about **running** a box someone else built and signed. Nothing is compiled,
