@@ -51,7 +51,7 @@ consumes it, then the properties that hold across all of it.
 | [6. The build pipeline](#_6-the-build-pipeline) | `src/build/`: the ordered steps and every module that serves them |
 | [7. Signing and custody](#_7-signing-and-custody) | `src/sign/`: keys, local signing, external signers, verification |
 | [8. The consumers](#_8-the-consumers) | Node, Python, and Rust, side by side, and their shared conformance fixtures |
-| [9. The command line](#_9-the-command-line) | The nine verbs and where the thin-CLI boundary runs |
+| [9. The command line](#_9-the-command-line) | The thirteen verbs and where the thin-CLI boundary runs |
 | [10. The invariants](#_10-the-invariants) | Determinism, provenance, verify-never-trust, and the paths that break silently |
 | [11. Test map](#_11-test-map) | Which test proves which behaviour |
 | [12. Appendices](#_12-appendices) | Module summary, index of public exports |
@@ -977,8 +977,9 @@ Read as guarantees rather than as steps, that pipeline says:
 Scrollcase is **a library as well as a command line**. Its Node surfaces are `scrollcase/contract`,
 `scrollcase/contract/browser`, `scrollcase/contract/types`, `scrollcase/build`, `scrollcase/sign`
 and `scrollcase/consumer`, plus the published schemas and fixtures; the Python consumer package is
-imported as `scrollcase_consumer`. The nine command-line verbs — `init`, `new`, `doctor`, `keygen`,
-`lock`, `audit`, `build`, `verify`, `run` — are a thin layer over those surfaces, not a separate
+imported as `scrollcase_consumer`, and the Rust crate as `scrollcase-consumer`. The thirteen
+command-line verbs — `init`, `new`, `add`, `remove`, `edit`, `refresh`, `doctor`, `keygen`, `lock`,
+`audit`, `build`, `verify`, `run` — are a thin layer over those surfaces, not a separate
 implementation.
 
 It is open source under Apache-2.0 and vendor-neutral: it carries no reference to any specific
@@ -2212,7 +2213,7 @@ second field left to disagree with.
 
 #### The scroll
 
-The largest schema, and the only one describing *input* rather than output. Nine fields are
+The largest schema, and the only one describing *input* rather than output. Seven fields are
 required: `schemaVersion`, `boxId`, `version`, `sourceRevision`, `runtime`, `pixiVersion` and
 `selfTest`. An eighth, `target`, is required of every scroll a
 build reads but not by the schema, because the base of a split scroll legitimately has none; the
@@ -2278,24 +2279,40 @@ meaningless, and cosine similarity catches a result that drifted in direction ra
 
 #### Execution
 
-A closed union of exactly two shapes, both requiring `defaultArgs`:
+A closed union of exactly four shapes, all requiring `defaultArgs`:
 
 ```jsonc
 { "kind": "python-script", "script": "entrypoint.py",        "defaultArgs": [] }
 { "kind": "python-module", "module": "example_model.main",   "defaultArgs": ["--serve"] }
+{ "kind": "node-script",   "script": "entrypoint.js",        "defaultArgs": [] }
+{ "kind": "native-binary", "binary": "venv/bin/ffmpeg",      "defaultArgs": ["-hide_banner"] }
 ```
 
-A script is a `payloadPath` — a regular file inside the box. A module is a strict Python dotted
-name, `^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`, which admits no command-line syntax
-and no shell fragment. `defaultArgs` are placed before caller-supplied arguments and every item is
-passed directly, without a shell.
+Each kind is named `<runtime>-<shape>`, and the runtime half must be the one the box declares: a
+`python-script` in a box whose runtime is `native` describes something that cannot be run, and is
+refused rather than guessed at.
+
+A script and a binary are both a `payloadPath` — a regular file inside the box. A module is a strict
+Python dotted name, `^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`, which admits no
+command-line syntax and no shell fragment. `defaultArgs` are placed before caller-supplied arguments
+and every item is passed directly, without a shell.
+
+A `native-binary` names a file that has to come out of the archive executable, and the mode is
+synthesised rather than read off the build machine. The runtime's own rule already covers the
+scripts directory a conda prefix fills — `venv/bin/`, `venv/Scripts/` — so a binary the solve
+installed needs no declaration; one the scroll brought in anywhere else needs `"executable": true`
+on the asset or local file that carries it, and the build refuses to write an archive whose entry
+point would not be runnable.
 
 Absence of the whole block means the box is **intentionally library-only** — a positive statement,
-not an omission.
+not an omission. A `native` box cannot make it, and no rule says so directly: its only probe shape
+is `commands`, a command probe has nothing to append arguments to without a declared execution, and
+a scroll must declare at least one probe. Three rules that each stand on their own leave one shape
+unreachable.
 
 **Rejected:** a shell command. A shell changes what an argument means depending on its contents, and
 creates an injection surface at exactly the point where caller-supplied arguments meet signed
-metadata. A closed union of two shapes cannot be talked into running something else.
+metadata. A closed union of four fixed shapes cannot be talked into running something else.
 
 </div>
 
@@ -2352,7 +2369,10 @@ The narrower check happens where the value originates.
 
 A **channel** is small and mutable: `channel`, `boxId`, `target`, `updatedAt`, `cohortSalt` and a
 non-empty `releases` array of `{ version, releaseManifestUrl, rolloutPercentage }`, evaluated in
-order, a client taking the first entry whose cohort it falls into. It is signed independently from
+order, a client taking the first entry whose cohort it falls into. `releaseManifestUrl` is the one
+optional member, absent for the same reason `archive.url` is: a box built without a publish base URL
+has nothing for that pointer to point at, and a channel that still says which version is current is
+more use than one carrying an address that does not resolve. It is signed independently from
 releases, so promoting a build never requires re-signing it. `cohortSalt` makes cohort assignment
 stable per client and unpredictable across channels, so a staged rollout cannot be gamed by
 reinstalling.
@@ -2699,7 +2719,7 @@ installed.
 9. **The entry point agrees with the runtime's layout for the target**, via
    `assertRuntimeEntryPoint` — which for `native` means refusing one outright.
 
-Check 6 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
+Check 8 deserves its reasoning. The layout is `scrolls/<boxId>/<targetId>/`, and the directory names
 are *checked context*, not identity: the scroll declares both facts, and the filesystem is required
 to agree. That makes every target variant of one box visible together without making a directory
 name the source of the box's identity.
@@ -3543,24 +3563,30 @@ shape conditional.
 
 The two functions perform the complete read-only chain in this fixed order:
 
-1. Refuse `schemaVersion: 1` explicitly.
+1. Refuse a superseded `schemaVersion` — 1 or 2 — **by name**, before the envelope schema sees it.
+   The schema pins the version to a `const`, so it would otherwise refuse a published v2 box as a
+   shape error, "must equal 3", which does not tell the reader what they are holding.
 2. Validate the **signed envelope** against its schema.
 3. **Verify the signature** against the trusted key.
 4. Refuse a payload that is not `schemaVersion: 3`.
 5. Validate the **release manifest** against its schema.
 6. Confirm the document's `kind` parses as a *release*.
-7. Resolve the target adapter and check the entry point against it.
-8. Sanity-check `installedSizeBytes` if present.
+7. Resolve the target adapter.
+8. Refuse a **runtime this build has no adapter for**, by name. The wire vocabulary is wider than
+   the implemented set on purpose, so a release may legitimately name one.
+9. Check the declared **entry point** against that runtime's layout for the target — when the box
+   declares one, which a `native` box never does.
+10. Sanity-check `installedSizeBytes` if present.
 
-Those eight steps are `inspectReleaseDocument()`. `inspectBoxArchive()` then continues:
+Those ten steps are `inspectReleaseDocument()`. `inspectBoxArchive()` then continues:
 
-9. Locate the archive — beside the release document, under the hash that document commits to.
-10. Check the archive's **size**, then its **SHA-256**.
-11. List and validate **every archive entry**.
-12. Read `box.json` out of the archive and validate it against its schema.
-13. Assert **agreement** between `box.json` and the signed release.
-14. Confirm the declared interpreter path resolves inside the archive.
-15. Confirm execution metadata names a real script or a discoverable module.
+11. Locate the archive — beside the release document, under the hash that document commits to.
+12. Check the archive's **size**, then its **SHA-256**.
+13. List and validate **every archive entry**.
+14. Read `box.json` out of the archive and validate it against its schema.
+15. Assert **agreement** between `box.json` and the signed release.
+16. Confirm the declared entry point resolves inside the archive, where there is one.
+17. Confirm execution metadata names a real script, a real binary, or a discoverable module.
 
 Nothing in that list executes anything from inside the box. Every step is a read, and the expensive
 ones come after the cheap ones that could have ended the check.
@@ -3725,9 +3751,13 @@ very newest would hand a first-time user a solve that cannot succeed, because co
 heavy compiled packages for a new minor months after the interpreter lands. `latest` therefore
 resolves once, at authoring time, and the resolved number is what the scroll records.
 
-Execution intent is a closed set at this level too — `python-script`, `python-module` or
-`library-only` — and a `library-only` scroll declaring a script, a module or default arguments is
-refused rather than silently simplified.
+Execution intent is a closed set at this level too, and `authoredExecutionKinds()` derives it from
+the runtime rather than listing it: the runtime's own kinds, plus `library-only` for the runtimes
+that can still self-test without an entry point. So `python` offers `python-script`,
+`python-module` and `library-only`; `node` offers `node-script` and `library-only`; `native` offers
+`native-binary` alone, because a command probe is its only probe and a command probe needs an
+execution to invoke — offering the choice would be offering an invalid scroll. A `library-only`
+scroll declaring a script, a module or default arguments is refused rather than silently simplified.
 
 Labels are not one of the decisions `new scroll` asks about. Scrollcase reads none of them, so
 prompting for one would be asking the author to fill in a field on the tool's behalf; `createScroll`
@@ -4678,14 +4708,29 @@ does not match. Downloading them is the caller's job, always.
 
 ```js
 // src/consumer/run-extracted.mjs
-const executionArgs = release.execution.kind === 'python-script'
-  ? [join(prepared.root, ...safeRelativePath(release.execution.script).split('/'))]
-  : ['-m', release.execution.module];
-executionArgs.push(...release.execution.defaultArgs, ...callerArgs);
+const { command, args } = runtimeAdapter(release.runtime.id).buildArgv({
+  execution: release.execution,
+  target: adapter,
+});
+const resolveArgument = (argument) => (argument.kind === 'payload-path'
+  ? join(prepared.root, ...safeRelativePath(argument.value).split('/'))
+  : argument.value);
+const executionCommand = resolveArgument(command);
+const executionArgs = args.map(resolveArgument);
+executionArgs.push(...callerArgs);
 ```
 
-The vector is `[interpreter, script | -m module, ...signed default arguments, ...caller arguments]`,
-the working directory is the box root, and `shell` is `false` in both implementations.
+The consumer builds no command line of its own. The runtime adapter's `buildArgv` states it in
+payload-relative terms — every element tagged `payload-path` or `literal` — and this end does the
+one thing the format cannot: joining a payload path onto a box root that is a real path on this
+host. Which runtime states it is the box's own declaration, never an assumption about what a box
+contains.
+
+The vector is `[command, ...the declaration, ...signed default arguments, ...caller arguments]`,
+the working directory is the box root, and `shell` is `false` in all three implementations. What
+fills the first two slots is the runtime's answer: `python` puts its interpreter first and then the
+script path or `-m module`; `node` puts its interpreter first and then the script path; `native`
+puts the binary first and has no declaration to follow it, because the binary *is* the command.
 
 Two decisions are encoded in that ordering. **The signed defaults come first**, so a caller can
 append to what the publisher declared but cannot displace it. And **no shell is involved**, so a
@@ -5164,7 +5209,7 @@ reported.
 
 <div class="h3-section-initial-part">
 
-### 9.2 The nine verbs
+### 9.2 The thirteen verbs
 
 The set is closed and small. Each verb is one of the phases of a box's life, and the ones that cost
 minutes are separated from the ones that cost milliseconds so that a failure is cheap.
@@ -5175,6 +5220,10 @@ minutes are separated from the ones that cost milliseconds so that a failure is 
 | --- | --- | --- | --- | --- |
 | `init` | Scaffold a workspace, optionally an example and the consumer templates, then offer the dependencies | Host, existing files | `scrollcase.config.json`, `scrolls/example-box/…`, `consumer-templates/…`, optionally the toolchain | Only with consent |
 | `new scroll` | Author one complete target-specific [scroll](#scroll) | Flags or prompts | `scrolls/<boxId>/<targetId>/` | No |
+| `add` | Record an asset, a project file, a dependency, an environment variable, a self-test import or a self-test command | The box's scrolls and `pixi.toml` | The scroll files it changes, and the pixi manifests for `add dep` | Only `add asset`, which measures the file it is asked to pin |
+| `remove` | Drop what `add` recorded — an asset, a file, an environment variable, an import or a command | The box's scrolls | The scroll files it changes | No |
+| `edit scroll` | Change one field of an existing scroll, chosen from a menu built out of the schema | The box's scrolls, the schema | The scroll file the field belongs in | No |
+| `refresh` | Bring a scroll back into agreement with the project: recompute the `localFiles` digests the author asked to pin | The box's scrolls, the project files they name | The scroll files whose pins moved | Only with `--check-assets` or `--repin` |
 | `doctor` | Report whether this machine can build | Workspace, git, pixi, conda-pack | Nothing, ever | No |
 | `keygen` | Create a local [ed25519](#ed25519) signing key | Existing key files | `signing-private.pem`, `signing-public.json` | No |
 | `lock` | Resolve the scroll's pixi manifest | `scroll.json`, `pixi.toml` | `pixi.lock` | Yes — this is where solving happens |
@@ -5185,14 +5234,21 @@ minutes are separated from the ones that cost milliseconds so that a failure is 
 
 Two properties of that table matter more than any individual row.
 
-**Only `lock` and `build` reach the network**, and both are explicit human actions on a named scroll.
-Nothing else in the tool downloads anything without being asked to — `init` only after a terminal
-consent, `doctor` never, and the two consumer verbs never at all.
+**Only `lock` and `build` reach the network unasked**, and both are explicit human actions on a named
+scroll. Three other verbs can, and each has to be told to: `init` only after a terminal consent,
+`add asset` because measuring a remote file is the whole of what the subcommand is for, and
+`refresh` only under `--check-assets` or `--repin`. `doctor` never does, and the two consumer verbs
+never at all.
 
 **`doctor` writes nothing under any circumstance.** It is the verb a user reaches for when something
 is already wrong, and a diagnostic that repairs things is a diagnostic whose output cannot be
 trusted. `tests/unit/project-surface.test.mjs` runs it in an empty temporary directory and asserts
 that the directory is still empty afterwards — no config file, no `scrolls/`.
+
+The four editing verbs — `add`, `remove`, `edit` and `refresh` — take a **box** rather than a scroll
+reference, because the thing being edited is usually shared by every target of that box. Where one
+of their changes lands is section 9.4's subject, under `cli-edit.mjs`; the subsections that follow
+here are the verbs that produce something rather than amend it.
 
 <div class="h4-section">
 

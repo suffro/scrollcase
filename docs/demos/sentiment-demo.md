@@ -7,11 +7,13 @@ runtime: python
 
 # Sentiment Analysis demo box
 
-Model: *[DistilBERT SST-2 (ONNX INT8)](https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english)*
+<big> **A model that judges the opinion in a sentence, packed and signed and offline** </big>
 
 > <small> Runtime: **`python`** — the box starts its own interpreter on a declared entry point. </small>
 
 ---
+
+Model: *[DistilBERT SST-2 (ONNX INT8)](https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english)*
 
 Sentiment analysis reads a piece of text and judges the opinion in it. This model is binary: it says
 whether a sentence reads as positive or negative, and how confident it is about that.

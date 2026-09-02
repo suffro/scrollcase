@@ -146,7 +146,7 @@ flowchart TD
   H -->|yes| E["validate entry names, extract"]
   E --> M{"box.json agrees with release?"}
   M -->|no| X
-  M -->|yes| T["run the self-test with the box's own Python"]
+  M -->|yes| T["run the self-test with the box's own runtime"]
   T --> OK["installed"]
 ```
 

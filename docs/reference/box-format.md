@@ -204,9 +204,9 @@ by passing `--namespace`. Scrollcase never hard-codes one, and carries nobody's 
 
 ### Release manifest
 
-The immutable description of one built box: identity, target, compatibility, where the archive
-lives and what it hashes to, the consumer import check to repeat, and provenance. Never edited after signing
-— a correction ships as a new version.
+The immutable description of one built box: identity, target, compatibility, what the archive hashes
+to and where it lives when it lives anywhere, the check a consumer can repeat, and provenance. Never
+edited after signing — a correction ships as a new version.
 
 ```jsonc
 {
@@ -254,6 +254,13 @@ independently, so one published before a runtime landed still refuses a box nami
 A `native` box carries no interpreter, so it names no entry point and no version. A box that
 declares one anyway is refused rather than ignored: it would name a file the box never starts, and a
 reader would believe it.
+
+`archive.url` is **optional**, and so is a channel entry's `releaseManifestUrl`. A build given no
+publish location omits both rather than inventing an address, because a placeholder inside a signed,
+immutable document stays false forever. Nothing is lost but the address: no guarantee rests on that
+URL — an archive is identified by `sha256` and `sizeBytes`, and all three consumers resolve it beside
+the release document rather than by following a link. What an unpublished box gives up is the chain
+a downloader follows, which it has no use for.
 
 `bundledLicenses` is optional and lists dependencies compiled *inside* a binary the box ships — the
 half of the licence picture `pixi.lock` cannot see, declared by the publishing project and signed

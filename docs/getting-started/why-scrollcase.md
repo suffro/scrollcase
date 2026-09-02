@@ -59,6 +59,7 @@ Use **Scrollcase** when the goal is:
 | --- | --- | --- | --- |
 | [Pixi](https://pixi.sh/) | Resolve, lock, install, and run project environments | Development, CI, and reproducible environment management | Relocation, packaging, signed release metadata, deterministic archives, verification, and consumer APIs |
 | [conda-pack](https://conda.github.io/conda-pack/) | Archive an existing Conda environment so it can be moved | Direct environment deployment with a small custom delivery layer | A declarative source, locked build pipeline, pruning, assets, provenance, signing, manifests, verification, and safe consumers |
+| [Nix](https://nixos.org/) | Build and reproduce complete dependency closures from pinned inputs | General-purpose reproducible builds, development shells, and whole-system configuration | An ordinary target-specific artifact, verified and executed by the consuming application itself — no store or package manager on the consumer's machine, and a much smaller model to adopt |
 | [Docker](https://docs.docker.com/get-started/docker-overview/) | Package and run applications as isolated containers | Services, infrastructure, reproducible server deployment, and container-native systems | Host-native execution without a container runtime, target-specific accelerator boxes, signed local artifacts, and application-owned installation |
 | [PEX](https://pex.readthedocs.io/) | Build executable Python environments from Python distributions | Python applications and command-line tools distributed as executable environments | A complete Conda-based prefix, non-Python native dependencies, model assets, signed release documents, and a separate consumer contract |
 | [PyInstaller](https://pyinstaller.org/en/stable/) | Freeze a Python application and its dependencies into an executable bundle | Shipping a standalone end-user application | A reusable environment box rather than one frozen application, plus locks, provenance, content addressing, release channels, verification, and consumer APIs |
@@ -68,7 +69,7 @@ Use **Scrollcase** when the goal is:
 
 ## When is a good fit
 
-- a desktop or local application embeds Python-powered features;
+- a desktop or local application embeds features powered by a packaged runtime;
 - scientific or AI dependencies include native Conda packages;
 - releases must support CPU, CUDA, Metal, or multiple operating systems;
 - environments or model assets are large enough that integrity and lifecycle matter;
@@ -100,11 +101,12 @@ The terminology reflects separate responsibilities rather than extra steps the d
 | **Lock** | The exact resolved dependency graph in `pixi.lock` | Makes package selection reviewable and repeatable |
 | **Target** | One operating system, architecture, and accelerator combination | A native environment cannot honestly be universal across incompatible platforms |
 | **Box** | The built, self-contained runtime payload | This is the environment the consuming application installs and runs |
+| **Runtime** | What runs *inside* the box: `python`, `node`, or `native` | The box says what executes on the target rather than leaving a reader to infer it from a path |
 | **Release** | The signed document binding box identity to archive hashes and metadata | Lets consumers verify an artifact obtained through an untrusted transport |
 | **Channel** | A signed pointer such as `beta` or `stable` to a release | Lets a publisher move an audience to a newer immutable release |
 | **Key** | The signing identity trusted by the consumer | Establishes which publisher is allowed to issue releases |
-| **Consumer** | The Node or Python code that verifies, extracts, and runs a local box | Keeps security checks consistent outside the builder |
-| **Asset mode** | Whether model assets are embedded or materialized separately | Makes the archive-size versus offline-install trade-off explicit |
+| **Consumer** | The Node, Python, or Rust code that verifies, extracts, and runs a local box | Keeps security checks consistent outside the builder |
+| **Deferred asset** | One asset the scroll declared `embed: false`, materialized beside the box rather than inside the archive | Per entry, so one box ships a small config inside and defers a large dataset |
 
 The normal developer workflow is still small:
 

@@ -47,6 +47,22 @@ previous handlers are restored.
 models. Their fields mirror the Node structure in snake case; `BoxRunResult` and every verification
 receipt include one.
 
+The rest of the public models are the receipts and the box description they carry, all frozen
+dataclasses:
+
+| Model | What it is |
+| --- | --- |
+| `PreparedBox` | The receipt `verify_and_extract_box` and `attach_extracted_box` return. It is not a plain record: execution authority is bound to the exact instance, so a field-identical copy is refused |
+| `PayloadVerification` | What `verify_extracted_payload` returns — `status`, `root`, identity, and the number of entries checked |
+| `BoxRunResult` | The child application's terminal result: `exit_code`, `signal`, and a report |
+| `RequiredAsset` | One deferred asset the caller must materialize before execution, with the `url`, `size_bytes` and `sha256` the release signed, and `executable` when the scroll declared the bit |
+| `BoxTarget` | `platform`, `arch`, `accelerator`, and `cuda_version` where it applies |
+| `BoxRuntime` | What runs inside the box: `id`, and the `version` and `entry_point` a runtime with an interpreter has |
+| `BoxExecution` | The union of the four entry-point shapes — `PythonScriptExecution`, `PythonModuleExecution`, `NodeScriptExecution`, `NativeBinaryExecution`. `None` on a library-only box |
+
+All three runtimes — `python`, `node` and `native` — are implemented here. A box naming an id this
+release has no adapter for is refused **by name**, never misread as the runtime its paths resemble.
+
 Every operation that verifies a signed release takes `public_key_path` **or** `trusted_keys`, exactly
 one, and `parse_trusted_keys(source)` reads both trust-file shapes from text or bytes — so an application
 holding its keys in a keyring, an environment variable or a secrets manager verifies against them

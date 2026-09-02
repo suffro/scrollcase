@@ -71,14 +71,14 @@ export function authoredExecutionKinds(runtimeId) {
  * compiled packages for a new minor months after the interpreter lands, so defaulting to the newest
  * hands a first-time user a solve that cannot succeed; and resolving over the network would make two
  * people running the same command in different months get different scrolls.
- * `scripts/bump-python-version.mjs` moves both constants at release time, and `--python-version`
+ * `scripts/bump-python-version.mjs` moves both constants at release time, and `--runtime-version`
  * overrides this one per scroll.
  */
 export const DEFAULT_PYTHON_VERSION = '3.14';
 
 /**
- * What `--python-version latest` means: the newest Python conda-forge published when this Scrollcase
- * release was cut.
+ * What `--runtime-version latest` means for a Python box: the newest Python conda-forge published
+ * when this Scrollcase release was cut.
  *
  * Also a committed constant, and for the same reason as the default. Asking the network on every
  * invocation would make the flag return different answers on different days, which is exactly what a

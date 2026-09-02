@@ -79,8 +79,9 @@ class PythonModuleExecution:
 class NodeScriptExecution:
     """A signed direct-script entry point for the Node runtime.
 
-    Named by the format so implementing the runtime is code rather than another wire break. No
-    adapter answers for it yet, so a box declaring it is refused by name.
+    Named by the format so implementing the runtime was code rather than another wire break, which
+    is how ``node`` arrived without one. A box naming a runtime this build has no adapter for is
+    still refused by name rather than misread as the one it happens to be shaped like.
     """
 
     kind: Literal["node-script"]

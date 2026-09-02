@@ -6,7 +6,7 @@ aside: false
 
 # Scrollcase *vs* Other Packaging Tools
 
-Complete comparison between Scrollcase and other packaging tools, understanding when Scrollcase is a better fit, and how it differs from Docker, Pixi, conda-pack, PEX, PyInstaller and other tools, and when a simpler solution is the better choice.
+Complete comparison between Scrollcase and other packaging tools, understanding when Scrollcase is a better fit, and how it differs from Docker, Pixi, conda-pack, Nix, PEX, PyInstaller and other tools, and when a simpler solution is the better choice.
 
 **Scrollcase** primary goal is:
 
@@ -14,7 +14,7 @@ Complete comparison between Scrollcase and other packaging tools, understanding 
 
 ## Tools and decision guide
 
-<Tabs :titles="['TL;DR','Pixi','conda-pack','Containers','PEX','PyInstaller','AppImage']">
+<Tabs :titles="['TL;DR','Pixi','conda-pack','Nix','Containers','PEX','PyInstaller','AppImage']">
 <Tab title="Pixi">
 
 ### Scrollcase vs Pixi alone
@@ -43,7 +43,7 @@ Scrollcase adds:
 - a target-specific, relocatable environment;
 - deterministic archive construction;
 - declared local files and verified assets;
-- self-tests using the interpreter inside the box;
+- self-tests run with the box's own runtime, before it may be signed;
 - source and lock provenance;
 - dependency licence inventory;
 - signed release metadata;
@@ -125,6 +125,37 @@ verify and consume it through a defined contract
 - model files, licence inventory, and target metadata belong in the build contract.
 
 </Tab>
+<Tab title="Nix">
+
+### Scrollcase vs Nix
+
+Nix is the strongest reproducibility model on this page, and the comparison is not about capability. It treats a package as a function of its inputs, reproduces a complete dependency closure from pinned inputs, and covers ground Scrollcase never touches: building the packages themselves, development shells, whole-system configuration, signed binary caches. Almost anything Scrollcase guarantees about a dependency set, Nix can express too, and usually more rigorously.
+
+Two things differ: where the reproducibility lives once the artifact reaches a user, and how much model you have to adopt to get there.
+
+A Nix closure is reproducible *because* it is a closure — store paths, resolved on the machine that runs them. Shipping one to an end user means either making Nix part of the deployed application architecture, or flattening it into an ordinary artifact and writing the packing, integrity, and execution rules by hand. It also means the team works in the store, derivations, flakes, the expression language, and packaging conventions. Scrollcase asks for one smaller model — scroll, target, box, release, consumer — where `python`, `node`, `native`, CPU, CUDA, and Metal are things the format already says.
+
+> Nix can model and reproduce complete dependency closures and is the stronger choice when you want a general-purpose reproducible build and package-management system. Scrollcase targets a narrower boundary: producing ordinary, target-specific runtime artifacts that an existing application can verify and execute through a small language-native consumer, without making Nix or its store part of the deployed application architecture.
+
+So the useful question is not whether Scrollcase does something Nix cannot; it is whether you want to adopt Nix as the build and deployment model, or hand your application a box, a manifest, and a consumer.
+
+**If you already use Nix, Nix may be the right tool.** If you do not, adopting it solely to distribute a local AI or scientific runtime can be a lot of machinery for one problem. Scrollcase is designed for that boundary — the claim is a shorter path to adoption and integration, not a faster build.
+
+### Choose Nix when
+
+- you already use Nix, or want reproducibility across the whole system rather than one shipped artifact;
+- the machines that consume the result can reasonably have Nix installed;
+- development shells, CI, and deployment should share one model;
+- pinning and auditing every input down to the compiler is a requirement.
+
+### Choose Scrollcase when
+
+- the consuming application is an ordinary product that must not depend on a package manager at run time;
+- the deliverable is one target-specific runtime, installed and managed by an application that owns its lifecycle;
+- Windows is a target — Nix runs on Linux and macOS, and reaches Windows through WSL;
+- verification must happen inside the application, in the language it is written in, before execution.
+
+</Tab>
 <Tab title="Containers">
 
 ### Scrollcase vs container systems (eg. Docker)
@@ -133,7 +164,7 @@ Container systems like Docker packages an application and its runtime into a con
 
 Scrollcase produces a host-native environment archive.
 
-A box is extracted onto the machine and its own Python interpreter is run directly. It does not provide:
+A box is extracted onto the machine and started directly — its own interpreter for a `python` or `node` box, the binary itself for a `native` one. It does not provide:
 
 - process isolation;
 - kernel namespaces;
@@ -160,14 +191,14 @@ Conversely, a backend service already deployed on Kubernetes usually benefits mo
 
 ### Choose Scrollcase when
 
-- a desktop or local application must run Python directly on the host;
+- a desktop or local application must run a packaged runtime directly on the host;
 - installing a container runtime is undesirable;
 - macOS Metal, Windows, or host-specific accelerator integration matters;
 - the application wants to own download, installation, activation, rollback, and removal;
 - the delivered environment must be verified independently of its download path.
 
 ::: warning A box is not a sandbox
-Signature and archive verification establish what was received. They do not make the Python code safe to execute. A consuming application must trust the publisher whose public key it accepts.
+Signature and archive verification establish what was received. They do not make the code inside it safe to execute. A consuming application must trust the publisher whose public key it accepts.
 :::
 
 </Tab>
@@ -227,7 +258,7 @@ downloads the correct model box
 ↓
 verifies and prepares it
 ↓
-runs the declared Python entry point
+runs the entry point the box declared
 ↓
 handles UI, updates, storage, and lifecycle itself
 ```
@@ -255,8 +286,9 @@ handles UI, updates, storage, and lifecycle itself
 
 Scrollcase is not a Linux application format like AppImage. AppImage packages a Linux application and the dependencies that cannot be assumed to exist on the target system into one executable file. Users can download it, mark it executable, and run it without a traditional installation or root privileges.
 
-Scrollcase packages a different unit: a target-specific Python runtime intended to be verified,
-prepared, and invoked by another application. It supports Linux, macOS, and Windows targets and
+Scrollcase packages a different unit: a target-specific runtime — Python, Node, or a compiled binary
+with no interpreter at all — intended to be verified, prepared, and invoked by another application.
+It supports Linux, macOS, and Windows targets and
 treats operating system, architecture, accelerator, dependency lock, release identity, and
 verification metadata as part of the artifact contract.
 
@@ -266,11 +298,11 @@ verification metadata as part of the artifact contract.
 - one downloadable executable file is the desired user experience;
 - support for macOS and Windows is handled through separate packaging formats;
 - the application itself owns its top-level UI and lifecycle;
-- a separately managed Python-runtime contract is unnecessary.
+- a separately managed runtime contract is unnecessary.
 
 ### Choose Scrollcase when
 
-- Python is one runtime component inside a larger product;
+- a packaged runtime is one component inside a larger product;
 - the consuming application must install or switch between several runtime boxes;
 - CPU, CUDA, Metal, macOS, Windows, and Linux variants need explicit identities;
 - signed release documents and independent archive verification are requirements;
@@ -283,6 +315,7 @@ verification metadata as part of the artifact contract.
 | --- | --- | --- | --- |
 | [Pixi](https://pixi.sh/) | Resolve, lock, install, and run project environments | Development, CI, and reproducible environment management | Relocation, packaging, signed release metadata, deterministic archives, verification, and consumer APIs |
 | [conda-pack](https://conda.github.io/conda-pack/) | Archive an existing Conda environment so it can be moved | Direct environment deployment with a small custom delivery layer | A declarative source, locked build pipeline, pruning, assets, provenance, signing, manifests, verification, and safe consumers |
+| [Nix](https://nixos.org/) | Build and reproduce complete dependency closures from pinned inputs | General-purpose reproducible builds, development shells, and whole-system configuration | An ordinary target-specific artifact, verified and executed by the consuming application itself — no store or package manager on the consumer's machine, and a much smaller model to adopt |
 | [Docker](https://docs.docker.com/get-started/docker-overview/) | Package and run applications as isolated containers | Services, infrastructure, reproducible server deployment, and container-native systems | Host-native execution without a container runtime, target-specific accelerator boxes, signed local artifacts, and application-owned installation |
 | [PEX](https://pex.readthedocs.io/) | Build executable Python environments from Python distributions | Python applications and command-line tools distributed as executable environments | A complete Conda-based prefix, non-Python native dependencies, model assets, signed release documents, and a separate consumer contract |
 | [PyInstaller](https://pyinstaller.org/en/stable/) | Freeze a Python application and its dependencies into an executable bundle | Shipping a standalone end-user application | A reusable environment box rather than one frozen application, plus locks, provenance, content addressing, release channels, verification, and consumer APIs |

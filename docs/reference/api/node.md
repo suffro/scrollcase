@@ -158,9 +158,10 @@ any assertion about them. That is a permanent blind spot, not only a timing wind
 
 `runExtractedBox(prepared, options)` runs only a receipt returned by
 `verifyAndExtractBox` or `attachExtractedBox` in the current process. It rechecks the prepared tree and required assets,
-enforces the native target, starts the declared script or `-m` module with the box's own Python,
-uses the box root as `cwd`, and appends caller `args` after signed `defaultArgs`. It never invokes a
-shell.
+enforces the native target, and starts what the box declared through its runtime's own argv rule —
+the interpreter and a script or `-m` module for `python`, the interpreter and a script for `node`,
+the binary itself for `native`. It uses the box root as `cwd` and appends caller `args` after signed
+`defaultArgs`. It never invokes a shell.
 
 `stdin`, `stdout`, and `stderr` accept Node child-process stdio values or streams. Environment
 precedence is inherited host, then caller `env`, then signed release `environment`; later layers win
@@ -256,7 +257,6 @@ The single source of truth for what a box is. See [The Box Format](/reference/bo
 | `runtimeAdapters` | `() => BoxRuntimeAdapter[]` | Every runtime this build implements |
 | `isImplementedRuntime` | `(runtimeId) => boolean` | Whether an adapter exists — the question to ask before `runtimeAdapter` |
 | `unimplementedRuntimeMessage` | `(runtimeId) => string` | One wording for a box naming a runtime this build cannot run, so the builder and all three consumers report it identically |
-| `unsupportedSelfTestProbeMessage` | `(runtimeId, probeKind) => string` | One wording for a probe shape the runtime cannot answer — `selfTest.imports` in a `native` box, which has no module system |
 | `executionAffectingVariables` | `(runtimeId, adapter) => readonly string[]` | Inherited variables that can change what a box executes: the runtime's loader controls, then the OS's |
 | `isExecutablePayloadPath` | `(rule, relativePath) => boolean` | Whether a payload path is one the runtime requires the executable bit on |
 

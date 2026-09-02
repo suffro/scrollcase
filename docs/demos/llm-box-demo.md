@@ -7,11 +7,13 @@ runtime: python
 
 # Local LLM demo box
 
-Model: *[SmolLM2-1.7B-Instruct (GGUF Q4_K_M)](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct)*
+<big> **A language model that answers on your own machine, with no account and no network** </big>
 
 > <small> Runtime: **`python`** — the box starts its own interpreter on a declared entry point. </small>
 
 ---
+
+Model: *[SmolLM2-1.7B-Instruct (GGUF Q4_K_M)](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct)*
 
 A large language model is the thing behind a chat assistant: you give it text, it continues it. Every
 one you have used through a website answers somewhere else, on someone else's hardware, behind an

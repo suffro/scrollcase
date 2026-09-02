@@ -70,9 +70,10 @@ This validates through a temporary extraction and runs with no network:
 - the archive's size and SHA-256 match what the signed release commits to;
 - entry names are safe — no traversal, no links, no special entries;
 - every shared `box.json` field agrees recursively with the signed release;
-- the declared interpreter is present;
-- with `--self-test`, the extracted payload size matches and the declared modules import with the
-  box's own Python.
+- the declared entry point is present, when the runtime has one — a `native` box declares none;
+- with `--self-test`, the extracted payload size matches and the signed probe passes, run with the
+  box's own runtime: the declared modules import, and each declared command exits with the status it
+  said it would.
 
 Scrollcase does not install or extract into an arbitrary final destination. After verification,
 the consuming project may extract into a fresh destination using a path-safe extractor:

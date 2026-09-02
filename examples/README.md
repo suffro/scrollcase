@@ -2,19 +2,26 @@
 
 ## The published demo boxes
 
-The examples below are built and signed by CI for all three operating systems and attached to a
-release, so each can be verified and run without a toolchain:
-[`demo-box-v1`](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1) for `hello-box`, and
-[`sentiment-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/sentiment-demo-v1) for the
-model-bearing `sentiment-demo`. `llm-demo` has its workflow but no release yet: it is built by
-`.github/workflows/llm-demo-box.yml`, which has not been dispatched.
-`keys/example-signing-public.json` is the public half of the key they are signed with.
+Six of the examples below are built and signed by CI for all three operating systems and attached to
+a release, so each can be verified and run without a toolchain:
 
-That key exists **only for the demos**. It signs nothing else, no trust chain depends on it, and it
-is not the key for any Scrollcase release. Its private half lives in a repository secret and is used
-by `.github/workflows/demo-box.yml`, `.github/workflows/sentiment-demo-box.yml` and
-`.github/workflows/llm-demo-box.yml` alone — a Linux or Windows box cannot be built on a maintainer's
-machine anyway, since conda-pack packs the host's own environment.
+| Example | Runtime | Release | Workflow |
+| --- | --- | --- | --- |
+| `hello-box` | `python` | [`demo-box-v1`](https://github.com/suffro/scrollcase/releases/tag/demo-box-v1) | `demo-box.yml` |
+| `sentiment-demo` | `python` | [`sentiment-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/sentiment-demo-v1) | `sentiment-demo-box.yml` |
+| `llm-demo` | `python` | [`llm-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/llm-demo-v1) | `llm-demo-box.yml` |
+| `codon-demo` | `node` | [`codon-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/codon-demo-v1) | `codon-demo-box.yml` |
+| `transcode-demo` | `native` | [`transcode-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/transcode-demo-v1) | `transcode-demo-box.yml` |
+| `dataset-demo` | `native` | [`dataset-demo-v1`](https://github.com/suffro/scrollcase/releases/tag/dataset-demo-v1) | `dataset-demo-box.yml` |
+
+`hello-box-node` and `hello-box-native` are not published: each declares one target and exists to
+show the shape of its runtime, which the three boxes above it carry into something real.
+
+`keys/example-signing-public.json` is the public half of the key all six are signed with. That key
+exists **only for the demos**. It signs nothing else, no trust chain depends on it, and it is not the
+key for any Scrollcase release. Its private half lives in a repository secret and is used by those
+six workflows alone — a Linux or Windows box cannot be built on a maintainer's machine anyway, since
+conda-pack packs the host's own environment.
 
 `demo-consumers/` holds what travels inside each published `hello-box` archive beside the box:
 `run-box.ts`, `run_box.py`, a `package.json`, and a `README.md`, so unpacking a download gives a
@@ -22,9 +29,12 @@ folder that already runs three ways. The same files are embedded in
 [the demo box guide](https://scrollcase.dev/demos/box-run-demo), which is why they live here rather
 than in the page — documentation and shipped bytes cannot drift apart. `sentiment-demo` and
 `llm-demo` each ship their own set under `<example>/demo-consumers/`, because those boxes take an
-argument — a sentence and a prompt respectively — and their templates pass one. The public key is
-never copied into any of them: a signature proves nothing if the key arrives in the same package as
-what it signs.
+argument — a sentence and a prompt respectively — and their templates pass one. `codon-demo`,
+`transcode-demo` and `dataset-demo` ship `box/` and a README instead: the templates run a box with no
+arguments, `ffmpeg` and `h5dump` with no arguments exit non-zero, and three more diverging copies to
+pass one flag each is a poor trade for demos whose subject is the runtime rather than the consumer
+API. The public key is never copied into any of them: a signature proves nothing if the key arrives
+in the same package as what it signs.
 
 ## `hello-box`
 

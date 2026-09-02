@@ -40,6 +40,14 @@ Valid accelerator combinations follow the target: `["cpu", "metal"]` on macOS, `
 on Linux and Windows. An accelerator the target defines no validation environment for is
 rejected.
 
+::: warning Not available to a `native` box
+The gate runs a source file with the box's **own interpreter**, once per accelerator. A box whose
+[`runtime.id`](/reference/scroll#choosing-a-runtime) is `native` has no interpreter to run it with,
+and a compiled binary is not a check script — so declaring `parity` there is refused where the
+scroll is read, rather than skipped quietly. A `native` box states what it can prove through
+[`selfTest.commands`](/reference/scroll#self-test) instead.
+:::
+
 ## The check script
 
 The script ships inside the box — either produced by the environment, or copied in through
