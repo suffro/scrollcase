@@ -1,6 +1,6 @@
 {
   "name": "scrollcase",
-  "version": "0.12.0",
+  "version": "1.0.0",
   "schemaVersion": "3",
   "description": "Pack an entire Python environment and the code it runs into a single, self-contained, portable and signed box.",
   "license": "Apache-2.0",
