@@ -13,7 +13,6 @@
   },
   "pixiVersion": "0.73.0",
   "cacheSubdir": "cache/codon-demo",
-  "publishBaseUrl": "https://assets.example.org/boxes",
   "selfTest": {
     "imports": [
       "node:sqlite",
@@ -24,10 +23,25 @@
       "codons.csv"
     ],
     "commands": [
-      { "args": [] },
-      { "args": ["ATG"] },
-      { "args": ["Leucine"] },
-      { "args": ["ZZZ"], "expectExitCode": 1 }
+      {
+        "args": []
+      },
+      {
+        "args": [
+          "ATG"
+        ]
+      },
+      {
+        "args": [
+          "Leucine"
+        ]
+      },
+      {
+        "args": [
+          "ZZZ"
+        ],
+        "expectExitCode": 1
+      }
     ]
   },
   "localFiles": [

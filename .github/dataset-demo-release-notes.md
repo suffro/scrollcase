@@ -13,6 +13,7 @@ signed box fixes the reader, so an inspection somebody publishes is one anybody 
 | --- | --- |
 | Linux, Intel or AMD | `dataset-demo-1.0.0-linux-x86_64-cpu.zip` |
 | macOS, Apple silicon | `dataset-demo-1.0.0-macos-aarch64-metal.zip` |
+| Windows, Intel or AMD | `dataset-demo-1.0.0-windows-x86_64-cpu.zip` |
 
 Unpacking gives the box under `box/` and this README beside it.
 

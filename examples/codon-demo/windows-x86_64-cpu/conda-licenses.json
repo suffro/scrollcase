@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "kind": "scrollcase.box.dependency-license-audit",
+  "targetId": "windows-x86_64-cpu",
+  "dependencyLockSha256": "7ca8774215d5111e4fcf30c7d40a59ef2dee3f94097251098aa46ead026197e3",
+  "packages": [
+    {
+      "name": "nodejs",
+      "version": "26.8.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    }
+  ]
+}

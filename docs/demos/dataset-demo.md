@@ -51,9 +51,9 @@ Open in GitHub Codespaces
 
 > You can find the box's **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/dataset-demo-v1).
 
-|macOS (Metal)|Linux (CPU)|
-|--|--|
-|[`macos-aarch64-metal`](https://github.com/suffro/scrollcase/releases/download/dataset-demo-v1/dataset-demo-1.0.0-macos-aarch64-metal.zip)|[`linux-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/dataset-demo-v1/dataset-demo-1.0.0-linux-x86_64-cpu.zip)|
+|macOS (Metal)|Linux (CPU)|Windows (CPU)|
+|--|--|--|
+|[`macos-aarch64-metal`](https://github.com/suffro/scrollcase/releases/download/dataset-demo-v1/dataset-demo-1.0.0-macos-aarch64-metal.zip)|[`linux-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/dataset-demo-v1/dataset-demo-1.0.0-linux-x86_64-cpu.zip)|[`windows-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/dataset-demo-v1/dataset-demo-1.0.0-windows-x86_64-cpu.zip)|
 
 The trust key is deliberately not inside the archive — a signature proves nothing if the key travels
 with what it signs:

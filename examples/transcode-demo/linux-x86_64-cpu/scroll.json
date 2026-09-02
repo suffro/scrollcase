@@ -5,5 +5,19 @@
     "arch": "x86_64",
     "accelerator": "cpu"
   },
-  "condaDependencyLicenseAudit": "examples/transcode-demo/linux-x86_64-cpu/conda-licenses.json"
+  "condaDependencyLicenseAudit": "examples/transcode-demo/linux-x86_64-cpu/conda-licenses.json",
+  "selfTest": {
+    "commands": [
+      {
+        "args": [
+          "-i",
+          "no-such-input.mp4",
+          "-f",
+          "null",
+          "-"
+        ],
+        "expectExitCode": 254
+      }
+    ]
+  }
 }

@@ -1,0 +1,482 @@
+{
+  "schemaVersion": 2,
+  "kind": "scrollcase.box.dependency-license-audit",
+  "targetId": "windows-x86_64-cpu",
+  "dependencyLockSha256": "053cdee16bcca4b93ea1b0d9fc40159458c7faf527017d2038eec6e22e4d912b",
+  "packages": [
+    {
+      "name": "aom",
+      "version": "3.14.1",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "bzip2",
+      "version": "1.0.8",
+      "declaredLicense": "bzip2-1.0.6",
+      "source": "conda"
+    },
+    {
+      "name": "ca-certificates",
+      "version": "2026.7.22",
+      "declaredLicense": "ISC",
+      "source": "conda"
+    },
+    {
+      "name": "cairo",
+      "version": "1.18.4",
+      "declaredLicense": "LGPL-2.1-only or MPL-1.1",
+      "source": "conda"
+    },
+    {
+      "name": "dav1d",
+      "version": "1.2.1",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "ffmpeg",
+      "version": "9.0.1",
+      "declaredLicense": "GPL-2.0-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "font-ttf-dejavu-sans-mono",
+      "version": "2.37",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "font-ttf-inconsolata",
+      "version": "3.000",
+      "declaredLicense": "OFL-1.1",
+      "source": "conda"
+    },
+    {
+      "name": "font-ttf-source-code-pro",
+      "version": "2.038",
+      "declaredLicense": "OFL-1.1",
+      "source": "conda"
+    },
+    {
+      "name": "font-ttf-ubuntu",
+      "version": "0.83",
+      "declaredLicense": "LicenseRef-Ubuntu-Font-Licence-Version-1.0",
+      "source": "conda"
+    },
+    {
+      "name": "fontconfig",
+      "version": "2.18.3",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "fonts-conda-ecosystem",
+      "version": "1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "fonts-conda-forge",
+      "version": "1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "freetype",
+      "version": "2.14.3",
+      "declaredLicense": "GPL-2.0-only OR FTL",
+      "source": "conda"
+    },
+    {
+      "name": "fribidi",
+      "version": "1.0.16",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "gdk-pixbuf",
+      "version": "2.44.8",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "glib",
+      "version": "2.88.3",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "glib-tools",
+      "version": "2.88.3",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "graphite2",
+      "version": "1.3.15",
+      "declaredLicense": "LGPL-2.0-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "harfbuzz",
+      "version": "14.4.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "icu",
+      "version": "78.3",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "lame",
+      "version": "4.0",
+      "declaredLicense": "LGPL-2.0-only",
+      "source": "conda"
+    },
+    {
+      "name": "lerc",
+      "version": "4.2.0",
+      "declaredLicense": "Apache-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "libbrotlicommon",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libbrotlidec",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libbrotlienc",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libdeflate",
+      "version": "1.25",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libexpat",
+      "version": "2.8.1",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libffi",
+      "version": "3.7.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libfreetype",
+      "version": "2.14.3",
+      "declaredLicense": "GPL-2.0-only OR FTL",
+      "source": "conda"
+    },
+    {
+      "name": "libfreetype6",
+      "version": "2.14.3",
+      "declaredLicense": "GPL-2.0-only OR FTL",
+      "source": "conda"
+    },
+    {
+      "name": "libglib",
+      "version": "2.88.3",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "libharfbuzz",
+      "version": "14.4.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libharfbuzz-devel",
+      "version": "14.4.0",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libhwy",
+      "version": "1.4.0",
+      "declaredLicense": "Apache-2.0 OR BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libiconv",
+      "version": "1.18",
+      "declaredLicense": "LGPL-2.1-only",
+      "source": "conda"
+    },
+    {
+      "name": "libintl",
+      "version": "0.22.5",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "libintl-devel",
+      "version": "0.22.5",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "libjpeg-turbo",
+      "version": "3.2.0",
+      "declaredLicense": "IJG AND BSD-3-Clause AND Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "libjxl",
+      "version": "0.12.0",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "liblzma",
+      "version": "5.8.3",
+      "declaredLicense": "0BSD",
+      "source": "conda"
+    },
+    {
+      "name": "libmpdec",
+      "version": "4.0.0",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libogg",
+      "version": "1.3.5",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libopus",
+      "version": "1.6.1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libpng",
+      "version": "1.6.58",
+      "declaredLicense": "zlib-acknowledgement",
+      "source": "conda"
+    },
+    {
+      "name": "libpython",
+      "version": "3.14.7",
+      "declaredLicense": "Python-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "librsvg",
+      "version": "2.62.3",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "libsqlite",
+      "version": "3.53.4",
+      "declaredLicense": "blessing",
+      "source": "conda"
+    },
+    {
+      "name": "libtiff",
+      "version": "4.7.2",
+      "declaredLicense": "HPND",
+      "source": "conda"
+    },
+    {
+      "name": "libusb",
+      "version": "1.0.29",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "libvorbis",
+      "version": "1.3.7",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libvulkan-loader",
+      "version": "1.4.357.0",
+      "declaredLicense": "Apache-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "libwebp-base",
+      "version": "1.6.0",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "libxml2",
+      "version": "2.15.3",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libxml2-16",
+      "version": "2.15.3",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "libzlib",
+      "version": "1.3.2",
+      "declaredLicense": "Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "mpg123",
+      "version": "1.33.7",
+      "declaredLicense": "LGPL-2.1-only",
+      "source": "conda"
+    },
+    {
+      "name": "openh264",
+      "version": "2.6.0",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "openssl",
+      "version": "3.6.4",
+      "declaredLicense": "Apache-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "declaredLicense": "Apache-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "pango",
+      "version": "1.58.2",
+      "declaredLicense": "LGPL-2.1-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "pcre2",
+      "version": "10.47",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "pixman",
+      "version": "0.46.4",
+      "declaredLicense": "MIT",
+      "source": "conda"
+    },
+    {
+      "name": "python",
+      "version": "3.14.7",
+      "declaredLicense": "Python-2.0",
+      "source": "conda"
+    },
+    {
+      "name": "python_abi",
+      "version": "3.14",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "sdl2",
+      "version": "2.32.56",
+      "declaredLicense": "Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "sdl3",
+      "version": "3.4.14",
+      "declaredLicense": "Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "svt-av1",
+      "version": "4.2.0",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "tk",
+      "version": "8.6.13",
+      "declaredLicense": "TCL",
+      "source": "conda"
+    },
+    {
+      "name": "tzdata",
+      "version": "2026c",
+      "declaredLicense": "LicenseRef-Public-Domain",
+      "source": "conda"
+    },
+    {
+      "name": "ucrt",
+      "version": "10.0.26100.0",
+      "declaredLicense": "LicenseRef-MicrosoftWindowsSDK10",
+      "source": "conda"
+    },
+    {
+      "name": "vc",
+      "version": "14.5",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "vc14_runtime",
+      "version": "14.51.36247",
+      "declaredLicense": "LicenseRef-MicrosoftVisualCpp2015-2022Runtime",
+      "source": "conda"
+    },
+    {
+      "name": "vcomp14",
+      "version": "14.51.36247",
+      "declaredLicense": "LicenseRef-MicrosoftVisualCpp2015-2022Runtime",
+      "source": "conda"
+    },
+    {
+      "name": "vs2015_runtime",
+      "version": "14.51.36247",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    },
+    {
+      "name": "x264",
+      "version": "1!164.3095",
+      "declaredLicense": "GPL-2.0-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "x265",
+      "version": "3.5",
+      "declaredLicense": "GPL-2.0-or-later",
+      "source": "conda"
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2",
+      "declaredLicense": "Zlib",
+      "source": "conda"
+    },
+    {
+      "name": "zstd",
+      "version": "1.5.7",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "conda"
+    }
+  ]
+}

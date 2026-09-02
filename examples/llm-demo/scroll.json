@@ -22,7 +22,6 @@
   "environment": {
     "PYTHONDONTWRITEBYTECODE": "1"
   },
-  "publishBaseUrl": "https://assets.example.org/boxes",
   "assets": [
     {
       "url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf",

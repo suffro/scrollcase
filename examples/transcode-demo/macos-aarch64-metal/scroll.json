@@ -8,5 +8,19 @@
   "compatibility": {
     "minMacosVersion": "13.0"
   },
-  "condaDependencyLicenseAudit": "examples/transcode-demo/macos-aarch64-metal/conda-licenses.json"
+  "condaDependencyLicenseAudit": "examples/transcode-demo/macos-aarch64-metal/conda-licenses.json",
+  "selfTest": {
+    "commands": [
+      {
+        "args": [
+          "-i",
+          "no-such-input.mp4",
+          "-f",
+          "null",
+          "-"
+        ],
+        "expectExitCode": 254
+      }
+    ]
+  }
 }

@@ -7,9 +7,9 @@
 # Manual only. This publishes public artefacts, and it is worth running whenever the example itself
 # changes. Nothing here runs on a push.
 #
-# Two targets, not three. The demo page sends a reader into a Linux Codespace, so a Linux box is the
-# one that has to exist; macOS is the other machine a maintainer is likely to be holding. Windows
-# would need its own scroll, and adding one is deliberate work rather than a matrix entry.
+# All three targets. Linux is the one that has to exist — the demo page sends a reader into a Linux
+# Codespace — and Windows carries its own scroll because a conda prefix puts executables somewhere
+# else there.
 #
 # On signing: CI builds because a Linux box cannot be built on a maintainer's Mac at all —
 # conda-pack packs the host's own environment — so it signs too, with a key that exists for this one
@@ -51,6 +51,8 @@ jobs:
             target: linux-x86_64-cpu
           - os: macos-latest
             target: macos-aarch64-metal
+          - os: windows-latest
+            target: windows-x86_64-cpu
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -136,8 +138,8 @@ jobs:
           pattern: dataset-demo-box-*
 
       # A box archive must be named for its own SHA-256 and sit beside its release document, because
-      # that is how `verify` finds it. Published flat, that would give four hex names on the release
-      # page and no way to tell which two are yours before downloading them. So each target ships as
+      # that is how `verify` finds it. Published flat, that would give six hex names on the release
+      # page and no way to tell which three are yours before downloading them. So each target ships as
       # one plainly named container: the pair keeps content-addressed names and stays adjacent under
       # `box/`, while the name outside says which machine it is for.
       #
@@ -182,8 +184,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           count=$(ls wrapped/*.zip | wc -l)
-          if [ "$count" -ne 2 ]; then
-            echo "Expected two archives, one per target, found $count" >&2
+          if [ "$count" -ne 3 ]; then
+            echo "Expected three archives, one per target, found $count" >&2
             exit 1
           fi
           # The notes are rewritten on every run, not only at creation: a re-publish that changed

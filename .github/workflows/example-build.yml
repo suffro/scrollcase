@@ -153,13 +153,13 @@ jobs:
           node src/cli.mjs verify "$(release_for hello-box-native)" --self-test
           node src/cli.mjs run "$(release_for hello-box-native)" -- --version
 
-      # The three published demo boxes for the node and native runtimes, on both targets their
-      # scrolls declare. Both, not just macOS: these are the boxes `codon-demo-v1`,
-      # `transcode-demo-v1` and `dataset-demo-v1` ship to the public, and the demo pages send a
-      # reader into a Linux Codespace — so a Linux box that only ever built inside the publishing
-      # workflow would have its first build be the one that goes out signed.
+      # The three published demo boxes for the node and native runtimes, on every target their
+      # scrolls declare — which is now all three. These are the boxes `codon-demo-v1`,
+      # `transcode-demo-v1` and `dataset-demo-v1` ship to the public, so a target that only ever
+      # built inside the publishing workflow would have its first build be the one that goes out
+      # signed. No `if` at all: the step covers the whole matrix, so adding a target to the matrix
+      # adds it here too rather than quietly skipping it.
       - name: Build, verify and run the demo boxes
-        if: matrix.target == 'macos-aarch64-metal' || matrix.target == 'linux-x86_64-cpu'
         shell: bash
         run: |
           set -euo pipefail

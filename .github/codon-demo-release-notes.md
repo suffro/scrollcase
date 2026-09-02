@@ -11,6 +11,7 @@ recipient needs neither Node, nor npm, nor a database.
 | --- | --- |
 | Linux, Intel or AMD | `codon-demo-1.0.0-linux-x86_64-cpu.zip` |
 | macOS, Apple silicon | `codon-demo-1.0.0-macos-aarch64-metal.zip` |
+| Windows, Intel or AMD | `codon-demo-1.0.0-windows-x86_64-cpu.zip` |
 
 Unpacking gives the box under `box/` and this README beside it.
 

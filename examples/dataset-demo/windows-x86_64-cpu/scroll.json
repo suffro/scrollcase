@@ -1,0 +1,14 @@
+{
+  "extends": "../scroll.json",
+  "target": {
+    "platform": "windows",
+    "arch": "x86_64",
+    "accelerator": "cpu"
+  },
+  "condaDependencyLicenseAudit": "examples/dataset-demo/windows-x86_64-cpu/conda-licenses.json",
+  "execution": {
+    "kind": "native-binary",
+    "binary": "venv/Library/bin/h5dump.exe",
+    "defaultArgs": []
+  }
+}

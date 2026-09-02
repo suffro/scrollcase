@@ -12,7 +12,6 @@
   },
   "pixiVersion": "0.73.0",
   "cacheSubdir": "cache/dataset-demo",
-  "publishBaseUrl": "https://assets.example.org/boxes",
   "selfTest": {
     "files": [
       "readings.h5"

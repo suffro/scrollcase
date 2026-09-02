@@ -56,9 +56,9 @@ Open in GitHub Codespaces
 
 > You can find the box's **GitHub release** [here](https://github.com/suffro/scrollcase/releases/tag/transcode-demo-v1).
 
-|macOS (Metal)|Linux (CPU)|
-|--|--|
-|[`macos-aarch64-metal`](https://github.com/suffro/scrollcase/releases/download/transcode-demo-v1/transcode-demo-1.0.0-macos-aarch64-metal.zip)|[`linux-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/transcode-demo-v1/transcode-demo-1.0.0-linux-x86_64-cpu.zip)|
+|macOS (Metal)|Linux (CPU)|Windows (CPU)|
+|--|--|--|
+|[`macos-aarch64-metal`](https://github.com/suffro/scrollcase/releases/download/transcode-demo-v1/transcode-demo-1.0.0-macos-aarch64-metal.zip)|[`linux-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/transcode-demo-v1/transcode-demo-1.0.0-linux-x86_64-cpu.zip)|[`windows-x86_64-cpu`](https://github.com/suffro/scrollcase/releases/download/transcode-demo-v1/transcode-demo-1.0.0-windows-x86_64-cpu.zip)|
 
 The trust key is deliberately not inside the archive — a signature proves nothing if the key travels
 with what it signs:
@@ -89,6 +89,11 @@ A third probe declares `expectExitCode: 254`, which is the point rather than a c
 reports the negative C error number for a missing input, `ENOENT` is 2, and an exit status is one
 byte. The value was measured against the built payload, not assumed — a self-test asserts the
 binary's real contract, not a convention.
+
+That probe is declared in the macOS and Linux scrolls rather than in the base the three share,
+because the one-byte exit status it depends on is a POSIX fact: the format caps `expectExitCode` at
+255, and Windows exit codes are 32-bit. It is a probe the Windows box does not run, rather than one
+it runs weakly — and a good illustration of why a split scroll keeps per-target facts per target.
 
 ## What a native box will not do for you
 

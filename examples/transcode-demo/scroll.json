@@ -12,28 +12,33 @@
   },
   "pixiVersion": "0.73.0",
   "cacheSubdir": "cache/transcode-demo",
-  "publishBaseUrl": "https://assets.example.org/boxes",
   "selfTest": {
     "commands": [
-      { "args": ["-version"] },
       {
         "args": [
-          "-f", "lavfi",
-          "-i", "testsrc=duration=1:size=320x240:rate=10",
-          "-c:v", "libx264",
-          "-f", "null",
-          "-"
+          "-version"
         ]
       },
       {
-        "args": ["-i", "no-such-input.mp4", "-f", "null", "-"],
-        "expectExitCode": 254
+        "args": [
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc=duration=1:size=320x240:rate=10",
+          "-c:v",
+          "libx264",
+          "-f",
+          "null",
+          "-"
+        ]
       }
     ]
   },
   "execution": {
     "kind": "native-binary",
     "binary": "venv/bin/ffmpeg",
-    "defaultArgs": ["-hide_banner"]
+    "defaultArgs": [
+      "-hide_banner"
+    ]
   }
 }

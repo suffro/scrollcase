@@ -6,6 +6,65 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — the `node` and `native` demo boxes are published
+
+- **`codon-demo`, `transcode-demo` and `dataset-demo` are downloadable boxes**, signed by CI under
+  `codon-demo-v1`, `transcode-demo-v1` and `dataset-demo-v1`, for macOS, Linux and Windows. Until
+  now the only boxes anyone could download were the three `python` ones, so the two runtimes version
+  3 added were the two nobody could try without a toolchain.
+
+  Each is verified with `--self-test` and then *run* before it is published: the codon box is asked a
+  real question, the transcode box encodes a synthesised pattern, the dataset box reads the data it
+  ships. A box that starts but answers wrongly does not reach a release.
+
+  They ship `box/` and a README rather than the `run-box.ts` and `run_box.py` templates the three
+  older demo boxes carry. Those templates run a box with no arguments, and `ffmpeg` and `h5dump` with
+  no arguments exit non-zero — three diverging copies to pass one flag each, for demos whose subject
+  is the runtime rather than the consumer API.
+
+- **Each demo page states its runtime**, and the three new ones are grouped in the sidebar under
+  "Other runtimes" — the axis they actually differ on, everything else being a `python` box.
+
+- **The three demos gained Linux and Windows scrolls**, split base-plus-target the way `hello-box`
+  and `llm-demo` already were, with payload files under `shared/` so `codons.csv` and `readings.h5`
+  keep one set of bytes and one pinned hash. A `native` box needs a per-target `execution.binary`:
+  a conda prefix puts `ffmpeg` and `h5dump` under `venv/bin/` on macOS and Linux, and under
+  `venv/Library/bin/` with an `.exe` suffix on Windows.
+
+  `transcode-demo`'s `expectExitCode: 254` probe moved from the shared base into the macOS and Linux
+  scrolls. The format caps `expectExitCode` at 255 because a POSIX exit status is one byte, and
+  Windows exit codes are 32-bit — so it is a probe the Windows box does not run, rather than one it
+  runs weakly. `selfTest.commands` join base-first rather than being replaced, which is why the
+  platform-specific probe has to live in the fragments rather than be subtracted in one.
+
+- `example-build.yml` builds all three demos on every target in its matrix, with no `if` gating the
+  step. Without it the publishing workflow would be the first place a target was ever built, and the
+  first build would be the one that goes out signed.
+
+### Changed — the example scrolls no longer invent a publishing address
+
+- **`publishBaseUrl` is gone from every example scroll.** All seven carried the same placeholder,
+  `https://assets.example.org/boxes`, and no workflow ever overrode it — so every demo box published
+  from this repository signed a link to a host that does not exist. Version 3 made `archive.url` and
+  a channel entry's `releaseManifestUrl` optional precisely so a box that is not published to a URL
+  can say nothing instead of saying something false, and these boxes are distributed as GitHub
+  release assets, found beside their release document rather than by following a link.
+
+  Nothing is lost but the address: an archive is verified by `sha256` and size, and all three
+  consumers locate it next to the release document. `hello-box-native` had already been shipping
+  without one.
+
+### Fixed — the demo workflows honour their own `draft` input
+
+- **`--draft` is now passed when a demo release is replaced, not only when it is created.** The three
+  demo box workflows only ever passed the input to `gh release create`, and every tag they publish
+  under has had a release since July or August — so the create branch was dead, `edit` was the only
+  path taken, and "publish as a draft for review" silently did nothing on every run since. An option
+  that reads like a safety net and cannot act as one is worse than no option at all.
+
+  Its default flips to `false` with it. While the flag was inert `true` was harmless; now it parks a
+  live release as a draft, which on a re-publish takes the public box offline.
+
 ### Changed — npm and crates.io releases publish from a tag
 
 - **`.github/workflows/publish-npm.yml` and `.github/workflows/publish-rust.yml`** release the npm
