@@ -83,28 +83,36 @@ const sidebar = [
         link: "/demos",
         collapsed: true,
         items: [
-          // One axis for the groups — what the demo teaches — and the runtime named on every
-          // entry, including the Python ones.
+          // Grouped by runtime, which is the group name rather than a suffix on every entry.
           //
-          // This list used to group by difficulty, then by subject, then by runtime, in that order,
-          // and the third group was called "Other runtimes". That made `python` the unmarked
-          // default and the two runtimes version 3 added the exception, which is precisely the
-          // assumption a declared `runtime` field exists to remove. Grouping everything by runtime
-          // instead was the other candidate; it was rejected because it buries the two demos a
-          // newcomer should read first inside a bucket named after an implementation detail they
-          // have no opinion about yet.
+          // Two earlier arrangements were wrong in different ways. The first grouped by difficulty,
+          // then by subject, then by runtime — three axes in one list — and called the third group
+          // "Other runtimes", making `python` the unmarked default and the two runtimes version 3
+          // added the exception. That is precisely the assumption a declared `runtime` field exists
+          // to remove. The second kept subject groups and appended "· python" and friends to each
+          // entry, which fixed the defaulting but wrapped the longer names onto two lines in a
+          // sidebar this narrow.
           //
-          // Alphabetical within each group, so no runtime ends up at the top by arrangement.
-          { text: 'Run and build', items: [
-            { text: 'Box development · python', link: '/demos/box-dev-demo' },
-            { text: 'Box run · python', link: '/demos/box-run-demo' },
-          ] },
-          { text: 'Real workloads', items: [
-            { text: 'Dataset · native', link: '/demos/dataset-demo' },
-            { text: 'Genetic code · node', link: '/demos/codon-demo' },
-            { text: 'Local LLM · python', link: '/demos/llm-box-demo' },
-            { text: 'Sentiment analysis · python', link: '/demos/sentiment-demo' },
-            { text: 'Transcode · native', link: '/demos/transcode-demo' },
+          // Naming the runtime once, as the group, fixes both: no entry carries a suffix, and no
+          // runtime is a default because each is a peer heading. Alphabetical between the groups
+          // and inside them, so nothing reaches the top by arrangement — which also happens to put
+          // the two demos that teach the workflow at the head of their own group.
+          //
+          // The section index is where a newcomer lands (`link` above), and it lists all seven as
+          // cards with the runtime on each, so the reading order this grouping does not express is
+          // carried there instead.
+          { text: 'native', items: [
+            { text: 'Dataset', link: '/demos/dataset-demo' },
+            { text: 'Transcode', link: '/demos/transcode-demo' },
+          ]},
+          { text: 'node', items: [
+            { text: 'Genetic code', link: '/demos/codon-demo' },
+          ]},
+          { text: 'python', items: [
+            { text: 'Box development', link: '/demos/box-dev-demo' },
+            { text: 'Box-run', link: '/demos/box-run-demo' },
+            { text: 'Local LLM', link: '/demos/llm-box-demo' },
+            { text: 'Sentiment analysis', link: '/demos/sentiment-demo' },
           ]},
         ]
       }
