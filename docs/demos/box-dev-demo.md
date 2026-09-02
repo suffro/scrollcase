@@ -7,30 +7,18 @@ runtime: python
 
 # Box development demo
 
-<big> **Build and verify a real box from an empty project** </big>
+<big> **Build, verify and run a real box from an empty project** </big>
 
 > <small> Runtime: **`python`** — a stdlib-only Python 3.11 environment inside the box. </small>
 
 ## Try it now
 
-See how to initialize, lock, sign, build and verify a Scrollcase box with our guided scenario, all in a disposable cloud Linux environment. Every Scrollcase command and its result are shown in the terminal.
+This is the whole path end to end — from an empty directory to a signed box you built and then ran,
+with nothing prepared in advance. If you only want to run a box somebody else signed, that is the
+shorter [box-run demo](/demos/box-run-demo).
 
-<Button
-  href="https://killercoda.com/suffro/scenario/build-box"
-  external
->
-
-Start the guided demo
-
-</Button>
-
-> <small> All from your browser, no setup needed </small>
-
----
-
-**Prefer a real development environment?**
-
-Open the demo in **GitHub Codespaces** to get an instant VM with a clean repository and an easy walktrough:
+Open it in **GitHub Codespaces** for an instant VM with a clean repository and a walkthrough to
+follow:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-build-demo-codespace?quickstart=1"
@@ -41,8 +29,8 @@ Open in GitHub Codespaces
 
 </Button>
 
-> <small>*Both paths perform a real Linux x86_64 CPU build. They download the project toolchain and
-> locked Python environment, so allow a few minutes. Codespaces runs on your GitHub account.*</small>
+> <small>*A real Linux x86_64 CPU build. It downloads the project toolchain and the locked Python
+> environment, so allow a few minutes. Codespaces runs on your GitHub account.*</small>
 
 ## What the demo does
 
@@ -51,18 +39,19 @@ and a small entry point, keeping the result easy to understand while still exerc
 pipeline:
 
 ```text
-init → lock → commit → keygen → build → verify
+init → lock → commit → keygen → build → verify → run
 ```
 
-The guided Killercoda scenario groups that path into four short steps:
+Which is five short steps:
 
 1. install the CLI and initialize the project-local toolchain;
 2. resolve `pixi.lock` and commit the generated project;
 3. create a local signing key and build the box;
-4. verify the signed release and run its self-test with the box's own Python.
+4. verify the signed release and run its self-test with the box's own Python;
+5. run the box, and watch its own interpreter execute the entry point.
 
-Nothing is prebuilt. The background setup only prepares the disposable Linux machine, Node.js and
-Git; the Scrollcase commands and their output remain visible.
+Nothing is prebuilt. The Codespace only prepares the disposable Linux machine, Node.js and Git; the
+Scrollcase commands and their output remain yours to type and read.
 
 ## Follow it in Codespaces
 
@@ -79,7 +68,10 @@ git commit -m "Initialize Scrollcase example"
 
 scrollcase keygen
 scrollcase build example-box/linux-x86_64-cpu
-scrollcase verify .scrollcase/dist/boxes/example-box/1.0.0/linux-x86_64-cpu/*.release.json --self-test
+
+release=.scrollcase/dist/boxes/example-box/1.0.0/linux-x86_64-cpu/*.release.json
+scrollcase verify $release --self-test
+scrollcase run    $release
 ```
 
 Redirecting `init` from `/dev/null` keeps this walkthrough non-interactive: the required toolchain
@@ -96,12 +88,15 @@ under the ignored `.scrollcase/` directory. Production signing and key rotation 
 custody — see [Signing & Key Custody](/guides/signing-and-custody).
 :::
 
-## What verification proves
+## What the last two commands prove
 
-The final command checks the trusted signature, archive size and SHA-256, safe entry names, and
-agreement between the signed release and the box manifest. `--self-test` then extracts the box to a
-temporary directory and exercises its declared imports with the Python interpreter contained in
-the box.
+`verify` checks the trusted signature, archive size and SHA-256, safe entry names, and agreement
+between the signed release and the box manifest. `--self-test` then extracts the box to a temporary
+directory and exercises its declared imports with the Python interpreter contained in the box.
+
+`run` closes the loop: it repeats those checks, extracts to a temporary directory, and executes the
+entry point with that same interpreter — the box you just built, doing what it was built to do. This
+is the end the [box-run demo](/demos/box-run-demo) starts from, on a box somebody else signed.
 
 At that point you have produced the two files a consumer needs:
 
@@ -116,7 +111,6 @@ them side by side so `verify`, `run`, or a consumer API can resolve the archive 
 
 ## Go further
 
-- Want only to verify and execute an already-built box? Try the [Box-run demo](/demos/box-run-demo).
 - To create real project metadata, targets, assets, and execution settings, use
   [`scrollcase new scroll`](/reference/cli#new).
 - `doctor` and `audit` are intentionally outside this short demo; see the complete

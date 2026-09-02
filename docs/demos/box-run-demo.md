@@ -13,24 +13,12 @@ runtime: python
 
 ## Try it now
 
-See how to run a Scrollcase box with our guided scenario, all in a disposable cloud Linux environment. Every Scrollcase command and its result are shown in the terminal.
+This demo is only about **running** a box someone else built and signed. Nothing is compiled,
+nothing is resolved, and no toolchain is installed — which is the point: consuming a box asks far
+less of a machine than building one.
 
-<Button
-  href="https://killercoda.com/suffro/scenario/hello-box"
-  external
->
-
-Start the guided demo
-
-</Button>
-
-> <small> All from your browser, no setup needed </small>
-
----
-
-#### Prefer a real development environment?
-
-Open the demo in **GitHub Codespaces** to get an instant VM with the repository ready to run and an easy walktrough:
+Open it in **GitHub Codespaces** for an instant VM with the repository ready and a walkthrough to
+follow:
 
 <Button
   href="https://codespaces.new/suffro/scrollcase-run-demo-codespace?quickstart=1"
@@ -43,6 +31,8 @@ Open in GitHub Codespaces
 
 > <small> *Runs the Linux x86_64 CPU demo using your GitHub Codespaces account.* </small>
 
+To go the whole way instead — from an empty project to a box you built yourself — see the
+[end-to-end demo](/demos/box-dev-demo).
 
 ## Local setup
 
