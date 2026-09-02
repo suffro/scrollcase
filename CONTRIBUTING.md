@@ -95,21 +95,40 @@ git config --local push.followTags true
 The tag is the only link between a version published on npm and the commit it was built from;
 without it nobody can check out a released version from the public repository or diff two of them.
 
-**This has now happened twice.** Every tag from `v0.1.3` to `v0.5.0` was missing from GitHub before
-being backfilled; `v0.8.3`, `v0.9.0` and `v0.9.1` were found local-only on 2026-08-14 and backfilled
-the same way. Both times the branch had been pushed and the tags had not, and nothing anywhere
-noticed — the repository looks healthy from a working clone that already has them. No test can catch
-this, because the suite must not reach the network; `git ls-remote --tags origin` is the check, and
+**This has now happened three times.** Every tag from `v0.1.3` to `v0.5.0` was missing from GitHub
+before being backfilled; `v0.8.3`, `v0.9.0` and `v0.9.1` were found local-only on 2026-08-14 and
+backfilled the same way; `v0.12.0` was found local-only on 2026-09-02 and backfilled with the 1.0.0
+release. Every time the branch had been pushed and the tags had not, and nothing anywhere noticed —
+the repository looks healthy from a working clone that already has them. No test can catch this,
+because the suite must not reach the network; `git ls-remote --tags origin` is the check, and
 `push.followTags` is what removes the need for it.
 
-Publishing to npm itself is the maintainer's call and is never automated from here.
+### Pushing the tag is what publishes
+
+`.github/workflows/publish-npm.yml` runs on a `v<version>` tag. It refuses a tag that disagrees with
+`package.json`, runs the suite and the type check, packs the tarball, and publishes **that tarball**
+through npm Trusted Publishing — so what reaches npm is the artefact the tests ran against, built
+from a clean checkout of the tag rather than from whatever a laptop happened to have in its working
+tree.
+
+The release decision is still the maintainer's. It is the tag push now, not `npm publish`, which is
+where the PyPI release has had it since 0.4.0. Two consequences worth holding on to:
+
+- **`git push --follow-tags` is a publishing command.** It was housekeeping when tags were only a
+  record. Know which tags are about to travel before running it; `git push --dry-run --follow-tags
+  origin main` lists them without sending anything.
+- **Backfilling an old `v<version>` tag now starts a release of that old version.** The version
+  check passes — a checkout of `v0.11.3` really does contain `0.11.3` — so the refusal comes from
+  npm, which will not replace a version that already exists. It fails loudly rather than doing
+  damage, but it is a failed release run for something that was only meant to be a bookmark.
+
+Do not run `npm publish` by hand. It uploads the working tree, which is the thing this replaced.
 
 ## Python releases
 
 The Python consumer has an independent version and tag namespace. To prepare a release:
 
-1. update `project.version` in `python/pyproject.toml` and the version pinned in the generated
-   Python consumer template;
+1. update `project.version` in `python/pyproject.toml`;
 2. run every Python verification command above and inspect both distribution artifacts;
 3. configure the `pypi` GitHub environment as the PyPI Trusted Publisher environment for
    `scrollcase-consumer`;
@@ -118,6 +137,28 @@ The Python consumer has an independent version and tag namespace. To prepare a r
 `.github/workflows/publish-python.yml` rejects a tag/version mismatch, rebuilds and inspects the
 wheel and sdist, then publishes them through PyPI Trusted Publishing. Do not upload the artifacts
 manually or reuse the npm `v<version>` tag namespace.
+
+## Rust releases
+
+The crate has an independent version and tag namespace too, for the same reason the Python package
+does: `rust/Cargo.toml` moves on its own, and a bare `v<version>` tag would make one tag mean two
+releases. To prepare one:
+
+1. update `package.version` in `rust/Cargo.toml`;
+2. run every Rust verification command above, including `cargo package`;
+3. configure the `crates-io` GitHub environment as the crates.io Trusted Publisher environment for
+   `scrollcase-consumer`;
+4. create and push the exact tag `rust-v<package.version>`.
+
+`.github/workflows/publish-rust.yml` rejects a tag/version mismatch, checks the copied fixtures and
+schemas, runs the suite, clippy and `cargo package`, then publishes through crates.io Trusted
+Publishing. Unlike the npm and PyPI releases it cannot publish the artefact the verification job
+built — `cargo publish` packages from a source tree every time and has no upload-this-file mode — so
+it checks the tag out again and lets `cargo publish` do its own verification.
+
+Everything from `0.1.0` to `0.3.2` was published by hand, before this workflow and before the tag
+namespace existed. Those versions have no tag, so there is no commit recorded for any of them; do
+not backfill one, because pushing a `rust-v*` tag now starts a release.
 
 The conda-forge package is bootstrapped only after the PyPI release exists: submit its exact sdist
 URL and SHA-256 through conda-forge's staged contribution repository. After acceptance, the

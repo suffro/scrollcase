@@ -6,6 +6,28 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — npm and crates.io releases publish from a tag
+
+- **`.github/workflows/publish-npm.yml` and `.github/workflows/publish-rust.yml`** release the npm
+  package and the Rust crate the way `publish-python.yml` has released the PyPI package since 0.4.0:
+  a pushed tag runs the verification, and the registry is authenticated through Trusted Publishing
+  rather than a stored token. `v<version>` publishes npm, `rust-v<version>` publishes the crate —
+  a namespace the crate never had, so every version up to `0.3.2` has no tag and no recorded commit.
+
+  What changes is not who decides. `npm publish` uploaded a maintainer's *working tree*, which can
+  differ from the tag in ways nothing checked and nobody else could reproduce; the workflow packs a
+  clean checkout of the tag and publishes the exact tarball its tests ran against. The decision
+  moved from typing a command to pushing the tag, which is where the PyPI release already had it.
+
+  The consequence is worth stating plainly, and both `CONTRIBUTING.md` and `AGENTS.md` now do:
+  `git push --follow-tags` is a publishing command, and backfilling an old `v<version>` tag starts a
+  release of that old version.
+
+- **`scripts/check-release-version.mjs`** refuses a release tag that disagrees with the manifest it
+  claims to release, before anything is built — the guard `python/scripts/check_release_version.py`
+  already gave PyPI, for the two manifests a Node script can read. A published version is never
+  replaced, only yanked, so a mistyped tag is not a mistake worth discovering afterwards.
+
 ## [1.0.0] — 2026-09-02
 
 ### Added — the `node` and `native` runtimes

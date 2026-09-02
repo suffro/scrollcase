@@ -1,0 +1,84 @@
+# Publishes the Rust crate when a `rust-v<version>` tag is pushed.
+#
+# The crate had no tag namespace at all before this: every release to crates.io from 0.1.0 to 0.3.2
+# went out by hand, and nothing in the repository recorded which commit produced any of them. The
+# prefix mirrors `python-v<version>`, for the same reason that one exists — the crate has its own
+# version line, independent of the npm package, and reusing the bare `v<version>` namespace would
+# make one tag mean two releases.
+#
+# Same shape as `publish-python.yml` and `publish-npm.yml`, with one deliberate difference noted at
+# the publish job.
+name: Publish Rust crate
+
+on:
+  push:
+    tags:
+      - "rust-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Verify the crate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # First, before anything is built: a tag that disagrees with `Cargo.toml` would publish a
+      # version nobody chose, and crates.io never replaces a published version, only yanks it.
+      - run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
+
+      # The crate carries its own copies of the fixtures and schemas, because a published crate
+      # cannot read files outside itself. Releasing a crate whose copies had drifted would ship one
+      # that disagrees with the contract it claims to mirror.
+      - run: node rust/scripts/sync-assets.mjs --check
+
+      # No `--locked`: the crate is a library and ships no committed `Cargo.lock`, so every one of
+      # these commands has to be free to write one. Consuming applications pin their own versions.
+      - run: cargo test --all-targets
+        working-directory: rust
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: rust
+      - run: cargo package
+        working-directory: rust
+
+  publish:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/scrollcase-consumer
+    permissions:
+      # As in `publish-npm.yml`: a short-lived signed token proving which workflow is asking,
+      # exchanged for permission to publish this one crate. No stored registry token.
+      id-token: write
+    steps:
+      # Unlike the npm and PyPI releases, this job cannot be handed the artefact the build job
+      # produced. `cargo publish` has no "upload this .crate" mode — it packages from a source tree
+      # every time — so the tree is checked out again and packaged again. `cargo publish` verifies
+      # that the packaged crate compiles before it uploads anything, and the build job above has
+      # already run the tests, clippy and the asset check against this same tag.
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # Exchanges the GitHub OIDC token for a crates.io token that expires in thirty minutes.
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - run: cargo publish
+        working-directory: rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

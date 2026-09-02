@@ -82,9 +82,15 @@ These actions are expensive, irreversible, or both. **Never perform one from mem
 inference — read back the exact command and its inputs first, and verify the result immediately
 afterwards.**
 
-- **`npm publish`, `cargo publish` and a PyPI upload are public and irreversible.** A published
-  version is never replaced, only yanked, and a yanked one stays downloadable. Each is the
-  maintainer's call, never an agent's.
+- **Publishing is public and irreversible.** A published version is never replaced, only yanked, and
+  a yanked one stays downloadable. It is the maintainer's call, never an agent's.
+
+  **All three registries now publish from a pushed tag**, so the dangerous command is `git push`,
+  not `npm publish`. `v<version>` releases to npm, `python-v<version>` to PyPI, and
+  `rust-v<version>` to crates.io; `git push --follow-tags` carries annotated tags along with a
+  branch and can start a release without the word "publish" appearing anywhere. Check what is about
+  to travel — `git push --dry-run --follow-tags origin main` — and never push a release tag on your
+  own initiative, including an old one being backfilled as a record.
 - **Force-pushing or rewriting history** breaks every existing clone, and GitHub keeps the old
   objects reachable by SHA afterwards — a rewrite does not un-publish anything by itself. Only on an
   explicit instruction, and record the pre-rewrite ref first.

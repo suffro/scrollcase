@@ -1,0 +1,99 @@
+# Publishes the npm package when a `v<version>` tag is pushed.
+#
+# Modelled on `publish-python.yml`, which has done this for the PyPI package since 0.4.0. The npm
+# release was the odd one out: it went out from a maintainer's laptop with `npm publish`, which
+# uploads the *working tree* — a tree that can differ from the tag in ways nothing checks, and that
+# nobody else can reproduce. This publishes a fresh checkout of the tag, and publishes the exact
+# artefact the tests ran against.
+#
+# The decision to release is still the maintainer's. It moved from typing `npm publish` to pushing
+# the tag, which is where it already lived for PyPI.
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build npm package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # First, before anything is built: the tag is the only thing this run was told, and a tag that
+      # disagrees with `package.json` would publish a version nobody chose. A published version is
+      # never replaced, only yanked.
+      - run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
+
+      # What `prepublishOnly` would have run locally. It is spelled out here instead because
+      # publishing a tarball skips the pack lifecycle, and because a gate nobody can see in the log
+      # is a gate nobody checks.
+      - run: npm test
+      - run: npm run types:check
+
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: scrollcase-*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/scrollcase
+    permissions:
+      # Lets the job ask GitHub for a short-lived signed token proving which workflow, in which
+      # repository, is asking. npm trades that for permission to publish this one package, for this
+      # one run. No long-lived token exists to be stolen — not on a laptop, not in a repository
+      # secret. The `npm` environment above is the other half: npm is configured to trust this
+      # workflow *in that environment*, so the trust is not repository-wide.
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Trusted publishing needs npm 11.5.1 or later, which is newer than the npm bundled with some
+      # Node 24 patch releases. Pinning the floor rather than the exact version keeps this from
+      # going stale while still refusing an npm too old to authenticate this way.
+      - run: npm install -g npm@^11.5.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: dist
+
+      # The tarball the build job tested, not a re-resolved tree. Provenance is attached
+      # automatically when publishing this way, so there is no `--provenance` flag to forget.
+      #
+      # The glob is resolved and counted rather than passed straight to npm: `npm publish` given two
+      # paths would publish the first and say nothing about the second, and given none would fall
+      # back to publishing the current directory — which here is an empty runner, not the package.
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(dist/scrollcase-*.tgz)
+          if [ ${#tarballs[@]} -ne 1 ]; then
+            echo "Expected exactly one packed tarball, found ${#tarballs[@]}:" >&2
+            printf '  %s\n' "${tarballs[@]}" >&2
+            exit 1
+          fi
+          npm publish "${tarballs[0]}"
