@@ -2,6 +2,7 @@
 title: Local LLM
 description: Build a real use-case box with SmolLM2-1.7B-Instruct, a language model that runs with no network, no API key and no account.
 outline: [2,3]
+runtime: python
 ---
 
 # Local LLM demo box

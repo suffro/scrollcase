@@ -55,6 +55,12 @@ const currentSectionPages = computed(() => {
         class="subpage-card"
       >
         <span class="subpage-title-text">{{ subPage.title }}</span>
+        <!--
+          The runtime, where a page declares one. Every demo declares it, including the Python
+          ones: a badge that appeared only on `node` and `native` would make Python the unmarked
+          default, which is the assumption the runtime field exists to remove.
+        -->
+        <span v-if="subPage.frontmatter?.runtime" class="subpage-runtime">{{ subPage.frontmatter.runtime }}</span>
         <span class="subpage-icon">→</span>
       </a>
     </div>
@@ -112,6 +118,21 @@ const currentSectionPages = computed(() => {
   transition: color 0.25s;
 }
 
+/* Pushed to the right of the title, before the arrow, so the cards line up whatever the name. */
+.subpage-runtime {
+  margin-left: auto;
+  margin-right: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 999px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--vp-c-text-3);
+  white-space: nowrap;
+  transition: color 0.25s, border-color 0.25s;
+}
+
 .subpage-icon {
   font-size: 16px;
   color: var(--vp-c-text-3);
@@ -126,6 +147,11 @@ const currentSectionPages = computed(() => {
 
 .subpage-card:hover .subpage-title-text {
   color: var(--vp-c-brand-1);
+}
+
+.subpage-card:hover .subpage-runtime {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
 }
 
 .subpage-card:hover .subpage-icon {

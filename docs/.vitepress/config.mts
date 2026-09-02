@@ -83,21 +83,28 @@ const sidebar = [
         link: "/demos",
         collapsed: true,
         items: [
-          { text: 'Basic demos', items: [
-            { text: 'Box run', link: '/demos/box-run-demo' },
-            { text: 'Box development', link: '/demos/box-dev-demo' },
+          // One axis for the groups — what the demo teaches — and the runtime named on every
+          // entry, including the Python ones.
+          //
+          // This list used to group by difficulty, then by subject, then by runtime, in that order,
+          // and the third group was called "Other runtimes". That made `python` the unmarked
+          // default and the two runtimes version 3 added the exception, which is precisely the
+          // assumption a declared `runtime` field exists to remove. Grouping everything by runtime
+          // instead was the other candidate; it was rejected because it buries the two demos a
+          // newcomer should read first inside a bucket named after an implementation detail they
+          // have no opinion about yet.
+          //
+          // Alphabetical within each group, so no runtime ends up at the top by arrangement.
+          { text: 'Run and build', items: [
+            { text: 'Box development · python', link: '/demos/box-dev-demo' },
+            { text: 'Box run · python', link: '/demos/box-run-demo' },
           ] },
-          { text: 'AI models', items: [
-            { text: 'Local LLM', link: '/demos/llm-box-demo' },
-            { text: 'Sentiment Analysis', link: '/demos/sentiment-demo' }
-          ]},
-          // Grouped by runtime rather than by subject, because that is the axis these three differ
-          // on: everything above them is a `python` box, and what they demonstrate is that a box
-          // can start something else, or start no interpreter at all.
-          { text: 'Other runtimes', items: [
-            { text: 'Genetic code (node)', link: '/demos/codon-demo' },
-            { text: 'Transcode (native)', link: '/demos/transcode-demo' },
-            { text: 'Dataset (native)', link: '/demos/dataset-demo' }
+          { text: 'Real workloads', items: [
+            { text: 'Dataset · native', link: '/demos/dataset-demo' },
+            { text: 'Genetic code · node', link: '/demos/codon-demo' },
+            { text: 'Local LLM · python', link: '/demos/llm-box-demo' },
+            { text: 'Sentiment analysis · python', link: '/demos/sentiment-demo' },
+            { text: 'Transcode · native', link: '/demos/transcode-demo' },
           ]},
         ]
       }

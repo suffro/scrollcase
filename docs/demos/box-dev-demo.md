@@ -2,6 +2,7 @@
 title: Box development
 description: Quick demo to learn how to develop a box with Scrollcase.
 outline: [2,3]
+runtime: python
 ---
 
 # Box development demo

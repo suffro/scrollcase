@@ -2,6 +2,7 @@
 title: Box-run
 description: Try a box run, without installing a toolchain.
 outline: [2,3]
+runtime: python
 ---
 
 # Box-run demo

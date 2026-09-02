@@ -2,6 +2,7 @@
 title: Sentiment analysis
 description: Build a real use-case box with DistilBERT sentiment analysis model.
 outline: [2,3]
+runtime: python
 ---
 
 # Sentiment Analysis demo box

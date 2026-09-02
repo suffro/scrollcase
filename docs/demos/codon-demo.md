@@ -2,6 +2,7 @@
 title: Genetic code
 description: A node box that ships reference data and the tool that queries it, signed together.
 outline: [2,3]
+runtime: node
 ---
 
 # Genetic code demo box

@@ -2,6 +2,7 @@
 title: Dataset
 description: A native box that fixes the reader, so a published inspection is a repeatable one.
 outline: [2,3]
+runtime: native
 ---
 
 # Dataset demo box
