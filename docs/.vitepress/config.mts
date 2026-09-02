@@ -159,6 +159,7 @@ const sidebar = [
 // current, with every link moved under the prefix — frozen for the same reason the pages under
 // `docs/v2/` are.
 const v2Sidebar = [
+  { text: 'Migrating to v3', link: '/v2/guides/migrating-to-v3' },
   {
     text: 'v2 Getting Started',
     link: '/v2/getting-started',
