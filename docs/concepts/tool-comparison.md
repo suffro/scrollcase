@@ -129,7 +129,7 @@ verify and consume it through a defined contract
 
 ### Scrollcase vs Nix
 
-Nix is the strongest reproducibility model on this page, and the comparison is not about capability. It treats a package as a function of its inputs, reproduces a complete dependency closure from pinned inputs, and covers ground Scrollcase never touches: building the packages themselves, development shells, whole-system configuration, signed binary caches. Almost anything Scrollcase guarantees about a dependency set, Nix can express too, and usually more rigorously.
+Nix is the strongest reproducibility model on this page, and the comparison is not about capability. It treats a package as a function of its inputs, reproduces a complete dependency closure from pinned inputs, and covers ground Scrollcase never touches: building the packages themselves, development shells, whole-system configuration, signed binary caches. Almost anything Scrollcase guarantees about a dependency set, Nix can express too.
 
 Two things differ: where the reproducibility lives once the artifact reaches a user, and how much model you have to adopt to get there.
 
