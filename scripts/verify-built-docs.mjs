@@ -259,6 +259,18 @@ for (const [route, file] of pages) {
       : `${route} is deprecated documentation and says so nowhere on the page.`);
   }
 
+  // The row that hands the page to a language model shares one slot with the notice above, and a
+  // slot holding two components is one edit away from holding one again. Only the empty row is in
+  // this HTML — the control inside it needs a browser to read the twin's address — so the row is
+  // what there is to check, and its absence is exactly the regression worth catching.
+  //
+  // The home page is exempt because it renders VitePress's home layout, which has no `doc-before`
+  // slot at all: there is no prose there to copy, and its twin is the llms.txt index rather than a
+  // page. Every route that has a document has the row.
+  if (route !== '/' && !html.includes('class="page-actions"')) {
+    throw new Error(`${route} renders no page actions row; the page cannot be copied or opened as Markdown.`);
+  }
+
   const menus = [...html.matchAll(/<nav\b[^>]*class="VPNav(?:Bar|Screen)Menu[\s\S]*?<\/nav>/g)]
     .map((match) => match[0]);
   // Found by writing this check against the wrong attribute order and watching it pass on markup it
@@ -311,7 +323,7 @@ if (panelTags.filter((tag) => !tag.includes('style="display:none;"')).length !==
 
 console.log(
   `Verified built privacy route, ${schemaNames.length} schemas, platform tab semantics, `
-  + `the API catalogue, the version switch, navbar menu and deprecation notice on `
+  + `the API catalogue, the version switch, navbar menu, page actions and deprecation notice on `
   + `${checkedSwitches} built pages, `
   + `and canonical, Markdown twin, llms.txt and llms-full.txt coverage `
   + `of ${routes.length} pages.`,

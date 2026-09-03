@@ -11,6 +11,7 @@ import Spacer from './Spacer.vue'
 import SubPagesList from './SubPagesList.vue'
 import VersionSwitch from './VersionSwitch.vue'
 import DeprecationNotice from './DeprecationNotice.vue'
+import PageActions from './PageActions.vue'
 import './custom.css'
 
 export default {
@@ -32,10 +33,13 @@ export default {
     return h(DefaultTheme.Layout, null, {
       'nav-bar-content-after': () => h(VersionSwitch),
       'nav-screen-content-after': () => h(VersionSwitch),
-      // Declared for every page; the component shows itself only under `/v2/`. Registering it here
+      // Declared for every page; the notice shows itself only under `/v2/`. Registering it here
       // rather than writing a block into each deprecated page is what makes it impossible to forget
       // on one, and what keeps the copied pages byte-identical to what version 2 published.
-      'doc-before': () => h(DeprecationNotice),
+      //
+      // The order is the reading order: on a deprecated page the warning is passed before anything
+      // else, including the control that would hand that page to a model.
+      'doc-before': () => [h(DeprecationNotice), h(PageActions)],
     })
   },
   enhanceApp({ app }) {

@@ -41,6 +41,29 @@ All notable changes to Scrollcase are documented here. The format follows
   step. Without it the publishing workflow would be the first place a target was ever built, and the
   first build would be the one that goes out signed.
 
+### Added — every documentation page can be handed to a language model
+
+- **Two menus above each page's H1, `Markdown` and `Ask an AI`.** The first offers the page's
+  Markdown twin copied or opened; the second opens Claude, ChatGPT, Mistral or Perplexity with a
+  prompt already in the box. The twins and the content negotiation that serve them have been there
+  since the site published `llms.txt`; nothing on the page said so, so the reader who would have
+  used them had to know they existed.
+
+  Two menus rather than one control with a primary action: the reader wants either the file or a
+  model, and answering that first keeps each list short enough to read at a glance — and stops a
+  button from acting before they have said which of the two they meant.
+
+- **`Copy prompt` is the last entry**, and it exists so the list of four is not a closed one: it
+  copies the same instruction and the same URL the four links carry, for any model that is not
+  among them. Google is not among them because Gemini has no stable way to arrive with a prompt
+  already filled, and a shortcut that opens an empty chat is worse than no shortcut.
+
+- **`Copy` leads its menu, and it copies the content rather than a link.** A model asked to fetch a
+  URL sometimes answers without having read it; the bytes in the clipboard have no such failure,
+  and they are also what serves a local model, a chat with egress blocked, and a paste into an
+  editor. The control reads the twin's address from the `<link rel="alternate">` the page already
+  carries rather than deriving it a fourth time.
+
 ### Changed — the example scrolls no longer invent a publishing address
 
 - **`publishBaseUrl` is gone from every example scroll.** All seven carried the same placeholder,
