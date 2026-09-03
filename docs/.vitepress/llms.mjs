@@ -272,6 +272,10 @@ const yamlString = (value) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\
  * holding a box whose documents carry `schemaVersion`, and comparing that number is how it works
  * out which of these two manuals is the one describing what it has.
  *
+ * Only `current-schema-version` is emitted here. Which version a page documents is not a property
+ * of being deprecated — every page has one — so `schema-version` is written for all of them in
+ * `writePageFiles`, and the comparison works from whichever side the reader happens to be on.
+ *
  * The versions are integers, not `v2` strings, because that is how the format itself spells them:
  * `"schemaVersion": 2` in every document version 2 ever signed. A reader comparing this field
  * against a box in hand should not have to strip a prefix off one side of the comparison first.
@@ -290,7 +294,6 @@ function deprecationNotice(url, mirrored, schemaVersion) {
   return {
     fields: [
       'deprecated: true',
-      `schema-version: ${was}`,
       `current-schema-version: ${schemaVersion}`,
       ...(mirrored ? [`current: ${url}`] : []),
     ],
@@ -329,6 +332,12 @@ async function writePageFiles({ outDir, srcDir, hostname, index, siteDescription
       `title: ${yamlString(page.title)}`,
       ...(description ? [`description: ${yamlString(description)}`] : []),
       `source: ${hostname}${page.route}`,
+      // Which box format this manual describes, on every page rather than only on the superseded
+      // ones. A reader holding a box compares its documents' `schemaVersion` against this to find
+      // out whether the page in front of it describes what it has — and that comparison was only
+      // possible from the deprecated side, where the number was emitted as part of the notice. On
+      // a current page it had to be inferred from a field's absence, which is not an answer.
+      `schema-version: ${notice ? DEPRECATED_SCHEMA_VERSION : schemaVersion}`,
       ...(notice ? notice.fields : []),
       '---',
       '',

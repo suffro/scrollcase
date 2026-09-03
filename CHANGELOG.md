@@ -58,6 +58,12 @@ All notable changes to Scrollcase are documented here. The format follows
   among them. Google is not among them because Gemini has no stable way to arrive with a prompt
   already filled, and a shortcut that opens an empty chat is worse than no shortcut.
 
+- **Every Markdown twin now says which box format it documents.** `schema-version` was written only
+  into the twins of the deprecated pages, as part of their notice, so the comparison it exists for
+  — a reader holding a box matches its documents' `schemaVersion` against the manual in front of it
+  — worked from one side only. On a current page the version had to be inferred from a field's
+  absence, which is not an answer, and now those twins carry `schema-version: 3` beside `source`.
+
 - **`Copy` leads its menu, and it copies the content rather than a link.** A model asked to fetch a
   URL sometimes answers without having read it; the bytes in the clipboard have no such failure,
   and they are also what serves a local model, a chat with egress blocked, and a paste into an

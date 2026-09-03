@@ -121,6 +121,13 @@ for (const url of routes) {
   if (markdown.includes('\ndeprecated: true\n')) {
     throw new Error(`${twin} is marked deprecated, but ${url} is the current documentation.`);
   }
+  // Which box format the page documents, checked against the package rather than a literal for the
+  // same reason the deprecated twins are below: the day schema version 4 ships, a 3 left behind
+  // here is a lie told to every machine reading the file, and nothing else in the build sees it.
+  const documents = markdown.match(/\nschema-version: (\S+)/)?.[1];
+  if (Number(documents) !== packageSchemaVersion) {
+    throw new Error(`${twin} says it documents schema version ${documents ?? 'nothing'}; package.json says ${packageSchemaVersion}.`);
+  }
 }
 
 // The deprecated pages' own twins, which the loop above cannot reach: those routes are kept out of
