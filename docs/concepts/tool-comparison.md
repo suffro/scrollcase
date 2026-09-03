@@ -10,7 +10,7 @@ Complete comparison between Scrollcase and other packaging tools, understanding 
 
 **Scrollcase** primary goal is:
 
-> “Build a target-specific scientific models or AI runtime once, publish it as an immutable signed artifact, and let another application verify, install, and run it without resolving dependencies or requiring a container runtime.”
+> “Build a target-specific program, scientific model or AI runtime once, publish it as an immutable signed artifact, and let another application verify, install, and run it without resolving dependencies or requiring a container runtime.”
 
 ## Tools and decision guide
 
