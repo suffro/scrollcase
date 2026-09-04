@@ -1,5 +1,15 @@
 # AGENTS.md
 
+<!-- syngraphe:start version="1" -->
+<!-- Managed by Syngraphe. Do not edit this block manually. -->
+
+This repository maintains shared project context in `.context/`.
+
+Before substantial work, read `.context/index.md` and the relevant context documents.
+Keep that context accurate: when a change makes it out of date, update it in the same change.
+If Syngraphe is available, run `syngraphe check` before completing substantial work.
+<!-- syngraphe:end -->
+
 Operational instructions for AI coding agents working in this repository.
 Read this before implementing anything. The reasoning behind each decision lives in
 `docs/concepts/design-decisions.md`.
@@ -112,8 +122,11 @@ afterwards.**
   it is a step of its own — see the npm release section of `CONTRIBUTING.md`.
 - **Durable project knowledge must live in tracked repository documentation.** Machine-local agent
   memory is a convenience, never the only source for information needed to continue the work.
-- The folder `.local-memory` in the root holds memory files, kept updated and git-ignored. If it
-  does not exist and you need to update local memory, create it in the root.
+- **Project memory is `.context/`, managed with Syngraphe** — `truth/` for what is true now,
+  `state/current.md` for where the work stands, `decisions/` for what was decided and why, and
+  `history/` for what is finished or superseded. Read `.context/index.md` before substantial work
+  and update the affected file in the same change; `syngraphe check` is the integrity check. The
+  git-ignored `.local-memory/` directory it replaced was removed on 2026-09-04 — do not recreate it.
 - `docs/` is a VitePress site and part of the deliverable. A behaviour change not reflected there is
   unfinished. Its build also emits `sitemap.xml`, a canonical link on every page, `llms.txt` /
   `llms-full.txt`, and a Markdown twin of every page at the page's own path plus `.md`

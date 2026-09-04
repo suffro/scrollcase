@@ -41,6 +41,17 @@ All notable changes to Scrollcase are documented here. The format follows
   step. Without it the publishing workflow would be the first place a target was ever built, and the
   first build would be the one that goes out signed.
 
+### Added — a donate page
+
+- **`/donate`**, linked from the footer beside `Privacy`. It is one paragraph and a Ko-fi widget,
+  with no page outline beside it: the page has one thing on it, and an outline of one heading is
+  furniture.
+
+- **The privacy page names it.** That widget is an iframe Ko-fi serves, so it is the first
+  third-party code the site loads, and the page that promised there was none now says which page
+  carries it, that it loads only when a reader opens that page, and whose policy covers anything
+  entered into it. A promise quietly narrowed is worse than one that was never made.
+
 ### Added — every documentation page can be handed to a language model
 
 - **Two menus above each page's H1, `Markdown` and `Ask an AI`.** The first offers the page's

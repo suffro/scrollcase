@@ -11,9 +11,9 @@ distribute them.
 
 ## Analytics and cookies
 
-The site sets no cookies and loads no third-party scripts. There is no analytics tag, no sharing
-widget, and nothing that identifies a reader across pages or across visits. This is why the site
-asks for no consent: there is nothing to consent to.
+The site sets no cookies and loads no third-party scripts, with one exception named below. There is
+no analytics tag, no sharing widget, and nothing that identifies a reader across pages or across
+visits. This is why the documentation asks for no consent: there is nothing to consent to.
 
 Earlier versions of this site loaded Google Analytics and a third-party sharing widget behind a
 notice that described them as essential cookies. Both have been removed.
@@ -22,6 +22,15 @@ The home page does carry one `<script>` tag, and it is worth naming rather than 
 reader to find in the source: an `application/ld+json` block describing what this project is, for
 search engines. It is data, not code — nothing executes it, it loads nothing and it observes
 nothing.
+
+## The donate page
+
+The exception is [`/donate`](/donate), which embeds a Ko-fi payment widget in an `<iframe>`. It is
+the one place on this site where code from another party runs, it runs only on that page, and it
+loads only when a reader deliberately opens it. Ko-fi serves that frame, may set its own cookies
+inside it, and handles anything entered there — including any payment detail — under
+[its own privacy policy](https://more.ko-fi.com/privacy). None of it reaches this site, and this
+site passes nothing to it. Every other page still loads nothing from anyone.
 
 ## Hosting and request logs
 

@@ -438,7 +438,7 @@ export default defineConfig({
     },
 
     footer: {
-      message: `Scrollcase v${packageVersion} · schema version ${schemaVersion} · <a href="/privacy" target="_blank">Privacy</a> · <a href="https://github.com/suffro/scrollcase/blob/main/CHANGELOG.md" target="_blank">Changelog</a>`,
+      message: `Scrollcase v${packageVersion} · schema version ${schemaVersion} · <a href="/privacy" target="_blank">Privacy</a> · <a href="/donate" target="_blank">Donate</a> · <a href="https://github.com/suffro/scrollcase/blob/main/CHANGELOG.md" target="_blank">Changelog</a>`,
       copyright: 'Licensed under Apache-2.0'
     }
   },
