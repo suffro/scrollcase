@@ -43,9 +43,21 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added — a donate page
 
-- **`/donate`**, linked from the footer beside `Privacy`. It is one paragraph and a Ko-fi widget,
-  with no page outline beside it: the page has one thing on it, and an outline of one heading is
-  furniture.
+- **`/donate`**, linked from the footer beside `Privacy`. It offers two ways to support the work:
+  GitHub Sponsors, which is an ordinary link to `github.com/sponsors/suffro` and loads nothing here,
+  and Ko-fi, which is an embedded widget.
+
+- **The Ko-fi frame is a card, not a slab.** Ko-fi's own snippet ships `width:100%` at 712px tall
+  over a near-white ground, which across a full content column is a white block the dark theme has
+  no answer to. The frame is now capped at the 480px the panel actually occupies — it is fixed-width
+  and does not reflow — cut to the 620px its content actually needs, and given the site's border and
+  corner radius.
+
+  The ground is white rather than transparent, and the reason is recorded in the stylesheet so it is
+  not retried: Ko-fi's own document sets `body { background-color: #f7f7f778 }`, white at 47% alpha,
+  which no ground chosen outside a cross-origin frame can remove. Over a dark page that film
+  composites to a grey wash carrying Ko-fi's dark "Powered by Ko-fi" line; over white it disappears,
+  leaving one clean card.
 
 - **The privacy page names it.** That widget is an iframe Ko-fi serves, so it is the first
   third-party code the site loads, and the page that promised there was none now says which page

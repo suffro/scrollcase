@@ -143,6 +143,45 @@
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
 }
 
+/* ── Donate ────────────────────────────────────────────────────── */
+
+/* Ko-fi's own embed snippet carries `width:100%;background:#f9f9f9`, which on the dark theme reads
+ * as a white slab across the whole content column.
+ *
+ * The frame cannot be made transparent, and it is worth writing down why so nobody tries again.
+ * Ko-fi's own document sets `body { background-color: #f7f7f778 }` — white at 47% alpha, commented
+ * in their stylesheet as "transparency to blend with site content". That film is painted inside the
+ * frame, cross-origin, so no ground chosen here removes it: over a dark page it composites to a
+ * muddy grey wash with Ko-fi's dark "Powered by Ko-fi" line sitting on top of it.
+ *
+ * So the ground is white instead. The film over white is white, which collapses the frame into one
+ * clean card the size of the panel Ko-fi draws inside it, rather than a grey haze with a white card
+ * floating in the middle of it. The panel itself is a fixed ~450px wide and does not reflow, which
+ * is what `max-width` is matched to.
+ */
+.kofi-panel {
+  max-width: 480px;
+  margin: 24px auto;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.kofi-panel iframe {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+
+.donate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0;
+}
+
 body:has(.cookie-backdrop) {
   overflow: hidden !important;
 }
