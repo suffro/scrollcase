@@ -10,7 +10,13 @@ language model, the demo pages state their runtime, and `docs/concepts/tool-comp
 active edit. `CHANGELOG.md` has an open `## [Unreleased]` section covering this work.
 
 Nothing is in flight in the product itself. The working tree adopted `.context/` on 2026-09-04, and
-the retired `.local-memory` directory is gone — everything it held is here.
+the retired `.local-memory` directory is gone — everything it held is here. That adoption turned CI
+red on all six `test` matrix legs, because the archived plans use the pre-rename product term a
+vocabulary guard forbade. On 2026-09-05 the maintainer retired that half of the guard: the rename
+has held across two format versions and nobody reaches for the old word any more, while the guard
+had begun to catch ordinary English and other projects' file names instead of mistakes. The two
+superseded plans written in the old vocabulary were dropped with it. The extracted project's name is
+still refused everywhere.
 
 ## Recent relevant changes
 

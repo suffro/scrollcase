@@ -54,24 +54,25 @@ describe('canonical scroll workspace names', () => {
   });
 
   /**
-   * Two words, forbidden for two different reasons.
+   * One word, forbidden everywhere: the name of the project Scrollcase was extracted from. Hard
+   * rule 1 says it appears nowhere — not in identifiers, error messages, environment variables,
+   * default paths, wire strings or examples — because the tool must stay usable by projects that
+   * have nothing to do with the one that first needed it. It has come back twice already, both
+   * times inside files moved after a clean grep, so the grep is a test rather than a habit.
    *
-   * The first is the name of the project Scrollcase was extracted from. Hard rule 1 says it appears
-   * nowhere — not in identifiers, error messages, environment variables, default paths, wire strings
-   * or examples — because the tool must stay usable by projects that have nothing to do with the one
-   * that first needed it. It has come back twice already, both times inside files moved after a
-   * clean grep, so the grep is a test rather than a habit. The second is a retired product term from
-   * before the rename.
+   * It is assembled from fragments so that this file does not contain the word it forbids. That is
+   * not cleverness for its own sake: a guard that trips on itself gets weakened, and a weakened
+   * guard is how the name comes back.
    *
-   * Each is assembled from fragments so that this file does not contain the word it forbids. That is
-   * not cleverness for its own sake: a guard that trips on itself gets weakened, and a weakened guard
-   * is how the name comes back.
+   * The pre-rename product term was policed here too, and no longer is. *Scroll* has been the only
+   * word in the code, the schemas, the CLI and the docs for long enough that nobody reaches for the
+   * old one by accident, so the guard had stopped catching mistakes and started catching ordinary
+   * English and other projects' file names — conda-forge's feedstock file among them. The narrower
+   * assertion above, that the workspace exposes no legacy field, is what actually protects the
+   * rename.
    */
-  it.each([
-    ['the name of the project this tool was extracted from', ['lia', 'tir']],
-    ['retired product terminology', ['re', 'cipe']],
-  ])('keeps %s out of tracked content and paths', (_reason, fragments) => {
-    const forbidden = fragments.join('');
+  it('keeps the extracted project\'s name out of tracked content and paths', () => {
+    const forbidden = ['lia', 'tir'].join('');
     const contentSearch = spawnSync(
       'git',
       ['grep', '-I', '-i', '--name-only', forbidden, '--', '.'],

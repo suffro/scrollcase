@@ -1,8 +1,8 @@
 # The documentation site: what was decided, and still holds
 
-**Decided across the documentation correction programme of 2026-07-26
-([`../history/docs-correction-and-expansion-plan.md`](../history/docs-correction-and-expansion-plan.md))
-and extended since.** The site at `scrollcase.dev` is a VitePress build deployed to Cloudflare
+**Decided across the documentation correction programme of 2026-07-26 — whose plan was written in
+the pre-rename vocabulary and dropped on 2026-09-05, the decisions below being all of it that still
+holds — and extended since.** The site at `scrollcase.dev` is a VitePress build deployed to Cloudflare
 Pages, and it is part of the deliverable: a behaviour change not reflected there is unfinished.
 
 **No third-party scripts, and therefore no consent banner.** The site had loaded Google Analytics

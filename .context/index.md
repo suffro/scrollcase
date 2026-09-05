@@ -41,9 +41,8 @@ system is, where the work stands, what was decided and why, and what already wen
   - `history/v3-plan.md` and `history/v3-phase-a.md`, `history/v3-phase-b.md`,
     `history/v3-phase-c.md` — the version 3 programme, with the deviations, the guards proven red
     and the real builds.
-  - `history/v2-scroll-and-consumer-plan.md` — the version 2 programme, since superseded.
-  - `history/payload-digest-and-attach-plan.md`, `history/docs-correction-and-expansion-plan.md`,
-    `history/white-paper-plan.md` — delivered programmes, kept for the reasoning inside them.
+  - `history/payload-digest-and-attach-plan.md`, `history/white-paper-plan.md` — delivered
+    programmes, kept for the reasoning inside them.
   - `history/sentiment-demo-plan.md`, `history/llm-demo-plan.md` — the two model demos, as planned
     and as shipped.
   - `history/early-project-memory-archive.md` — the reconstructed project memory up to 2026-08-09.

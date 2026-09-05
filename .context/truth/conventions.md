@@ -21,6 +21,11 @@ habits that were learnt the expensive way.
 - **No consumer's name anywhere in the repository**, including in this directory. See
   [`../decisions/independent-of-any-consumer.md`](../decisions/independent-of-any-consumer.md);
   the historical files under `../history/` are redacted for exactly this reason.
+- **One word is enforced by a `git grep` guard** in `tests/unit/v3-migration.test.mjs`: the
+  extracted project's name, refused everywhere, this directory included. The pre-rename product
+  term was policed the same way until 2026-09-05 and no longer is — *scroll* has been the only word
+  in the code, schemas, CLI and docs long enough that the guard had stopped catching mistakes and
+  started catching ordinary English and other projects' file names.
 - **Commits carry no tool attribution trailers.**
 - Every user-visible change goes in `CHANGELOG.md` under `## [Unreleased]` until the release that
   ships it closes that section. `npm version` does not touch the changelog.
