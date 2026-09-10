@@ -14,7 +14,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { boxTargetId } from '../contract/targets.mjs';
 import { compareStableStrings, fileExists, safeRelativePath } from './filesystem.mjs';
-import { createCondaDependencyLicenseAudit, validateCondaDependencyLicenseAudit } from './licenses.mjs';
+import {
+  createCondaDependencyLicenseAudit,
+  readDeclaredPypiLicenses,
+  validateCondaDependencyLicenseAudit,
+} from './licenses.mjs';
 import { fail } from './process.mjs';
 import { readScroll } from './scroll.mjs';
 import { setScrollField } from './scroll-edit.mjs';
@@ -46,11 +50,13 @@ export async function auditScroll(name, { write = false, namespace } = {}) {
   const inventory = createCondaDependencyLicenseAudit({
     lockBytes: await readFile(lockPath),
     targetId: boxTargetId(scroll.target),
+    declaredLicenses: await readDeclaredPypiLicenses(scroll, workspace.root),
     ...(namespace ? { namespace } : {}),
   });
 
-  // A package with no declared licence never reaches here: parsing the lock rejects it outright,
-  // which is the point — an unlicensed dependency is a legal problem, not a reporting gap.
+  // A package with no licence never reaches here: the lock must name one, or the project's declared
+  // PyPI inventory must. That is the point — an unlicensed dependency is a legal problem, not a
+  // reporting gap.
   const licences = new Map();
   for (const entry of inventory.packages) {
     licences.set(entry.declaredLicense, (licences.get(entry.declaredLicense) ?? 0) + 1);

@@ -6,6 +6,40 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — a box may contain PyPI dependencies
+
+- **`pypiLicenseDeclaration` supplies the licences `pixi.lock` does not carry.** pixi records an
+  SPDX licence for every conda package and **none at all** for a PyPI one — a PyPI entry holds a
+  name, a version, a hash and the requirements, and nothing about terms. Since an undeclared licence
+  fails the parse outright, and rightly so, **no box whose lock contained a single PyPI package
+  could be built**: it stopped at `<name>==<version> lacks a declared license in pixi.lock`, with
+  nothing an author could do about it.
+
+  A scroll now points at a reviewed `{ name, version, declaredLicense }` array, maintained by the
+  project from the distributions its own lock pins. `validateDeclaredPypiLicenses()` checks the
+  shape; `readDeclaredPypiLicenses()` loads it for both `audit` and `build`, so what an author
+  reviews is what a build signs.
+
+- **The declaration is checked against the lock in both directions.** Every locked package the lock
+  leaves unnamed must be covered, and every entry must name a package that actually needed one — so
+  a line left behind by a dependency that was removed, upgraded, or that started declaring its own
+  licence fails instead of quietly standing. A conda package is never eligible: conda-forge states a
+  licence for all of them, and a declaration that could restate published metadata is a declaration
+  that could contradict it.
+
+- **An entry supplied this way carries `licenseDeclaredBy: "project"`** in the inventory the box
+  ships, and only those do. A reader can tell an asserted licence from a recorded one, and a project
+  whose lock declares everything sees a byte-identical inventory. Nothing in the signed release,
+  `box.json`, the payload digest or any `kind` string changes.
+
+### Fixed
+
+- **A quoted version in `pixi.lock` is no longer read as part of the version.** pixi quotes any
+  scalar YAML would otherwise read as a number, so `version: '1.84'` was becoming the four-character
+  string `'1.84'` in the inventory. Only PyPI entries take name and version from those fields —
+  conda takes both from the package filename — so no inventory that could be produced before this
+  release changes.
+
 ### Added — the `node` and `native` demo boxes are published
 
 - **`codon-demo`, `transcode-demo` and `dataset-demo` are downloadable boxes**, signed by CI under

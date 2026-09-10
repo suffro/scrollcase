@@ -3194,6 +3194,26 @@ Two rules keep the result honest. A package whose licence is absent or literally
 And names are kept raw rather than normalised, because conda filenames already carry the canonical
 name and normalising would mangle legitimate leading-underscore names such as `_openmp_mutex`.
 
+There is one place the lock cannot answer. **pixi records an SPDX licence for a conda package and
+none at all for a PyPI one** — a PyPI entry carries a name, a version, a hash and the requirements,
+and nothing about terms. A lock with PyPI dependencies therefore cannot be inventoried from the lock
+alone, and the first rule above stops the build rather than shipping a package whose licence nobody
+has named.
+
+A scroll closes that gap with `pypiLicenseDeclaration`, a path to a reviewed
+`{ name, version, declaredLicense }` array the project maintains from the distributions its own lock
+pins. `validateDeclaredPypiLicenses()` checks the shape and `readDeclaredPypiLicenses()` loads it for
+both `audit` and `build`, so what an author reviews is what a build signs. The declaration is checked
+against the lock in both directions: every package the lock leaves unnamed must be covered, and every
+entry must name a package the lock actually needed one for, so a line left behind by a removed or
+upgraded dependency fails instead of quietly standing. A conda package is never eligible —
+conda-forge states a licence for all of them, and a declaration that could restate published
+metadata is a declaration that could contradict it.
+
+Entries supplied this way carry `licenseDeclaredBy: "project"` in the inventory, and only those do,
+so a reader can tell an asserted licence from a recorded one, and a project whose lock declares
+everything sees no change at all.
+
 The result is sorted by name then version, which is what makes the inventory itself deterministic.
 
 </div>
@@ -3921,7 +3941,7 @@ itself:
 | Filesystem | `collectFiles`, `fileExists`, `sha256File` |
 | Identity | `boxReleaseObjectPrefix`, `boxReleaseStem`, `builderVersionFields` |
 | Launchers | `repairPosixLaunchers` |
-| Licences | `createCondaDependencyLicenseAudit`, `lockedCondaDistributions`, `parseCondaPackageReference`, `validateCondaDependencyLicenseAudit` |
+| Licences | `createCondaDependencyLicenseAudit`, `lockedCondaDistributions`, `parseCondaPackageReference`, `readDeclaredPypiLicenses`, `validateCondaDependencyLicenseAudit`, `validateDeclaredPypiLicenses` |
 | pixi | `condaPackArguments`, `findCondaPack`, `findPixi`, `installAndPackPixiEnvironment`, `pixiInstallArguments`, `pixiLockArguments` |
 | Process | `fail`, `run`, `runResult` |
 | Toolchain | `CONDA_PACK_VERSION` |
@@ -6603,6 +6623,7 @@ disk beside the installed package rather than something a browser can fetch.
 | `boxReleaseStem`, `boxReleaseObjectPrefix`, `builderVersionFields` | Release naming and builder identity |
 | `lockedCondaDistributions`, `parseCondaPackageReference` | Reading the lock into package identities |
 | `createCondaDependencyLicenseAudit`, `validateCondaDependencyLicenseAudit` | Producing and checking the licence inventory |
+| `readDeclaredPypiLicenses`, `validateDeclaredPypiLicenses` | The PyPI licences a lock cannot state and a project declares |
 | `run`, `runResult`, `fail` | The subprocess seam and the single error path |
 
 </div>

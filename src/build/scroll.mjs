@@ -313,6 +313,7 @@ async function readExactScroll(reference) {
     ...(scroll.execution?.binary ? [scroll.execution.binary] : []),
     ...(scroll.parity ? [scroll.parity.script] : []),
     ...(scroll.condaDependencyLicenseAudit ? [scroll.condaDependencyLicenseAudit] : []),
+    ...(scroll.pypiLicenseDeclaration ? [scroll.pypiLicenseDeclaration] : []),
     ...(scroll.bundledLicenseDeclaration ? [scroll.bundledLicenseDeclaration] : []),
   ];
   for (const path of payloadPaths) safeRelativePath(path);

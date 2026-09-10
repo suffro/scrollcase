@@ -1,6 +1,29 @@
 # Current State
 
-Last reviewed: 2026-09-04.
+Last reviewed: 2026-09-11.
+
+## In flight
+
+**A box may now contain PyPI dependencies** — branch `pypi-licence-declaration`, unreleased.
+
+Until now it could not, and nobody had noticed: pixi records an SPDX licence for every conda package
+and **none at all** for a PyPI one, so `lockedCondaDistributions()` failed the parse on the first
+PyPI entry it met. That refusal is correct — an unlicensed dependency is a legal problem, not a
+reporting gap — but it left an author with nothing to do about it, because the missing licence is
+not in the lock and never will be. Every box built with Scrollcase so far has been pure conda,
+which is why the gap survived two format versions.
+
+The fix follows `bundledLicenseDeclaration` exactly: a scroll points at a reviewed
+`{ name, version, declaredLicense }` array, checked against the lock in both directions so neither
+an uncovered package nor a stale line can pass. conda packages stay ineligible. Declared entries
+carry `licenseDeclaredBy: "project"` in the inventory, so a project whose lock declares everything
+sees no change at all.
+
+**Additive throughout — no format break, no v4.** The scroll field is optional, the signed release,
+`box.json`, the payload digest and every `kind` string are untouched, and the only entries that
+change shape are ones no released version could have produced. It is a minor release.
+
+Found downstream, by the first project that needed a model whose dependencies are PyPI-only.
 
 ## Current focus
 

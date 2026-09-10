@@ -162,6 +162,10 @@ export interface BoxScroll {
    */
   condaDependencyLicenseAudit?: string;
   /**
+   * Path to the project's licences for the PyPI half of pixi.lock. pixi records an SPDX licence for every conda package and none at all for a PyPI one — it writes a name, a version, a hash and the requirements, and nothing about terms — so a lock with PyPI dependencies cannot be inventoried from the lock alone. The file is a JSON array of { name, version, declaredLicense } entries, and it is checked against the lock both ways: every package the lock leaves unnamed must be covered, and every entry must name a package the lock actually needed one for, so a stale line fails instead of quietly standing. A conda package is never eligible, because conda-forge states a licence for all of them and no declaration should restate published metadata. Entries supplied this way are marked in the inventory the box ships, so a reader can tell what the lock said from what the project asserted.
+   */
+  pypiLicenseDeclaration?: string;
+  /**
    * Path to the project's inventory of dependencies compiled *inside* the binaries this box ships. pixi.lock declares a licence per conda package, but it cannot see what was linked into a supplied executable before the build ever started, and nothing Scrollcase can read will tell it. So this half is declared rather than derived: the file is a JSON array of { name, version, declaredLicense, linkedInto } entries, and the build checks that every path it names is really in the box before carrying the list into the signed release. What belongs in it is the project's judgement; Scrollcase transports and signs what the project reviewed and never decides what a complete inventory is.
    */
   bundledLicenseDeclaration?: string;
