@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-09-11
+
 ### Fixed
 
 - **A box can download an archive and expand it again.** Version 3's duplicate-destination check
