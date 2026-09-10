@@ -147,6 +147,27 @@ describe('joining a base scroll with a target fragment', () => {
       .rejects.toThrow(/asset and the local file at cache\/shim\.py both claim that path/);
   });
 
+  it('accepts an archive naming the very asset that downloaded it', async () => {
+    // Download-then-expand is what the two lists exist to express together: the asset fetches the
+    // archive to a path, and the archive entry reads it from there. Reading is not claiming.
+    await family(
+      { ...BASE, assets: [asset('source.tar.gz', 'a')] },
+      {
+        extends: '../scroll.json',
+        target: TARGET,
+        assetArchives: [{
+          relativePath: 'cache/source.tar.gz',
+          format: 'tar.gz',
+          destination: 'source',
+          removeAfterExtract: true,
+        }],
+      },
+    );
+
+    const { scroll } = await readScroll(REFERENCE);
+    expect(scroll.assetArchives[0].relativePath).toBe('cache/source.tar.gz');
+  });
+
   it('joins string lists and drops repeats', async () => {
     // Each half names something the other does not, so a rule that replaced rather than joined
     // would drop the base's entry and show up here.

@@ -6,6 +6,26 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A box can download an archive and expand it again.** Version 3's duplicate-destination check
+  counted an `assetArchives` entry's `relativePath` as a path that entry *claims*, but that path is
+  the archive it **reads** — put there by the `assets` entry that downloaded it, which is the only
+  way an archive reaches a payload. So download-then-expand, the pattern the two lists exist to
+  express together, was refused as a conflict:
+
+  ```text
+  The asset and the asset archive at .sources/source.tar.gz both claim that path in the box;
+  one box file has one source.
+  ```
+
+  An archive's `destination` is not counted either: it is a directory many files land in, and
+  extraction already refuses to overwrite an existing file one at a time. The check still spans
+  `assets` and `localFiles`, which is where a genuine two-writers conflict lives.
+
+  Introduced with the check itself in 1.0.0 and not caught because no example in this repository
+  uses `assetArchives`. Reported by a project where fourteen of twenty-two scrolls do.
+
 ## [1.1.0] — 2026-09-11
 
 ### Added — a box may contain PyPI dependencies

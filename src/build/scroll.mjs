@@ -77,9 +77,15 @@ const JOINED_MAPS = Object.freeze(['compatibility', 'environment']);
  *
  * One path in a box has one source. Two declarations for it means whichever the builder staged
  * second silently overwrote the first, and which one that is depends on an ordering nobody chose —
- * so it is refused rather than settled by a precedence rule. The check spans `assets`,
- * `assetArchives` and `localFiles` together, because the conflict is about the destination and not
- * about which list an author happened to write it in.
+ * so it is refused rather than settled by a precedence rule. The check spans `assets` and
+ * `localFiles` together, because the conflict is about the destination and not about which list an
+ * author happened to write it in.
+ *
+ * An `assetArchives` entry is not a declaration of a destination at all: its `relativePath` is the
+ * archive it *reads*, which an `assets` entry downloaded to that very path — the only way an
+ * archive reaches the payload — and its `destination` is a directory many files land in, whose
+ * collisions extraction already refuses one file at a time. Counting either here made
+ * download-then-expand, the pattern the two lists exist to express together, impossible to declare.
  *
  * Entries whose shape is wrong are passed over: schema validation has already reported those.
  */
@@ -87,7 +93,6 @@ function assertDistinctPayloadDestinations(scroll) {
   const claimed = new Map();
   const declarations = [
     ...(scroll.assets ?? []).map((entry) => ['asset', entry.relativePath]),
-    ...(scroll.assetArchives ?? []).map((entry) => ['asset archive', entry.relativePath]),
     ...(scroll.localFiles ?? []).map((entry) => ['local file', entry.relativePath]),
   ];
   for (const [kind, path] of declarations) {
