@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-11
+
 ### Added — a box may contain PyPI dependencies
 
 - **`pypiLicenseDeclaration` supplies the licences `pixi.lock` does not carry.** pixi records an
