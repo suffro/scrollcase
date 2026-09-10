@@ -26,6 +26,18 @@ packages:
   size: 1
 `;
 
+/**
+ * The same lock with a PyPI dependency, written exactly as pixi writes one: a name, a version, a
+ * hash and the requirements, and nothing about licence terms. The quoted version is pixi's too — it
+ * quotes any scalar YAML would otherwise read as a number.
+ */
+const LOCK_WITH_PYPI = `${LOCK}- pypi: https://files.pythonhosted.org/packages/ab/cd/biopython-1.84.whl
+  name: biopython
+  version: '1.84'
+  sha256: eee
+  requires_python: '>=3.9'
+`;
+
 describe('setting a project up', () => {
   const created = [];
 
@@ -167,7 +179,7 @@ describe('auditing dependency licences', () => {
     await Promise.all(created.splice(0).map((path) => rm(path, { recursive: true, force: true })));
   });
 
-  async function projectWithLock({ auditPath = 'legal/audit.json' } = {}) {
+  async function projectWithLock({ auditPath = 'legal/audit.json', lock = LOCK, pypiDeclaration } = {}) {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'scrollcase-audit-')));
     created.push(root);
     await initProject({ root });
@@ -187,10 +199,20 @@ describe('auditing dependency licences', () => {
     });
     const scroll = JSON.parse(await readFile(join(result.scrollDir, 'scroll.json'), 'utf8'));
     if (auditPath) scroll.condaDependencyLicenseAudit = auditPath;
+    if (pypiDeclaration) {
+      scroll.pypiLicenseDeclaration = 'legal/pypi-licenses.json';
+      await mkdir(join(root, 'legal'), { recursive: true });
+      await writeFile(
+        join(root, 'legal/pypi-licenses.json'),
+        `${JSON.stringify(pypiDeclaration, null, 2)}\n`,
+      );
+    }
     await writeFile(join(result.scrollDir, 'scroll.json'), `${JSON.stringify(scroll, null, 2)}\n`);
-    await writeFile(join(result.scrollDir, 'pixi.lock'), LOCK);
+    await writeFile(join(result.scrollDir, 'pixi.lock'), lock);
     return { root, scrollRef: result.scrollRef };
   }
+
+  const BIOPYTHON = [{ name: 'biopython', version: '1.84', declaredLicense: 'LicenseRef-Biopython' }];
 
   it('summarises the inventory straight from the lock, with no build', async () => {
     const { scrollRef } = await projectWithLock({ auditPath: null });
@@ -241,5 +263,77 @@ describe('auditing dependency licences', () => {
     stale.packages.pop();
     await writeFile(join(root, 'legal/audit.json'), `${JSON.stringify(stale, null, 2)}\n`);
     await expect(auditScroll(scrollRef)).rejects.toThrow(/differ from the reviewed audit/);
+  });
+
+  it('refuses a PyPI dependency the project has not given a licence', async () => {
+    const { scrollRef } = await projectWithLock({ auditPath: null, lock: LOCK_WITH_PYPI });
+    await expect(auditScroll(scrollRef))
+      .rejects.toThrow(/biopython==1\.84 lacks a declared license in pixi\.lock/);
+  });
+
+  it('takes the PyPI half from the project, and says which half that was', async () => {
+    const { scrollRef } = await projectWithLock({
+      auditPath: null,
+      lock: LOCK_WITH_PYPI,
+      pypiDeclaration: BIOPYTHON,
+    });
+
+    const { inventory, summary } = await auditScroll(scrollRef);
+
+    expect(summary.packageCount).toBe(3);
+    // The quoted version in the lock is YAML's, not part of the version.
+    expect(inventory.packages).toContainEqual({
+      name: 'biopython',
+      version: '1.84',
+      declaredLicense: 'LicenseRef-Biopython',
+      source: 'pypi',
+      licenseDeclaredBy: 'project',
+    });
+    // A lock-derived entry is untouched, so an all-conda project's inventory does not change at all.
+    expect(inventory.packages).toContainEqual({
+      name: 'openssl',
+      version: '3.6.3',
+      declaredLicense: 'Apache-2.0',
+      source: 'conda',
+    });
+  });
+
+  it('refuses a declared licence for a package the lock did not need one for', async () => {
+    const { scrollRef } = await projectWithLock({
+      auditPath: null,
+      lock: LOCK_WITH_PYPI,
+      // Both are stale in the way that matters: neither names a locked package missing a licence.
+      pypiDeclaration: [...BIOPYTHON, { name: 'openssl', version: '3.6.3', declaredLicense: 'MIT' }],
+    });
+    await expect(auditScroll(scrollRef))
+      .rejects.toThrow(/declared PyPI licence for openssl==3\.6\.3 matches no locked package/);
+  });
+
+  it('refuses a declaration that is missing a field, or names one package twice', async () => {
+    const { scrollRef: incomplete } = await projectWithLock({
+      auditPath: null,
+      lock: LOCK_WITH_PYPI,
+      pypiDeclaration: [{ name: 'biopython', version: '1.84' }],
+    });
+    await expect(auditScroll(incomplete)).rejects.toThrow(/lacks declaredLicense/);
+
+    resetWorkspace();
+    const { scrollRef: duplicated } = await projectWithLock({
+      auditPath: null,
+      lock: LOCK_WITH_PYPI,
+      pypiDeclaration: [...BIOPYTHON, ...BIOPYTHON],
+    });
+    await expect(auditScroll(duplicated)).rejects.toThrow(/names biopython==1\.84 twice/);
+  });
+
+  it('refuses a declared path that is not there', async () => {
+    const { root, scrollRef } = await projectWithLock({
+      auditPath: null,
+      lock: LOCK_WITH_PYPI,
+      pypiDeclaration: BIOPYTHON,
+    });
+    await rm(join(root, 'legal/pypi-licenses.json'));
+    await expect(auditScroll(scrollRef))
+      .rejects.toThrow(/declared PyPI licence inventory is missing/);
   });
 });

@@ -44,6 +44,7 @@ import { assertExecutionFiles } from './execution.mjs';
 import { boxReleaseObjectPrefix, boxReleaseStem, builderVersionFields } from './identity.mjs';
 import {
   createCondaDependencyLicenseAudit,
+  readDeclaredPypiLicenses,
   validateBundledLicenses,
   validateCondaDependencyLicenseAudit,
 } from './licenses.mjs';
@@ -127,6 +128,7 @@ async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRo
     const actual = createCondaDependencyLicenseAudit({
       lockBytes: await readFile(lockPath),
       targetId: boxTargetId(scroll.target),
+      declaredLicenses: await readDeclaredPypiLicenses(scroll, projectRoot),
     });
     const reviewedPath = join(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
     const reviewed = JSON.parse(await readFile(reviewedPath, 'utf8'));

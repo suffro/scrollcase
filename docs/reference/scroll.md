@@ -216,6 +216,7 @@ build reads, and provenance records. Nothing downstream can tell which half a va
 | `cacheSubdir` | no | Directory relative to the box root holding model assets. Defaults to `cache/<boxId>` |
 | `environment` | no | String environment variables required whenever Scrollcase runs the box interpreter |
 | `condaDependencyLicenseAudit` | no | Path (from the project root) to the reviewed licence inventory, written and declared by [`audit --write`](/reference/cli#audit). When declared, the build fails if the lock no longer matches what was reviewed |
+| `pypiLicenseDeclaration` | no | Path (from the project root) to the licences of the PyPI half of `pixi.lock`, which pixi does not record. See [PyPI licences](#pypi-licences) |
 | `bundledLicenseDeclaration` | no | Path (from the project root) to the licences of dependencies compiled *inside* a binary this box ships. See [Bundled licences](#bundled-licences) |
 
 The dependencies themselves live in `pixi.toml`, not here:
@@ -236,14 +237,58 @@ or the solve produces an environment that cannot run on the machine the box is f
 [`scrollcase add dep <box> <name>`](/reference/cli#add) writes into every target's manifest at once,
 so they cannot drift apart, and `--from-requirements` imports an existing pip file.
 
-### Bundled licences
+### PyPI licences
 
 `condaDependencyLicenseAudit` is **derived**: `pixi.lock` already records an SPDX licence per conda
 package, so Scrollcase computes the inventory and checks it against what you reviewed.
 
-It cannot do that for a binary you supply. Whatever was linked into that binary was linked before
-Scrollcase saw the file, nothing in the build records it, and reading the binary would be guessing —
-which is worse than not answering. So that half is **declared**:
+**It records none for a PyPI package.** A PyPI entry in the lock carries a name, a version, a hash
+and the requirements, and nothing about terms. So a box with PyPI dependencies cannot be inventoried
+from the lock alone, and rather than ship a package whose licence nobody has named, the build stops:
+
+```
+box licence audit: biopython==1.84 lacks a declared license in pixi.lock
+```
+
+That half is **declared**, from the distributions your own lock already pins:
+
+```jsonc
+"pypiLicenseDeclaration": "legal/pypi-licenses.json"
+```
+
+pointing at a JSON array your project reviews and keeps up to date:
+
+```jsonc
+[
+  { "name": "biopython", "version": "1.84", "declaredLicense": "LicenseRef-Biopython" },
+  { "name": "click", "version": "8.1.7", "declaredLicense": "BSD-3-Clause" }
+]
+```
+
+All three fields are required, and extra fields of your own are ignored — the record of *how* you
+determined a licence belongs in your file, and is not something Scrollcase needs to read.
+
+The declaration and the lock are checked against each other **in both directions**: every locked
+package the lock leaves unnamed must be covered, and every entry must name a package the lock
+actually needed one for. So a line left behind by a dependency that was removed, upgraded, or that
+started declaring its own licence fails the build instead of quietly standing:
+
+```
+box licence audit: declared PyPI licence for openssl==3.6.3 matches no locked package that needs one
+```
+
+A conda package is never eligible. conda-forge states a licence for all of them, and a declaration
+that could restate published metadata is a declaration that could contradict it.
+
+In the inventory the box ships, an entry supplied this way carries `licenseDeclaredBy: "project"`,
+and only those do — so a reader can tell an asserted licence from a recorded one, and a project whose
+lock declares everything sees no change at all.
+
+### Bundled licences
+
+The same reasoning reaches further than PyPI. Whatever was linked into a binary you supply was
+linked before Scrollcase saw the file, nothing in the build records it, and reading the binary would
+be guessing — which is worse than not answering. So that half is **declared** too:
 
 ```jsonc
 "bundledLicenseDeclaration": "legal/bundled-dependencies.json"

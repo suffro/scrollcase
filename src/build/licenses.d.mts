@@ -16,23 +16,59 @@ export function parseCondaPackageReference(url: string): {
  * by indented `key: value` fields. This scans that regular, machine-generated structure directly
  * rather than taking a transitive YAML dependency.
  *
- * @param {Buffer} lockBytes the committed `pixi.lock`
- * @returns {LockedDistribution[]} sorted by name then version
- * @throws {Error} when the lock is unparseable or a package lacks a licence
- */
-export function lockedCondaDistributions(lockBytes: Buffer): LockedDistribution[];
-/**
- * Builds the deterministic conda license audit bound to one pixi.lock and target.
+ * pixi records an SPDX licence for a conda package and none at all for a PyPI one, so a lock with
+ * PyPI dependencies cannot be inventoried from the lock alone. `declaredLicenses` supplies the
+ * missing half from what the project reviewed; where it is absent, an undeclared package still
+ * fails, because a dependency whose licence nobody has named is a legal problem rather than a
+ * reporting gap.
  *
- * @param {{ lockBytes: Buffer, targetId: string, namespace?: string }} options
+ * @param {Buffer} lockBytes the committed `pixi.lock`
+ * @param {Map<string, string>} [declaredLicenses] SPDX by `name==version`, from the project's
+ *   reviewed declaration
+ * @returns {LockedDistribution[]} sorted by name then version
+ * @throws {Error} when the lock is unparseable or a package's licence is nowhere to be found
+ */
+export function lockedCondaDistributions(lockBytes: Buffer, declaredLicenses?: Map<string, string>): LockedDistribution[];
+/**
+ * Reads a project's declared licences for the PyPI distributions its lock does not name.
+ *
+ * The shape is checked here; whether each entry belongs is checked against the lock, by
+ * `createCondaDependencyLicenseAudit`, which is the only place both are in hand.
+ *
+ * @param {unknown} declared the parsed contents of the project's declaration file
+ * @returns {Map<string, string>} SPDX expression by `name==version`
+ * @throws {Error} when the shape is wrong or a distribution is named twice
+ */
+export function validateDeclaredPypiLicenses(declared: unknown): Map<string, string>;
+/**
+ * Loads a scroll's declared PyPI licences, or an empty map when it declares none.
+ *
+ * Both the audit command and the build read the declaration through here, so a licence the author
+ * reviewed with `audit` is the same licence the build signs.
+ *
+ * @param {{ pypiLicenseDeclaration?: string }} scroll
+ * @param {string} projectRoot
+ * @returns {Promise<Map<string, string>>} SPDX expression by `name==version`
+ * @throws {Error} when the declared path is missing or its contents are malformed
+ */
+export function readDeclaredPypiLicenses(scroll: {
+    pypiLicenseDeclaration?: string;
+}, projectRoot: string): Promise<Map<string, string>>;
+/**
+ * Builds the deterministic dependency licence audit bound to one pixi.lock and target.
+ *
+ * @param {{ lockBytes: Buffer, targetId: string, namespace?: string,
+ *   declaredLicenses?: Map<string, string> }} options
  * @returns {{ schemaVersion: 2, kind: string, targetId: string, dependencyLockSha256: string,
  *   packages: LockedDistribution[] }}
- * @throws {Error} when a locked package declares no licence
+ * @throws {Error} when a locked package's licence is nowhere to be found, or a declared licence
+ *   names a package the lock does not need one for
  */
-export function createCondaDependencyLicenseAudit({ lockBytes, targetId, namespace }: {
+export function createCondaDependencyLicenseAudit({ lockBytes, targetId, namespace, declaredLicenses, }: {
     lockBytes: Buffer;
     targetId: string;
     namespace?: string;
+    declaredLicenses?: Map<string, string>;
 }): {
     schemaVersion: 2;
     kind: string;
@@ -66,16 +102,21 @@ export function validateCondaDependencyLicenseAudit(reviewed: unknown, actual: R
  */
 export function validateBundledLicenses(declared: unknown, carriedPaths: Set<string>): Promise<BundledDependency[]>;
 /**
- * One package as the lock declares it.
+ * One package the lock pins, with the licence that applies to it.
  */
 export type LockedDistribution = {
     name: string;
     version: string;
     /**
-     * the SPDX expression carried by the lock
+     * the SPDX expression, from the lock or from the project
      */
     declaredLicense: string;
     source: "conda" | "pypi";
+    /**
+     * present only when the lock named no licence and the
+     * project supplied one, so a reader can tell the two apart
+     */
+    licenseDeclaredBy?: "project";
 };
 /**
  * One dependency compiled inside a binary the box ships, as the project declared it.

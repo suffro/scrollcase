@@ -18,7 +18,9 @@ export {
   createCondaDependencyLicenseAudit,
   lockedCondaDistributions,
   parseCondaPackageReference,
+  readDeclaredPypiLicenses,
   validateCondaDependencyLicenseAudit,
+  validateDeclaredPypiLicenses,
 } from './licenses.mjs';
 export {
   condaPackArguments,

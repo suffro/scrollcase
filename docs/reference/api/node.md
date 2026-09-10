@@ -402,10 +402,16 @@ Details in [Workspace Configuration](/reference/configuration).
 
 | Export | Purpose |
 | --- | --- |
-| `createCondaDependencyLicenseAudit({ lockBytes, targetId, namespace })` | The inventory, derived from a `pixi.lock` |
+| `createCondaDependencyLicenseAudit({ lockBytes, targetId, namespace, declaredLicenses })` | The inventory, derived from a `pixi.lock` |
 | `validateCondaDependencyLicenseAudit(reviewed, actual)` | Throw unless a reviewed audit still matches the lock exactly |
-| `lockedCondaDistributions(lockBytes)` | The parsed distributions with their declared licences |
+| `lockedCondaDistributions(lockBytes, declaredLicenses)` | The parsed distributions with their declared licences |
 | `parseCondaPackageReference(url)` | `{ name, version }` from a conda package filename |
+| `readDeclaredPypiLicenses(scroll, projectRoot)` | Load a scroll's `pypiLicenseDeclaration`, or an empty map |
+| `validateDeclaredPypiLicenses(declared)` | SPDX by `name==version`, or throw on a malformed declaration |
+
+pixi records no licence for a PyPI distribution, so a lock containing one cannot be inventoried from
+the lock alone. A scroll's `pypiLicenseDeclaration` names the reviewed file that supplies the missing
+half, and the two are checked against each other in both directions.
 
 ```js
 import { readFile } from 'node:fs/promises';
