@@ -1360,7 +1360,7 @@ The published package depends on three libraries and nothing else:
 
 | Package | Version | Role |
 | --- | --- | --- |
-| `tar` | 7.5.22 | Reads the conda-pack tarball into the payload; validates and extracts `tar.gz` scroll assets and toolchain archives |
+| `tar` | 7.5.22 | Reads the conda-pack tarball into the payload; validates and extracts `tar` and `tar.gz` scroll assets and toolchain archives |
 | `yauzl` | 3.4.0 | Reads and validates box ZIP archives |
 | `yazl` | 3.3.1 | Writes the deterministic box ZIP archive |
 
@@ -1411,9 +1411,11 @@ Link targets are read once during validation and reused during extraction, so a 
 rewritten archive cannot pass the check with one value and extract with another.
 
 **`tar` — reading only.** Used to extract the conda-pack output into the payload, and to validate
-and extract `tar.gz` scroll assets and toolchain archives. TAR entries are validated before
+and extract `tar` and `tar.gz` scroll assets and toolchain archives. TAR entries are validated before
 extraction and the accepted types are `File`, `OldFile` and `Directory` only: links and special
-entries in a TAR are refused outright.
+entries in a TAR are refused outright. Compression is left to the library, which reads the header and
+decompresses or not accordingly; a scroll's `tar` / `tar.gz` distinction records what the author
+pinned, and the asset's SHA-256 is what holds them to it.
 
 One subtlety belongs here because it is not obvious from the code's shape. When extracting the
 conda-pack tarball, links are deliberately extracted in a **second pass**, after every regular entry

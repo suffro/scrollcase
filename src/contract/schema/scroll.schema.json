@@ -201,8 +201,10 @@
           "format": {
             "enum": [
               "zip",
+              "tar",
               "tar.gz"
-            ]
+            ],
+            "description": "How the downloaded file is packed. `tar` is an uncompressed archive, which is what a publisher produces when the members are already compressed and a second pass would only cost time; it is validated and extracted exactly like `tar.gz`."
           },
           "destination": {
             "$ref": "#/$defs/payloadPath"

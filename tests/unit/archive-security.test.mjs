@@ -130,6 +130,30 @@ describe('archive boundaries', () => {
     expect(await fileExists(destination)).toBe(false);
   });
 
+  it('expands an uncompressed tarball, which a publisher of already-compressed members ships', async () => {
+    const root = await scratch();
+    const staging = join(root, 'staging');
+    await mkdir(join(staging, 'mols'), { recursive: true });
+    await writeFile(join(staging, 'mols', 'T9E.pkl'), 'bytes');
+    const archive = join(root, 'mols.tar');
+    await tar.c({ file: archive, cwd: staging, gzip: false }, ['mols']);
+    const destination = join(root, 'destination');
+    await extractScrollArchive(archive, 'tar', destination, 1);
+    expect(await collectFiles(destination)).toEqual(['T9E.pkl']);
+  });
+
+  it('applies the same entry rules to an uncompressed tarball as to a compressed one', async () => {
+    const root = await scratch();
+    const staging = join(root, 'staging');
+    await mkdir(staging);
+    await writeFile(join(staging, 'target'), 'bytes');
+    await symlink('target', join(staging, 'link'));
+    const archive = join(root, 'link.tar');
+    await tar.c({ file: archive, cwd: staging, gzip: false }, ['link']);
+    await expect(extractScrollArchive(archive, 'tar', join(root, 'destination')))
+      .rejects.toThrow(/links and special entries/);
+  });
+
   it('orders files by raw path strings rather than host collation', async () => {
     const root = await scratch();
     for (const name of ['a', '_', 'B']) await writeFile(join(root, name), name);

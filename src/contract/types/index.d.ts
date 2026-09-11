@@ -207,7 +207,10 @@ export interface BoxScroll {
    */
   assetArchives?: {
     relativePath: PayloadPath;
-    format: 'zip' | 'tar.gz';
+    /**
+     * How the downloaded file is packed. `tar` is an uncompressed archive, which is what a publisher produces when the members are already compressed and a second pass would only cost time; it is validated and extracted exactly like `tar.gz`.
+     */
+    format: 'zip' | 'tar' | 'tar.gz';
     destination: PayloadPath;
     stripComponents?: number;
     removeAfterExtract?: boolean;

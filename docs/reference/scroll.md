@@ -598,7 +598,10 @@ refuses to overwrite them.
 ]
 ```
 
-`format` is `zip` or `tar.gz`. An archive is expanded at build time, so **it has no `embed` field**:
+`format` is `zip`, `tar` or `tar.gz`. `tar` is an uncompressed tarball — what a publisher ships when
+the members are already compressed and a second pass would only cost time — and it is listed,
+validated and expanded exactly like `tar.gz`. An archive is expanded at build time, so **it has no
+`embed` field**:
 "leave it out and let the caller fetch it" names nothing that could happen. Version 2 refused that
 combination with a cross-field check; version 3 makes it unspeakable.
 

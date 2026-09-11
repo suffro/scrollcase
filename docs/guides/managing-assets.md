@@ -74,6 +74,9 @@ When the upstream artefact is a tarball or zip, declare it as an asset and then 
 ]
 ```
 
+- `format` is `zip`, `tar` or `tar.gz`. Reach for `tar` when the publisher ships an uncompressed
+  tarball, which is the usual choice when its members are already compressed; it goes through the
+  same listing, validation and extraction as `tar.gz`.
 - Entries are listed and validated **before** extraction, so a malicious archive cannot write
   outside its destination.
 - `stripComponents` drops the redundant top-level wrapper directory many published archives

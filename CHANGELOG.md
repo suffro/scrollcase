@@ -6,6 +6,21 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`assetArchives` accepts an uncompressed `tar`.** The format was `zip` or `tar.gz` only, so a
+  publisher who ships a plain tarball — the usual choice when every member inside is already
+  compressed, and a second pass would cost minutes to save nothing — could not be consumed at all.
+  The archive is listed, validated and expanded through the same code as `tar.gz`; the only thing
+  missing was permission to say so.
+
+  Compression is now left to the library on read, which is what it was doing regardless: node-tar
+  reads the header and decompresses or not, and the `gzip` option applies to writing. A scroll's
+  `tar` / `tar.gz` distinction records what the author pinned, and the asset's SHA-256 holds them
+  to it.
+
+  Reported by a project whose model bundles 1.86 GB of pickled molecule definitions that way.
+
 ## [1.1.1] — 2026-09-11
 
 ### Fixed

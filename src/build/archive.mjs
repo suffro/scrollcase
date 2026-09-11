@@ -353,12 +353,17 @@ export async function extractZipArchive(archivePath, destination) {
   await validateExtractedTree(destination, { allowLinks: true });
 }
 
-/** Lists TAR assets and rejects paths, links, and special entries before extraction. */
+/**
+ * Lists TAR assets and rejects paths, links, and special entries before extraction.
+ *
+ * Compression is not named here: node-tar reads the header and decompresses or not on its own, and
+ * the `gzip` option it takes applies to writing. The scroll's `tar` / `tar.gz` distinction is the
+ * author saying what they pinned, and the asset's SHA-256 is what makes that claim binding.
+ */
 async function validateTarArchive(archivePath) {
   let violation;
   await tar.t({
     file: archivePath,
-    gzip: true,
     strict: true,
     onentry(entry) {
       if (violation) return;
@@ -379,7 +384,7 @@ async function validateTarArchive(archivePath) {
  * Extracts scroll assets using only pinned Node archive implementations.
  *
  * @param {string} archivePath
- * @param {'zip' | 'tar.gz'} format
+ * @param {'zip' | 'tar' | 'tar.gz'} format
  * @param {string} destination
  * @param {number} [stripComponents]
  * @returns {Promise<void>}
@@ -389,12 +394,11 @@ export async function extractScrollArchive(archivePath, format, destination, str
   try {
     if (format === 'zip') {
       await extractZipArchive(archivePath, tempRoot);
-    } else if (format === 'tar.gz') {
+    } else if (format === 'tar' || format === 'tar.gz') {
       await validateTarArchive(archivePath);
       await tar.x({
         file: archivePath,
         cwd: tempRoot,
-        gzip: true,
         preservePaths: false,
         strict: true,
       });

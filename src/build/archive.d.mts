@@ -74,9 +74,9 @@ export function extractZipArchive(archivePath: string, destination: string): Pro
  * Extracts scroll assets using only pinned Node archive implementations.
  *
  * @param {string} archivePath
- * @param {'zip' | 'tar.gz'} format
+ * @param {'zip' | 'tar' | 'tar.gz'} format
  * @param {string} destination
  * @param {number} [stripComponents]
  * @returns {Promise<void>}
  */
-export function extractScrollArchive(archivePath: string, format: "zip" | "tar.gz", destination: string, stripComponents?: number): Promise<void>;
+export function extractScrollArchive(archivePath: string, format: "zip" | "tar" | "tar.gz", destination: string, stripComponents?: number): Promise<void>;
