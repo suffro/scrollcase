@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-12
+
 ### Added
 
 - **`assetArchives` accepts an uncompressed `tar`.** The format was `zip` or `tar.gz` only, so a
