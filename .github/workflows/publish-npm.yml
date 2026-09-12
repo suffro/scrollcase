@@ -85,6 +85,11 @@ jobs:
       # The glob is resolved and counted rather than passed straight to npm: `npm publish` given two
       # paths would publish the first and say nothing about the second, and given none would fall
       # back to publishing the current directory — which here is an empty runner, not the package.
+      #
+      # The `./` below is load-bearing. npm reads an argument that contains a slash but does not
+      # start with `./`, `/` or `../` as a hosted git shorthand, so `dist/scrollcase-1.1.1.tgz`
+      # became a request to clone `ssh://git@github.com/dist/scrollcase-1.1.1.tgz.git`. That is how
+      # both releases this workflow has seen failed, and went out by hand instead.
       - name: Publish
         shell: bash
         run: |
@@ -96,4 +101,4 @@ jobs:
             printf '  %s\n' "${tarballs[@]}" >&2
             exit 1
           fi
-          npm publish "${tarballs[0]}"
+          npm publish "./${tarballs[0]}"
