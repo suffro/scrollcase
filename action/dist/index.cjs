@@ -19457,7 +19457,7 @@ var require_yauzl = __commonJS({
     var PassThrough = require("stream").PassThrough;
     var Writable = require("stream").Writable;
     var crc32 = typeof zlib.crc32 === "function" ? zlib.crc32 : require_crc32();
-    exports2.open = open2;
+    exports2.open = open3;
     exports2.fromFd = fromFd;
     exports2.fromBuffer = fromBuffer;
     exports2.fromRandomAccessReader = fromRandomAccessReader;
@@ -19475,7 +19475,7 @@ var require_yauzl = __commonJS({
     exports2.RandomAccessReader = RandomAccessReader;
     function openPromise(path, options2) {
       return new Promise((resolve6, reject) => {
-        open2(path, { ...options2, lazyEntries: true }, function(err, zipfile) {
+        open3(path, { ...options2, lazyEntries: true }, function(err, zipfile) {
           if (err) return reject(err);
           resolve6(zipfile);
         });
@@ -19505,7 +19505,7 @@ var require_yauzl = __commonJS({
         });
       });
     }
-    function open2(path, options2, callback) {
+    function open3(path, options2, callback) {
       if (typeof options2 === "function") {
         callback = options2;
         options2 = null;
@@ -21847,13 +21847,13 @@ function readActionOptions(input) {
 }
 
 // action/src/run.mjs
-var import_promises19 = require("node:fs/promises");
-var import_node_path23 = require("node:path");
+var import_promises20 = require("node:fs/promises");
+var import_node_path24 = require("node:path");
 
 // src/build/box.mjs
 var import_node_crypto5 = require("node:crypto");
-var import_promises16 = require("node:fs/promises");
-var import_node_path21 = require("node:path");
+var import_promises17 = require("node:fs/promises");
+var import_node_path22 = require("node:path");
 
 // src/contract/targets.mjs
 var TARGET_ACCELERATORS = {
@@ -22550,6 +22550,9 @@ async function collectEntries(root, current2 = root) {
 }
 async function collectFiles(root) {
   return (await collectEntries(root)).map((entry) => entry.path);
+}
+async function collectRegularFiles(root) {
+  return (await collectEntries(root)).filter((entry) => entry.kind === "file").map((entry) => entry.path);
 }
 async function payloadSize(root) {
   let total = 0;
@@ -26150,6 +26153,58 @@ async function expandAssetArchive(payloadDir, archive) {
   if (archive.removeAfterExtract !== false) await (0, import_promises6.rm)(archivePath, { force: true });
 }
 
+// src/build/codesign.mjs
+var import_promises8 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
+var BATCH_SIZE = 200;
+var BIG_ENDIAN_MAGICS = /* @__PURE__ */ new Set([4277009102, 4277009103]);
+var LITTLE_ENDIAN_MAGICS = /* @__PURE__ */ new Set([3472551422, 3489328638]);
+var UNIVERSAL_MAGIC = 3405691582;
+var UNIVERSAL_64_MAGIC = 3405691583;
+var SIGNABLE_FILE_TYPES = /* @__PURE__ */ new Set([2, 6, 8]);
+async function readAt(handle, position, length) {
+  const buffer = Buffer.alloc(length);
+  const { bytesRead } = await handle.read(buffer, 0, length, position);
+  return buffer.subarray(0, bytesRead);
+}
+async function machOFileType(handle, offset = 0) {
+  const header = await readAt(handle, offset, 24);
+  if (header.length < 16) return null;
+  const magic = header.readUInt32BE(0);
+  if (BIG_ENDIAN_MAGICS.has(magic)) return header.readUInt32BE(12);
+  if (LITTLE_ENDIAN_MAGICS.has(magic)) return header.readUInt32LE(12);
+  if (offset !== 0 || header.length < 24) return null;
+  if (magic !== UNIVERSAL_MAGIC && magic !== UNIVERSAL_64_MAGIC) return null;
+  const slices = header.readUInt32BE(4);
+  if (slices === 0 || slices >= 20) return null;
+  const slice = magic === UNIVERSAL_MAGIC ? header.readUInt32BE(16) : Number(header.readBigUInt64BE(16));
+  return slice > 0 ? machOFileType(handle, slice) : null;
+}
+async function signableMachOFiles(payloadDir) {
+  const found = [];
+  for (const path of await collectRegularFiles(payloadDir)) {
+    const handle = await (0, import_promises8.open)((0, import_node_path13.join)(payloadDir, path), "r");
+    try {
+      if (SIGNABLE_FILE_TYPES.has(await machOFileType(handle))) found.push(path);
+    } finally {
+      await handle.close();
+    }
+  }
+  return found;
+}
+async function codesignPayload({ payloadDir, identity, run: run2 }) {
+  const files = (await signableMachOFiles(payloadDir)).map((path) => `./${path}`);
+  for (let start = 0; start < files.length; start += BATCH_SIZE) {
+    const batch = files.slice(start, start + BATCH_SIZE);
+    run2("codesign", ["--force", "--options", "runtime", "--timestamp", "--sign", identity, ...batch], {
+      cwd: payloadDir,
+      capture: true
+    });
+    run2("codesign", ["--verify", "--strict", ...batch], { cwd: payloadDir, capture: true });
+  }
+  return files.length;
+}
+
 // src/build/execution.mjs
 function assertExecutionFiles({
   execution,
@@ -26184,8 +26239,8 @@ function builderVersionFields(source) {
 
 // src/build/licenses.mjs
 var import_node_crypto4 = require("node:crypto");
-var import_promises8 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
 
 // src/build/schema-validation.mjs
 var import_node_util = require("node:util");
@@ -26453,11 +26508,11 @@ function validateDeclaredPypiLicenses(declared) {
 }
 async function readDeclaredPypiLicenses(scroll, projectRoot) {
   if (!scroll.pypiLicenseDeclaration) return /* @__PURE__ */ new Map();
-  const path = (0, import_node_path13.join)(projectRoot, safeRelativePath(scroll.pypiLicenseDeclaration));
+  const path = (0, import_node_path14.join)(projectRoot, safeRelativePath(scroll.pypiLicenseDeclaration));
   if (!await fileExists(path)) {
     fail2(`declared PyPI licence inventory is missing: ${scroll.pypiLicenseDeclaration}`);
   }
-  return validateDeclaredPypiLicenses(JSON.parse(await (0, import_promises8.readFile)(path, "utf8")));
+  return validateDeclaredPypiLicenses(JSON.parse(await (0, import_promises9.readFile)(path, "utf8")));
 }
 function createCondaDependencyLicenseAudit({
   lockBytes,
@@ -26490,7 +26545,7 @@ function validateCondaDependencyLicenseAudit(reviewed, actual) {
 var releaseSchemaUrl = new URL("../contract/schema/release-manifest.schema.json", __scrollcaseImportMetaUrl);
 var bundledLicenseSchema;
 async function loadBundledLicenseSchema() {
-  bundledLicenseSchema ??= (0, import_promises8.readFile)(releaseSchemaUrl, "utf8").then((text2) => {
+  bundledLicenseSchema ??= (0, import_promises9.readFile)(releaseSchemaUrl, "utf8").then((text2) => {
     const release = JSON.parse(text2);
     return { $id: release.$id, $defs: release.$defs, $ref: "#/$defs/bundledLicenses" };
   });
@@ -26602,18 +26657,18 @@ async function checkParity({ parity, adapter, interpreter, payloadDir, environme
 
 // src/build/pixi.mjs
 var import_node_fs12 = require("node:fs");
-var import_promises14 = require("node:fs/promises");
-var import_node_path19 = require("node:path");
+var import_promises15 = require("node:fs/promises");
+var import_node_path20 = require("node:path");
 
 // src/runtimes/launchers.mjs
-var import_promises9 = require("node:fs/promises");
-var import_node_path14 = require("node:path");
+var import_promises10 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
 async function assertRelocatableLaunchers(layout, payloadDir, forbiddenPaths) {
-  const scriptsRoot = (0, import_node_path14.join)(payloadDir, ...layout.scriptsDirectory.split("/"));
+  const scriptsRoot = (0, import_node_path15.join)(payloadDir, ...layout.scriptsDirectory.split("/"));
   if (!await fileExists(scriptsRoot)) return;
   for (const file of await collectFiles(scriptsRoot)) {
-    const path = (0, import_node_path14.join)(scriptsRoot, ...file.split("/"));
-    const bytes = await (0, import_promises9.readFile)(path);
+    const path = (0, import_node_path15.join)(scriptsRoot, ...file.split("/"));
+    const bytes = await (0, import_promises10.readFile)(path);
     if (!bytes.subarray(0, 2).equals(Buffer.from("#!"))) continue;
     const text2 = bytes.toString("utf8");
     const leaked = forbiddenPaths.find((value) => text2.includes(value));
@@ -26638,8 +26693,8 @@ var nativeRuntimeBuilder = Object.freeze({
 });
 
 // src/runtimes/node/payload.mjs
-var import_promises10 = require("node:fs/promises");
-var import_node_path15 = require("node:path");
+var import_promises11 = require("node:fs/promises");
+var import_node_path16 = require("node:path");
 var BOX_PACKAGE_MANIFEST = `${JSON.stringify({
   name: "scrollcase-box",
   private: true,
@@ -26647,9 +26702,9 @@ var BOX_PACKAGE_MANIFEST = `${JSON.stringify({
 }, null, 2)}
 `;
 async function writeNodePackageManifest(payloadDir) {
-  const path = (0, import_node_path15.join)(payloadDir, "package.json");
+  const path = (0, import_node_path16.join)(payloadDir, "package.json");
   if (await fileExists(path)) return [];
-  await (0, import_promises10.writeFile)(path, BOX_PACKAGE_MANIFEST);
+  await (0, import_promises11.writeFile)(path, BOX_PACKAGE_MANIFEST);
   return ["package.json"];
 }
 
@@ -26698,8 +26753,8 @@ var nodeRuntimeBuilder = Object.freeze({
 });
 
 // src/runtimes/python/launchers.mjs
-var import_promises11 = require("node:fs/promises");
-var import_node_path16 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_path17 = require("node:path");
 function posixLauncherBody(text2) {
   const lines = text2.split("\n");
   if (lines.length === 0 || !lines[0].startsWith("#!")) return text2;
@@ -26711,12 +26766,12 @@ function posixLauncherBody(text2) {
   return lines.slice(1).join("\n");
 }
 async function repairPosixLaunchers(layout, payloadDir, forbiddenPaths) {
-  const scriptsRoot = (0, import_node_path16.join)(payloadDir, ...layout.scriptsDirectory.split("/"));
+  const scriptsRoot = (0, import_node_path17.join)(payloadDir, ...layout.scriptsDirectory.split("/"));
   if (!await fileExists(scriptsRoot)) return;
-  const pythonName = (0, import_node_path16.basename)(layout.entryPoint);
+  const pythonName = (0, import_node_path17.basename)(layout.entryPoint);
   for (const file of await collectFiles(scriptsRoot)) {
-    const path = (0, import_node_path16.join)(scriptsRoot, ...file.split("/"));
-    const bytes = await (0, import_promises11.readFile)(path);
+    const path = (0, import_node_path17.join)(scriptsRoot, ...file.split("/"));
+    const bytes = await (0, import_promises12.readFile)(path);
     if (!bytes.subarray(0, 2).equals(Buffer.from("#!"))) continue;
     const text2 = bytes.toString("utf8");
     if (!forbiddenPaths.some((value) => text2.includes(value))) continue;
@@ -26727,8 +26782,8 @@ async function repairPosixLaunchers(layout, payloadDir, forbiddenPaths) {
       "' '''",
       body
     ].join("\n");
-    await (0, import_promises11.writeFile)(path, launcher);
-    await (0, import_promises11.chmod)(path, 493);
+    await (0, import_promises12.writeFile)(path, launcher);
+    await (0, import_promises12.chmod)(path, 493);
   }
 }
 
@@ -26794,10 +26849,10 @@ function runtimeBuilder(runtimeId) {
 
 // src/build/toolchain.mjs
 var import_node_fs10 = require("node:fs");
-var import_promises12 = require("node:fs/promises");
+var import_promises13 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path17 = require("node:path");
-var import_promises13 = require("node:stream/promises");
+var import_node_path18 = require("node:path");
+var import_promises14 = require("node:stream/promises");
 var PIXI_RELEASES = "https://github.com/prefix-dev/pixi/releases";
 var SHA256_TOKEN = /\b[a-f0-9]{64}\b/;
 var CONDA_PACK_VERSION = "0.9.2";
@@ -26810,12 +26865,12 @@ var PIXI_RELEASE_ASSETS = Object.freeze({
   "win32/arm64": Object.freeze({ asset: "pixi-aarch64-pc-windows-msvc.zip", format: "zip", binary: "pixi.exe" })
 });
 function toolchainPaths(toolchainDir) {
-  const binDir = (0, import_node_path17.join)(toolchainDir, "bin");
+  const binDir = (0, import_node_path18.join)(toolchainDir, "bin");
   const suffix = process.platform === "win32" ? ".exe" : "";
   return {
     binDir,
-    pixi: (0, import_node_path17.join)(binDir, `pixi${suffix}`),
-    condaPack: (0, import_node_path17.join)(binDir, `conda-pack${suffix}`)
+    pixi: (0, import_node_path18.join)(binDir, `pixi${suffix}`),
+    condaPack: (0, import_node_path18.join)(binDir, `conda-pack${suffix}`)
   };
 }
 function pixiReleaseAsset(host = process) {
@@ -26838,14 +26893,14 @@ async function fetchText(url, fetchImpl) {
 async function fetchToFile(url, destination, fetchImpl) {
   const response = await fetchImpl(url);
   if (!response.ok) fail(`Download failed (${response.status}): ${url}`);
-  await (0, import_promises13.pipeline)(response.body, (0, import_node_fs10.createWriteStream)(destination));
+  await (0, import_promises14.pipeline)(response.body, (0, import_node_fs10.createWriteStream)(destination));
 }
 async function moveInto(source, destination) {
   try {
-    await (0, import_promises12.rename)(source, destination);
+    await (0, import_promises13.rename)(source, destination);
   } catch (error2) {
     if (error2?.code !== "EXDEV") throw error2;
-    await (0, import_promises12.copyFile)(source, destination);
+    await (0, import_promises13.copyFile)(source, destination);
   }
 }
 async function installPixi({
@@ -26861,28 +26916,28 @@ async function installPixi({
     fail(`pixi publishes no build for ${host.platform}/${host.arch}; install it manually from https://pixi.sh/.`);
   }
   const { archiveUrl, checksumUrl } = pixiAssetUrls(version, release.asset);
-  const staging = await (0, import_promises12.mkdtemp)((0, import_node_path17.join)((0, import_node_os2.tmpdir)(), "scrollcase-toolchain-"));
+  const staging = await (0, import_promises13.mkdtemp)((0, import_node_path18.join)((0, import_node_os2.tmpdir)(), "scrollcase-toolchain-"));
   try {
     const expected = expectedSha256 ?? parseChecksumFile(await fetchText(checksumUrl, fetchImpl));
     log(`Downloading pixi ${version} (${release.asset})`);
-    const archivePath = (0, import_node_path17.join)(staging, release.asset);
+    const archivePath = (0, import_node_path18.join)(staging, release.asset);
     await fetchToFile(archiveUrl, archivePath, fetchImpl);
     const actual = await sha256File(archivePath);
     if (actual !== expected) {
       fail(`pixi ${version} failed its checksum: expected ${expected}, got ${actual}. Nothing was installed.`);
     }
-    const unpacked = (0, import_node_path17.join)(staging, "unpacked");
+    const unpacked = (0, import_node_path18.join)(staging, "unpacked");
     await extractScrollArchive(archivePath, release.format, unpacked);
     const entry = (await collectFiles(unpacked)).find((file) => file.split("/").pop() === release.binary);
     if (!entry) fail(`The pixi archive did not contain ${release.binary}.`);
     const { binDir, pixi } = toolchainPaths(toolchainDir);
-    await (0, import_promises12.mkdir)(binDir, { recursive: true });
-    await (0, import_promises12.rm)(pixi, { force: true });
-    await moveInto((0, import_node_path17.join)(unpacked, ...entry.split("/")), pixi);
-    if (process.platform !== "win32") await (0, import_promises12.chmod)(pixi, 493);
+    await (0, import_promises13.mkdir)(binDir, { recursive: true });
+    await (0, import_promises13.rm)(pixi, { force: true });
+    await moveInto((0, import_node_path18.join)(unpacked, ...entry.split("/")), pixi);
+    if (process.platform !== "win32") await (0, import_promises13.chmod)(pixi, 493);
     return { path: pixi, version, sha256: expected, asset: release.asset };
   } finally {
-    await (0, import_promises12.rm)(staging, { recursive: true, force: true });
+    await (0, import_promises13.rm)(staging, { recursive: true, force: true });
   }
 }
 async function installCondaPack({ pixi, toolchainDir, run: run2 = run, log = console.log }) {
@@ -26899,7 +26954,7 @@ async function installCondaPack({ pixi, toolchainDir, run: run2 = run, log = con
 
 // src/build/workspace.mjs
 var import_node_fs11 = require("node:fs");
-var import_node_path18 = require("node:path");
+var import_node_path19 = require("node:path");
 var SCROLLCASE_CONFIG_FILENAME = "scrollcase.config.json";
 var DEFAULT_WORKSPACE_PATHS = Object.freeze({
   scrolls: "scrolls",
@@ -26923,13 +26978,13 @@ var PATH_FLAGS = Object.freeze({
   "toolchain-dir": "toolchain"
 });
 function findWorkspaceConfig(startDir) {
-  let current2 = (0, import_node_path18.resolve)(startDir);
-  const { root } = (0, import_node_path18.parse)(current2);
+  let current2 = (0, import_node_path19.resolve)(startDir);
+  const { root } = (0, import_node_path19.parse)(current2);
   for (; ; ) {
-    const candidate = (0, import_node_path18.resolve)(current2, SCROLLCASE_CONFIG_FILENAME);
+    const candidate = (0, import_node_path19.resolve)(current2, SCROLLCASE_CONFIG_FILENAME);
     if ((0, import_node_fs11.existsSync)(candidate)) return candidate;
     if (current2 === root) return null;
-    const parent = (0, import_node_path18.dirname)(current2);
+    const parent = (0, import_node_path19.dirname)(current2);
     if (parent === current2) return null;
     current2 = parent;
   }
@@ -26962,31 +27017,31 @@ function readWorkspaceConfig(configPath) {
   return { ...config, paths };
 }
 function resolveWorkspace({ cwd = process.cwd(), overrides = {} } = {}) {
-  const base = (0, import_node_path18.resolve)(cwd);
+  const base = (0, import_node_path19.resolve)(cwd);
   let configPath = null;
   let root;
   if (overrides.config !== void 0) {
-    configPath = (0, import_node_path18.resolve)(base, overrides.config);
+    configPath = (0, import_node_path19.resolve)(base, overrides.config);
     if (!(0, import_node_fs11.existsSync)(configPath)) fail(`Workspace config not found: ${configPath}`);
-    root = overrides.projectRoot !== void 0 ? (0, import_node_path18.resolve)(base, overrides.projectRoot) : (0, import_node_path18.dirname)(configPath);
+    root = overrides.projectRoot !== void 0 ? (0, import_node_path19.resolve)(base, overrides.projectRoot) : (0, import_node_path19.dirname)(configPath);
   } else if (overrides.projectRoot !== void 0) {
-    root = (0, import_node_path18.resolve)(base, overrides.projectRoot);
-    const candidate = (0, import_node_path18.resolve)(root, SCROLLCASE_CONFIG_FILENAME);
+    root = (0, import_node_path19.resolve)(base, overrides.projectRoot);
+    const candidate = (0, import_node_path19.resolve)(root, SCROLLCASE_CONFIG_FILENAME);
     configPath = (0, import_node_fs11.existsSync)(candidate) ? candidate : null;
   } else {
     configPath = findWorkspaceConfig(base);
-    root = configPath ? (0, import_node_path18.dirname)(configPath) : base;
+    root = configPath ? (0, import_node_path19.dirname)(configPath) : base;
   }
   const config = configPath ? readWorkspaceConfig(configPath) : { paths: {} };
   const workspace = { root, configPath };
   for (const [key, field] of Object.entries(PATH_FIELDS)) {
     const override = overrides[key];
     if (override !== void 0) {
-      workspace[field] = (0, import_node_path18.isAbsolute)(override) ? override : (0, import_node_path18.resolve)(base, override);
+      workspace[field] = (0, import_node_path19.isAbsolute)(override) ? override : (0, import_node_path19.resolve)(base, override);
       continue;
     }
     const declared = config.paths[key];
-    workspace[field] = (0, import_node_path18.resolve)(root, declared ?? DEFAULT_WORKSPACE_PATHS[key]);
+    workspace[field] = (0, import_node_path19.resolve)(root, declared ?? DEFAULT_WORKSPACE_PATHS[key]);
   }
   return Object.freeze(workspace);
 }
@@ -27064,17 +27119,17 @@ var CONDA_RECORD_FIELDS = Object.freeze([
   "license"
 ]);
 async function canonicalizeCondaRecords(venvDir) {
-  const metaDir = (0, import_node_path19.join)(venvDir, "conda-meta");
+  const metaDir = (0, import_node_path20.join)(venvDir, "conda-meta");
   if (!(0, import_node_fs12.existsSync)(metaDir)) return;
-  for (const entry of (await (0, import_promises14.readdir)(metaDir)).sort(compareStableStrings)) {
-    const entryPath = (0, import_node_path19.join)(metaDir, entry);
+  for (const entry of (await (0, import_promises15.readdir)(metaDir)).sort(compareStableStrings)) {
+    const entryPath = (0, import_node_path20.join)(metaDir, entry);
     if (!entry.endsWith(".json")) {
-      await (0, import_promises14.rm)(entryPath, { recursive: true, force: true });
+      await (0, import_promises15.rm)(entryPath, { recursive: true, force: true });
       continue;
     }
     let record;
     try {
-      record = JSON.parse(await (0, import_promises14.readFile)(entryPath, "utf8"));
+      record = JSON.parse(await (0, import_promises15.readFile)(entryPath, "utf8"));
     } catch (error2) {
       return fail(`Unreadable conda package record ${entry}: ${error2 instanceof Error ? error2.message : String(error2)}`);
     }
@@ -27082,43 +27137,43 @@ async function canonicalizeCondaRecords(venvDir) {
     for (const field of CONDA_RECORD_FIELDS) {
       if (record[field] !== void 0) canonical[field] = record[field];
     }
-    await (0, import_promises14.writeFile)(entryPath, `${JSON.stringify(canonical, null, 2)}
+    await (0, import_promises15.writeFile)(entryPath, `${JSON.stringify(canonical, null, 2)}
 `);
   }
 }
 async function settleSymlinksInPlace(root, keepLinks, current2 = root) {
-  const canonicalRoot = await (0, import_promises14.realpath)(root);
-  const children = (await (0, import_promises14.readdir)(current2, { withFileTypes: true })).sort((left, right) => compareStableStrings(left.name, right.name));
+  const canonicalRoot = await (0, import_promises15.realpath)(root);
+  const children = (await (0, import_promises15.readdir)(current2, { withFileTypes: true })).sort((left, right) => compareStableStrings(left.name, right.name));
   for (const entry of children) {
-    const path = (0, import_node_path19.join)(current2, entry.name);
+    const path = (0, import_node_path20.join)(current2, entry.name);
     if (entry.isSymbolicLink()) {
       let target;
       try {
-        target = await (0, import_promises14.realpath)(path);
+        target = await (0, import_promises15.realpath)(path);
       } catch {
-        await (0, import_promises14.rm)(path, { force: true });
+        await (0, import_promises15.rm)(path, { force: true });
         continue;
       }
-      const insideTree = target === canonicalRoot || target.startsWith(`${canonicalRoot}${import_node_path19.sep}`);
+      const insideTree = target === canonicalRoot || target.startsWith(`${canonicalRoot}${import_node_path20.sep}`);
       let info2;
       try {
-        info2 = await (0, import_promises14.stat)(target);
+        info2 = await (0, import_promises15.stat)(target);
       } catch {
-        await (0, import_promises14.rm)(path, { force: true });
+        await (0, import_promises15.rm)(path, { force: true });
         continue;
       }
       if (!insideTree) {
-        await (0, import_promises14.rm)(path, { force: true });
+        await (0, import_promises15.rm)(path, { force: true });
         continue;
       }
       if (keepLinks && !info2.isDirectory() && await keepsAsLink(root, path, canonicalRoot)) continue;
-      await (0, import_promises14.rm)(path, { force: true });
+      await (0, import_promises15.rm)(path, { force: true });
       if (info2.isDirectory()) {
-        await (0, import_promises14.cp)(target, path, { recursive: true, dereference: true });
+        await (0, import_promises15.cp)(target, path, { recursive: true, dereference: true });
         await settleSymlinksInPlace(root, keepLinks, path);
       } else {
-        await (0, import_promises14.copyFile)(target, path);
-        await (0, import_promises14.chmod)(path, info2.mode & 511);
+        await (0, import_promises15.copyFile)(target, path);
+        await (0, import_promises15.chmod)(path, info2.mode & 511);
       }
     } else if (entry.isDirectory()) {
       await settleSymlinksInPlace(root, keepLinks, path);
@@ -27126,19 +27181,19 @@ async function settleSymlinksInPlace(root, keepLinks, current2 = root) {
   }
 }
 async function keepsAsLink(root, linkPath, canonicalRoot) {
-  const rawTarget = (await (0, import_promises14.readlink)(linkPath)).split(import_node_path19.sep).join("/");
-  const relativeLink = (0, import_node_path19.relative)(root, linkPath).split(import_node_path19.sep).join("/");
+  const rawTarget = (await (0, import_promises15.readlink)(linkPath)).split(import_node_path20.sep).join("/");
+  const relativeLink = (0, import_node_path20.relative)(root, linkPath).split(import_node_path20.sep).join("/");
   const resolved = resolvePayloadLinkTarget(relativeLink, rawTarget);
   if (resolved === null) return false;
-  const lexicalPath = (0, import_node_path19.join)(root, ...resolved.split("/"));
+  const lexicalPath = (0, import_node_path20.join)(root, ...resolved.split("/"));
   let lexicalReal;
   try {
-    lexicalReal = await (0, import_promises14.realpath)(lexicalPath);
+    lexicalReal = await (0, import_promises15.realpath)(lexicalPath);
   } catch {
     return false;
   }
-  if (lexicalReal !== canonicalRoot && !lexicalReal.startsWith(`${canonicalRoot}${import_node_path19.sep}`)) return false;
-  return (await (0, import_promises14.stat)(lexicalPath)).isFile();
+  if (lexicalReal !== canonicalRoot && !lexicalReal.startsWith(`${canonicalRoot}${import_node_path20.sep}`)) return false;
+  return (await (0, import_promises15.stat)(lexicalPath)).isFile();
 }
 async function installAndPackPixiEnvironment({
   pixi,
@@ -27152,19 +27207,19 @@ async function installAndPackPixiEnvironment({
   runtimeId
 }) {
   const layout = runtimeAdapter(runtimeId).layout(adapter);
-  const workspace = (0, import_node_path19.join)(buildDir, "pixi-workspace");
-  await (0, import_promises14.rm)(workspace, { recursive: true, force: true });
-  await (0, import_promises14.mkdir)(workspace, { recursive: true });
-  await (0, import_promises14.copyFile)(manifestPath, (0, import_node_path19.join)(workspace, "pixi.toml"));
-  await (0, import_promises14.copyFile)(lockPath, (0, import_node_path19.join)(workspace, "pixi.lock"));
-  run2(pixi, pixiInstallArguments((0, import_node_path19.join)(workspace, "pixi.toml")));
-  const prefix = (0, import_node_path19.join)(workspace, ".pixi", "envs", "default");
-  const packPath = (0, import_node_path19.join)(buildDir, "pixi-env.tar.gz");
-  await (0, import_promises14.rm)(packPath, { force: true });
+  const workspace = (0, import_node_path20.join)(buildDir, "pixi-workspace");
+  await (0, import_promises15.rm)(workspace, { recursive: true, force: true });
+  await (0, import_promises15.mkdir)(workspace, { recursive: true });
+  await (0, import_promises15.copyFile)(manifestPath, (0, import_node_path20.join)(workspace, "pixi.toml"));
+  await (0, import_promises15.copyFile)(lockPath, (0, import_node_path20.join)(workspace, "pixi.lock"));
+  run2(pixi, pixiInstallArguments((0, import_node_path20.join)(workspace, "pixi.toml")));
+  const prefix = (0, import_node_path20.join)(workspace, ".pixi", "envs", "default");
+  const packPath = (0, import_node_path20.join)(buildDir, "pixi-env.tar.gz");
+  await (0, import_promises15.rm)(packPath, { force: true });
   run2(condaPack, condaPackArguments(prefix, packPath));
-  const venvDir = (0, import_node_path19.join)(payloadDir, ...layout.root.split("/"));
-  await (0, import_promises14.rm)(venvDir, { recursive: true, force: true });
-  await (0, import_promises14.mkdir)(venvDir, { recursive: true });
+  const venvDir = (0, import_node_path20.join)(payloadDir, ...layout.root.split("/"));
+  await (0, import_promises15.rm)(venvDir, { recursive: true, force: true });
+  await (0, import_promises15.mkdir)(venvDir, { recursive: true });
   const deferredLinks = [];
   await So({
     file: packPath,
@@ -27179,14 +27234,14 @@ async function installAndPackPixiEnvironment({
     }
   });
   for (const link of deferredLinks.sort((left, right) => compareStableStrings(left.path, right.path))) {
-    const linkPath = (0, import_node_path19.join)(venvDir, ...link.path.split("/"));
+    const linkPath = (0, import_node_path20.join)(venvDir, ...link.path.split("/"));
     if ((0, import_node_fs12.existsSync)(linkPath)) continue;
-    await (0, import_promises14.mkdir)((0, import_node_path19.dirname)(linkPath), { recursive: true });
-    const resolved = (0, import_node_path19.resolve)((0, import_node_path19.dirname)(linkPath), link.target);
-    const type = (0, import_node_fs12.existsSync)(resolved) && (await (0, import_promises14.stat)(resolved)).isDirectory() ? "dir" : "file";
-    await (0, import_promises14.symlink)(link.target, linkPath, type);
+    await (0, import_promises15.mkdir)((0, import_node_path20.dirname)(linkPath), { recursive: true });
+    const resolved = (0, import_node_path20.resolve)((0, import_node_path20.dirname)(linkPath), link.target);
+    const type = (0, import_node_fs12.existsSync)(resolved) && (await (0, import_promises15.stat)(resolved)).isDirectory() ? "dir" : "file";
+    await (0, import_promises15.symlink)(link.target, linkPath, type);
   }
-  const interpreter = layout.entryPoint === null ? null : (0, import_node_path19.join)(payloadDir, ...layout.entryPoint.split("/"));
+  const interpreter = layout.entryPoint === null ? null : (0, import_node_path20.join)(payloadDir, ...layout.entryPoint.split("/"));
   for (const servicePath of [
     ["conda-meta", "pixi_env_prefix"],
     ["conda-meta", "pixi"],
@@ -27194,25 +27249,25 @@ async function installAndPackPixiEnvironment({
     ["Scripts", "conda-unpack.exe"],
     ["Scripts", "conda-unpack-script.py"]
   ]) {
-    await (0, import_promises14.rm)((0, import_node_path19.join)(venvDir, ...servicePath), { force: true });
+    await (0, import_promises15.rm)((0, import_node_path20.join)(venvDir, ...servicePath), { force: true });
   }
   await canonicalizeCondaRecords(venvDir);
   await settleSymlinksInPlace(venvDir, targetCarriesLinks(adapter.platform));
   await runtimeBuilder(runtimeId).repairLaunchers(layout, payloadDir, [prefix, workspace, payloadDir]);
-  await (0, import_promises14.rm)(workspace, { recursive: true, force: true });
-  await (0, import_promises14.rm)(packPath, { force: true });
-  return { interpreter, venvDir, sitePackagesRelative: (0, import_node_path19.relative)(payloadDir, venvDir) };
+  await (0, import_promises15.rm)(workspace, { recursive: true, force: true });
+  await (0, import_promises15.rm)(packPath, { force: true });
+  return { interpreter, venvDir, sitePackagesRelative: (0, import_node_path20.relative)(payloadDir, venvDir) };
 }
 
 // src/build/scroll.mjs
-var import_promises15 = require("node:fs/promises");
-var import_node_path20 = require("node:path");
+var import_promises16 = require("node:fs/promises");
+var import_node_path21 = require("node:path");
 var scrollSchemaUrl = new URL("../contract/schema/scroll.schema.json", __scrollcaseImportMetaUrl);
 var targetSchemaUrl = new URL("../contract/schema/target.schema.json", __scrollcaseImportMetaUrl);
 var executionSchemaUrl = new URL("../contract/schema/execution.schema.json", __scrollcaseImportMetaUrl);
 var scrollSchemas;
 async function loadScrollSchemas() {
-  scrollSchemas ??= Promise.all([scrollSchemaUrl, targetSchemaUrl, executionSchemaUrl].map(async (url) => JSON.parse(await (0, import_promises15.readFile)(url, "utf8"))));
+  scrollSchemas ??= Promise.all([scrollSchemaUrl, targetSchemaUrl, executionSchemaUrl].map(async (url) => JSON.parse(await (0, import_promises16.readFile)(url, "utf8"))));
   return scrollSchemas;
 }
 var SCROLL_BASE_REFERENCE = "../scroll.json";
@@ -27274,13 +27329,13 @@ async function readScrollBase(fragment, dir, reference) {
   if (fragment.extends !== SCROLL_BASE_REFERENCE) {
     fail(`Scroll ${reference} extends ${JSON.stringify(fragment.extends)}; the only base is ${SCROLL_BASE_REFERENCE}.`);
   }
-  const path = (0, import_node_path20.resolve)(dir, "..", "scroll.json");
+  const path = (0, import_node_path21.resolve)(dir, "..", "scroll.json");
   if (!await fileExists(path)) {
     fail(`Scroll ${reference} extends ${SCROLL_BASE_REFERENCE}, which does not exist: ${path}`);
   }
   let base;
   try {
-    base = JSON.parse(await (0, import_promises15.readFile)(path, "utf8"));
+    base = JSON.parse(await (0, import_promises16.readFile)(path, "utf8"));
   } catch (error2) {
     return fail(`Invalid base scroll at ${path}: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
@@ -27298,8 +27353,8 @@ async function readScrollBase(fragment, dir, reference) {
 function scrollDirectory(reference) {
   const root = getWorkspace().scrollsDir;
   const normalized = safeRelativePath(reference);
-  const path = (0, import_node_path20.resolve)(root, ...normalized.split("/"));
-  if (path === root || !path.startsWith(`${root}${import_node_path20.sep}`)) fail(`Invalid scroll: ${reference}`);
+  const path = (0, import_node_path21.resolve)(root, ...normalized.split("/"));
+  if (path === root || !path.startsWith(`${root}${import_node_path21.sep}`)) fail(`Invalid scroll: ${reference}`);
   return path;
 }
 function effectiveScroll(scroll, adapter, targetId) {
@@ -27323,7 +27378,7 @@ async function readExactScroll(reference) {
   const parts = normalized.split("/");
   if (parts.length !== 2) fail(`Invalid scroll reference ${reference}; use <boxId>/<targetId>.`);
   const dir = scrollDirectory(normalized);
-  const fragment = JSON.parse(await (0, import_promises15.readFile)((0, import_node_path20.resolve)(dir, "scroll.json"), "utf8"));
+  const fragment = JSON.parse(await (0, import_promises16.readFile)((0, import_node_path21.resolve)(dir, "scroll.json"), "utf8"));
   const extended = fragment.extends !== void 0;
   const declared = extended ? joinScrollFragment(await readScrollBase(fragment, dir, normalized), fragment) : fragment;
   const [scrollSchema, targetSchema, executionSchema] = await loadScrollSchemas();
@@ -27384,7 +27439,7 @@ async function scrollCandidates(name = null) {
   if (name === null || name === void 0) {
     let boxes;
     try {
-      boxes = await (0, import_promises15.readdir)(getWorkspace().scrollsDir, { withFileTypes: true });
+      boxes = await (0, import_promises16.readdir)(getWorkspace().scrollsDir, { withFileTypes: true });
     } catch {
       return fail("No scrolls found; run scrollcase init or scrollcase new scroll.");
     }
@@ -27393,14 +27448,14 @@ async function scrollCandidates(name = null) {
       if (!box.isDirectory()) continue;
       let targets;
       try {
-        targets = await (0, import_promises15.readdir)(scrollDirectory(box.name), { withFileTypes: true });
+        targets = await (0, import_promises16.readdir)(scrollDirectory(box.name), { withFileTypes: true });
       } catch {
         continue;
       }
       for (const target of targets.sort((left, right) => compareStableStrings(left.name, right.name))) {
         if (!target.isDirectory()) continue;
         const nestedReference = `${box.name}/${target.name}`;
-        if (await fileExists((0, import_node_path20.join)(scrollDirectory(nestedReference), "scroll.json"))) {
+        if (await fileExists((0, import_node_path21.join)(scrollDirectory(nestedReference), "scroll.json"))) {
           candidates2.push(await readExactScroll(nestedReference));
         }
       }
@@ -27412,14 +27467,14 @@ async function scrollCandidates(name = null) {
   }
   const reference = safeRelativePath(name);
   if (reference.includes("/")) {
-    if (reference.split("/").length !== 2 || !await fileExists((0, import_node_path20.join)(scrollDirectory(reference), "scroll.json"))) {
+    if (reference.split("/").length !== 2 || !await fileExists((0, import_node_path21.join)(scrollDirectory(reference), "scroll.json"))) {
       fail(`Scroll not found: ${reference}.`);
     }
     return [await readExactScroll(reference)];
   }
   let entries;
   try {
-    entries = await (0, import_promises15.readdir)(scrollDirectory(reference), { withFileTypes: true });
+    entries = await (0, import_promises16.readdir)(scrollDirectory(reference), { withFileTypes: true });
   } catch {
     return fail(`Scroll or box not found: ${reference}.`);
   }
@@ -27427,7 +27482,7 @@ async function scrollCandidates(name = null) {
   for (const entry of entries.sort((left, right) => compareStableStrings(left.name, right.name))) {
     if (!entry.isDirectory()) continue;
     const nestedReference = `${reference}/${entry.name}`;
-    if (await fileExists((0, import_node_path20.join)(scrollDirectory(nestedReference), "scroll.json"))) {
+    if (await fileExists((0, import_node_path21.join)(scrollDirectory(nestedReference), "scroll.json"))) {
       candidates.push(await readExactScroll(nestedReference));
     }
   }
@@ -27466,9 +27521,9 @@ var sha256Hex2 = (bytes) => (0, import_node_crypto5.createHash)("sha256").update
 async function selfTestExtraCode(scroll, projectRoot) {
   const { code, script } = scroll.selfTest;
   if (!script) return code ?? null;
-  const path = (0, import_node_path21.join)(projectRoot, safeRelativePath(script));
+  const path = (0, import_node_path22.join)(projectRoot, safeRelativePath(script));
   if (!await fileExists(path)) fail(`Self-test script is missing: ${script}`);
-  return (0, import_promises16.readFile)(path, "utf8");
+  return (0, import_promises17.readFile)(path, "utf8");
 }
 function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null }) {
   const invocations = runtimeAdapter(scroll.runtime.id).selfTestInvocations({
@@ -27481,7 +27536,7 @@ function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null 
     scroll.environment ?? {},
     adapter.validationEnvironments[scroll.target.accelerator]
   );
-  const resolve6 = (argument) => argument.kind === "payload-path" ? (0, import_node_path21.join)(payloadDir, ...safeRelativePath(argument.value).split("/")) : argument.value;
+  const resolve6 = (argument) => argument.kind === "payload-path" ? (0, import_node_path22.join)(payloadDir, ...safeRelativePath(argument.value).split("/")) : argument.value;
   for (const invocation of invocations) {
     run2(resolve6(invocation.command), invocation.args.map(resolve6), {
       cwd: payloadDir,
@@ -27491,30 +27546,30 @@ function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null 
   }
 }
 async function writeNotice(payloadDir, name, value) {
-  const path = (0, import_node_path21.join)(payloadDir, "THIRD_PARTY_NOTICES", name);
-  await (0, import_promises16.mkdir)((0, import_node_path21.dirname)(path), { recursive: true });
-  await (0, import_promises16.writeFile)(path, `${JSON.stringify(value, null, 2)}
+  const path = (0, import_node_path22.join)(payloadDir, "THIRD_PARTY_NOTICES", name);
+  await (0, import_promises17.mkdir)((0, import_node_path22.dirname)(path), { recursive: true });
+  await (0, import_promises17.writeFile)(path, `${JSON.stringify(value, null, 2)}
 `);
 }
 async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRoot, carriedPaths }) {
   if (scroll.condaDependencyLicenseAudit) {
     const actual = createCondaDependencyLicenseAudit({
-      lockBytes: await (0, import_promises16.readFile)(lockPath),
+      lockBytes: await (0, import_promises17.readFile)(lockPath),
       targetId: boxTargetId(scroll.target),
       declaredLicenses: await readDeclaredPypiLicenses(scroll, projectRoot)
     });
-    const reviewedPath = (0, import_node_path21.join)(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
-    const reviewed = JSON.parse(await (0, import_promises16.readFile)(reviewedPath, "utf8"));
+    const reviewedPath = (0, import_node_path22.join)(projectRoot, safeRelativePath(scroll.condaDependencyLicenseAudit));
+    const reviewed = JSON.parse(await (0, import_promises17.readFile)(reviewedPath, "utf8"));
     validateCondaDependencyLicenseAudit(reviewed, actual);
     await writeNotice(payloadDir, "conda-distributions.json", actual);
   }
   if (!scroll.bundledLicenseDeclaration) return null;
-  const declarationPath = (0, import_node_path21.join)(projectRoot, safeRelativePath(scroll.bundledLicenseDeclaration));
+  const declarationPath = (0, import_node_path22.join)(projectRoot, safeRelativePath(scroll.bundledLicenseDeclaration));
   if (!await fileExists(declarationPath)) {
     fail(`Bundled licence declaration is missing: ${scroll.bundledLicenseDeclaration}`);
   }
   const bundled = await validateBundledLicenses(
-    JSON.parse(await (0, import_promises16.readFile)(declarationPath, "utf8")),
+    JSON.parse(await (0, import_promises17.readFile)(declarationPath, "utf8")),
     carriedPaths
   );
   await writeNotice(payloadDir, "bundled-dependencies.json", bundled);
@@ -27531,6 +27586,7 @@ async function buildBox(name, options2 = {}) {
     publicPath,
     pixiPath = null,
     condaPackPath = null,
+    codesignIdentity = null,
     run: run2 = run,
     runResult: runResult2 = null,
     fetchImpl = fetch,
@@ -27542,6 +27598,9 @@ async function buildBox(name, options2 = {}) {
   if (!CHANNELS.includes(channel)) {
     fail(`Unsupported channel: ${channel}. Use ${CHANNELS.join(" or ")}.`);
   }
+  if (codesignIdentity !== null && scroll.target.platform !== "macos") {
+    fail(`--codesign signs macOS boxes; ${boxTargetId(scroll.target)} is not one.`);
+  }
   const deferred = scroll.assets.filter((asset) => asset.embed === false);
   const publishBaseUrl = String(publishBaseUrlOverride || scroll.publishBaseUrl || "").replace(/\/$/, "");
   log(`Runtime: ${scroll.runtime.id}${scroll.runtime.version ? ` ${scroll.runtime.version}` : ""}`);
@@ -27549,7 +27608,7 @@ async function buildBox(name, options2 = {}) {
   assertNativeHost(adapter);
   const pixi = findPixi({ requiredVersion: scroll.pixiVersion, path: pixiPath, ...probe });
   const condaPack = findCondaPack({ path: condaPackPath, ...probe });
-  const lockPath = (0, import_node_path21.join)(dir, "pixi.lock");
+  const lockPath = (0, import_node_path22.join)(dir, "pixi.lock");
   if (!await fileExists(lockPath)) fail(`Missing dependency lock: ${lockPath}`);
   const lockSha = await sha256File(lockPath);
   const source = sourceBuildState(workspace.root);
@@ -27557,14 +27616,14 @@ async function buildBox(name, options2 = {}) {
   if (source.dirty && !allowDirty) {
     fail("Refusing to build from a dirty source tree. Commit first, or pass --allow-dirty for local development.");
   }
-  const buildDir = (0, import_node_path21.join)(workspace.buildDir, scroll.scrollId);
-  const payloadDir = (0, import_node_path21.join)(buildDir, "payload");
+  const buildDir = (0, import_node_path22.join)(workspace.buildDir, scroll.scrollId);
+  const payloadDir = (0, import_node_path22.join)(buildDir, "payload");
   const objectPrefix = boxReleaseObjectPrefix(scroll);
-  const objectDir = (0, import_node_path21.join)(workspace.distDir, ...objectPrefix.split("/"));
-  const archivePath = (0, import_node_path21.join)(buildDir, `${boxReleaseStem(scroll)}.zip`);
-  await (0, import_promises16.rm)(buildDir, { recursive: true, force: true });
-  await (0, import_promises16.rm)(objectDir, { recursive: true, force: true });
-  await (0, import_promises16.mkdir)(payloadDir, { recursive: true });
+  const objectDir = (0, import_node_path22.join)(workspace.distDir, ...objectPrefix.split("/"));
+  const archivePath = (0, import_node_path22.join)(buildDir, `${boxReleaseStem(scroll)}.zip`);
+  await (0, import_promises17.rm)(buildDir, { recursive: true, force: true });
+  await (0, import_promises17.rm)(objectDir, { recursive: true, force: true });
+  await (0, import_promises17.mkdir)(payloadDir, { recursive: true });
   const runEnvironmentCommand = (command, args, runOptions) => {
     const result = run2(command, args, runOptions);
     if (command === condaPack) log("Extracting and relocating packed environment");
@@ -27573,7 +27632,7 @@ async function buildBox(name, options2 = {}) {
   const { interpreter } = await installAndPackPixiEnvironment({
     pixi,
     condaPack,
-    manifestPath: (0, import_node_path21.join)(dir, "pixi.toml"),
+    manifestPath: (0, import_node_path22.join)(dir, "pixi.toml"),
     lockPath,
     buildDir,
     payloadDir,
@@ -27585,7 +27644,7 @@ async function buildBox(name, options2 = {}) {
   for (const asset of scroll.assets) {
     if (asset.embed === false) continue;
     log(`Downloading ${asset.relativePath}`);
-    await downloadVerified(asset, (0, import_node_path21.join)(payloadDir, safeRelativePath(asset.relativePath)), {
+    await downloadVerified(asset, (0, import_node_path22.join)(payloadDir, safeRelativePath(asset.relativePath)), {
       fetchImpl,
       log
     });
@@ -27598,7 +27657,7 @@ async function buildBox(name, options2 = {}) {
     await expandAssetArchive(payloadDir, archive);
   }
   for (const prunePath of scroll.prunePaths ?? []) {
-    await (0, import_promises16.rm)((0, import_node_path21.join)(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
+    await (0, import_promises17.rm)((0, import_node_path22.join)(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
   }
   for (const written of await runtimeBuilder(scroll.runtime.id).preparePayload?.(payloadDir) ?? []) {
     log(`Writing ${written}`);
@@ -27613,7 +27672,7 @@ async function buildBox(name, options2 = {}) {
   });
   for (const requiredFile of scroll.selfTest.files ?? []) {
     if (deferredAssets.has(requiredFile)) continue;
-    if (!await fileExists((0, import_node_path21.join)(payloadDir, safeRelativePath(requiredFile)))) {
+    if (!await fileExists((0, import_node_path22.join)(payloadDir, safeRelativePath(requiredFile)))) {
       fail(`Missing self-test file: ${requiredFile}`);
     }
   }
@@ -27666,7 +27725,7 @@ async function buildBox(name, options2 = {}) {
   const execution = scroll.execution ? { execution: scroll.execution } : {};
   const environment = scroll.environment === void 0 ? {} : { environment: scroll.environment };
   const notices = bundledLicenses === null ? {} : { bundledLicenses };
-  await (0, import_promises16.writeFile)((0, import_node_path21.join)(payloadDir, "box.json"), `${JSON.stringify({
+  await (0, import_promises17.writeFile)((0, import_node_path22.join)(payloadDir, "box.json"), `${JSON.stringify({
     schemaVersion: BOX_SCHEMA_VERSION,
     ...identity,
     target: scroll.target,
@@ -27680,6 +27739,11 @@ async function buildBox(name, options2 = {}) {
     provenance
   }, null, 2)}
 `);
+  if (codesignIdentity !== null) {
+    log("Code signing Mach-O files");
+    const signed = await codesignPayload({ payloadDir, identity: codesignIdentity, run: run2 });
+    log(`Signed ${signed} Mach-O files`);
+  }
   log("Running self-test");
   runSelfTest({
     adapter,
@@ -27702,11 +27766,11 @@ async function buildBox(name, options2 = {}) {
   }
   log("Finalizing payload");
   const digestStream = payloadDigestStream(await payloadDigestEntries(payloadDir));
-  await (0, import_promises16.writeFile)((0, import_node_path21.join)(payloadDir, PAYLOAD_DIGEST_FILE), digestStream);
+  await (0, import_promises17.writeFile)((0, import_node_path22.join)(payloadDir, PAYLOAD_DIGEST_FILE), digestStream);
   const payloadDigestValue = { format: PAYLOAD_DIGEST_FORMAT, sha256: sha256Hex2(digestStream) };
   await normalizeTree(payloadDir);
   const installedSizeBytes = await payloadSize(payloadDir);
-  await (0, import_promises16.mkdir)(workspace.distDir, { recursive: true });
+  await (0, import_promises17.mkdir)(workspace.distDir, { recursive: true });
   const uncompressedPaths = [
     ...scroll.assets.map((asset) => safeRelativePath(asset.relativePath)),
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path))
@@ -27733,7 +27797,7 @@ async function buildBox(name, options2 = {}) {
   });
   log("Hashing deterministic archive");
   const archiveSha = await sha256File(archivePath);
-  const archiveSize = (await (0, import_promises16.stat)(archivePath)).size;
+  const archiveSize = (await (0, import_promises17.stat)(archivePath)).size;
   const archiveObject = `${objectPrefix}/${archiveSha}.zip`;
   const kinds = documentKinds(namespace);
   const signing = { signerCommand, privatePath, publicPath };
@@ -27761,8 +27825,8 @@ async function buildBox(name, options2 = {}) {
     ...deferredDescriptors,
     provenance
   };
-  const stagedReleasePath = (0, import_node_path21.join)(buildDir, "release.json");
-  await (0, import_promises16.writeFile)(stagedReleasePath, `${JSON.stringify(await signDocument(release, signing), null, 2)}
+  const stagedReleasePath = (0, import_node_path22.join)(buildDir, "release.json");
+  await (0, import_promises17.writeFile)(stagedReleasePath, `${JSON.stringify(await signDocument(release, signing), null, 2)}
 `);
   const releaseDocumentSha = await sha256File(stagedReleasePath);
   const channelDocument = {
@@ -27783,14 +27847,14 @@ async function buildBox(name, options2 = {}) {
       rolloutPercentage: 100
     }]
   };
-  const channelDir = (0, import_node_path21.join)(workspace.distDir, "channels", scroll.boxId, channel);
-  const channelPath = (0, import_node_path21.join)(channelDir, `${boxTargetId(scroll.target)}.json`);
-  await (0, import_promises16.mkdir)(channelDir, { recursive: true });
-  await (0, import_promises16.writeFile)(channelPath, `${JSON.stringify(await signDocument(channelDocument, signing), null, 2)}
+  const channelDir = (0, import_node_path22.join)(workspace.distDir, "channels", scroll.boxId, channel);
+  const channelPath = (0, import_node_path22.join)(channelDir, `${boxTargetId(scroll.target)}.json`);
+  await (0, import_promises17.mkdir)(channelDir, { recursive: true });
+  await (0, import_promises17.writeFile)(channelPath, `${JSON.stringify(await signDocument(channelDocument, signing), null, 2)}
 `);
-  await (0, import_promises16.mkdir)(objectDir, { recursive: true });
-  const publishedArchive = (0, import_node_path21.join)(objectDir, `${archiveSha}.zip`);
-  const publishedRelease = (0, import_node_path21.join)(objectDir, `${releaseDocumentSha}.release.json`);
+  await (0, import_promises17.mkdir)(objectDir, { recursive: true });
+  const publishedArchive = (0, import_node_path22.join)(objectDir, `${archiveSha}.zip`);
+  const publishedRelease = (0, import_node_path22.join)(objectDir, `${releaseDocumentSha}.release.json`);
   await moveIntoPlace(archivePath, publishedArchive);
   await moveIntoPlace(stagedReleasePath, publishedRelease);
   log(`Box:     ${publishedArchive}`);
@@ -27798,7 +27862,7 @@ async function buildBox(name, options2 = {}) {
   log(`Channel: ${channelPath}`);
   log("");
   if (publishBaseUrl) {
-    log(`Publish: upload ${(0, import_node_path21.join)(workspace.distDir, "boxes")} under ${publishBaseUrl}, keeping its paths,`);
+    log(`Publish: upload ${(0, import_node_path22.join)(workspace.distDir, "boxes")} under ${publishBaseUrl}, keeping its paths,`);
     log("         then publish the channel document where your clients look for it.");
   } else {
     log("Local:   this box names no publish location, so its documents point nowhere.");
@@ -27841,9 +27905,9 @@ async function ensureBuildSigningKeys({
 }
 
 // src/build/verify.mjs
-var import_promises17 = require("node:fs/promises");
+var import_promises18 = require("node:fs/promises");
 var import_node_os3 = require("node:os");
-var import_node_path22 = require("node:path");
+var import_node_path23 = require("node:path");
 var import_node_util2 = require("node:util");
 var AGREEMENT_FIELDS = [
   "schemaVersion",
@@ -27874,12 +27938,12 @@ var schemaUrls = [
 ];
 var manifestSchemas;
 async function loadManifestSchemas() {
-  manifestSchemas ??= Promise.all(schemaUrls.map(async (url) => JSON.parse(await (0, import_promises17.readFile)(url, "utf8"))));
+  manifestSchemas ??= Promise.all(schemaUrls.map(async (url) => JSON.parse(await (0, import_promises18.readFile)(url, "utf8"))));
   return manifestSchemas;
 }
 async function inspectReleaseDocument(releaseDocumentPath, { publicPath, trustedKeys }) {
-  const releasePath = (0, import_node_path22.resolve)(releaseDocumentPath);
-  const signed = JSON.parse(await (0, import_promises17.readFile)(releasePath, "utf8"));
+  const releasePath = (0, import_node_path23.resolve)(releaseDocumentPath);
+  const signed = JSON.parse(await (0, import_promises18.readFile)(releasePath, "utf8"));
   if (signed?.schemaVersion !== void 0 && signed.schemaVersion !== BOX_SCHEMA_VERSION) {
     fail(unsupportedSchemaVersionMessage(signed.schemaVersion));
   }
@@ -27916,9 +27980,9 @@ async function inspectBoxArchive(releaseDocumentPath, options2 = {}) {
     adapter,
     schemas: { releaseSchema, boxSchema, targetSchema, executionSchema }
   } = await inspectReleaseDocument(releaseDocumentPath, { publicPath, trustedKeys });
-  const archivePath = archiveOverride ? (0, import_node_path22.resolve)(archiveOverride) : (0, import_node_path22.join)((0, import_node_path22.dirname)(releasePath), `${release.archive.sha256}.zip`);
+  const archivePath = archiveOverride ? (0, import_node_path23.resolve)(archiveOverride) : (0, import_node_path23.join)((0, import_node_path23.dirname)(releasePath), `${release.archive.sha256}.zip`);
   if (!await fileExists(archivePath)) fail(`Archive not found: ${archivePath}`);
-  if ((await (0, import_promises17.stat)(archivePath)).size !== release.archive.sizeBytes) fail("Archive size mismatch.");
+  if ((await (0, import_promises18.stat)(archivePath)).size !== release.archive.sizeBytes) fail("Archive size mismatch.");
   if (await sha256File(archivePath) !== release.archive.sha256) fail("Archive SHA-256 mismatch.");
   const entries = await listZipEntries(archivePath);
   const files = new Set(entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
@@ -27987,7 +28051,7 @@ async function verifyBox(releaseDocumentPath, options2 = {}) {
   }
   if (selfTest) {
     assertNativeHost(adapter);
-    const extracted = await (0, import_promises17.mkdtemp)((0, import_node_path22.join)((0, import_node_os3.tmpdir)(), "scrollcase-verify-"));
+    const extracted = await (0, import_promises18.mkdtemp)((0, import_node_path23.join)((0, import_node_os3.tmpdir)(), "scrollcase-verify-"));
     try {
       await extractZipArchive(archivePath, extracted);
       if (release.installedSizeBytes !== void 0 && await payloadSize(extracted) !== release.installedSizeBytes) {
@@ -28001,7 +28065,7 @@ async function verifyBox(releaseDocumentPath, options2 = {}) {
         execution: release.execution,
         target: adapter
       });
-      const resolveArgument = (argument) => argument.kind === "payload-path" ? (0, import_node_path22.join)(extracted, ...safeRelativePath(argument.value).split("/")) : argument.value;
+      const resolveArgument = (argument) => argument.kind === "payload-path" ? (0, import_node_path23.join)(extracted, ...safeRelativePath(argument.value).split("/")) : argument.value;
       for (const invocation of invocations) {
         run2(resolveArgument(invocation.command), invocation.args.map(resolveArgument), {
           cwd: extracted,
@@ -28010,7 +28074,7 @@ async function verifyBox(releaseDocumentPath, options2 = {}) {
         });
       }
     } finally {
-      await (0, import_promises17.rm)(extracted, { recursive: true, force: true });
+      await (0, import_promises18.rm)(extracted, { recursive: true, force: true });
     }
   }
   log(`Verified ${release.boxId} ${release.version} (${boxTargetId(release.target)})`);
@@ -28027,7 +28091,7 @@ async function verifyBox(releaseDocumentPath, options2 = {}) {
 }
 
 // action/src/toolchain.mjs
-var import_promises18 = require("node:fs/promises");
+var import_promises19 = require("node:fs/promises");
 var SHA256 = /^[a-f0-9]{64}$/;
 async function reviewedPixiDigest(workspace, version, asset) {
   if (!workspace.configPath) {
@@ -28035,7 +28099,7 @@ async function reviewedPixiDigest(workspace, version, asset) {
       `install-toolchain requires a committed scrollcase.config.json with a reviewed pixi asset digest; run scrollcase init --install-toolchain --pixi-version ${version} locally first.`
     );
   }
-  const config = JSON.parse(await (0, import_promises18.readFile)(workspace.configPath, "utf8"));
+  const config = JSON.parse(await (0, import_promises19.readFile)(workspace.configPath, "utf8"));
   const pin = config.toolchain?.pixi;
   const digest = pin?.version === version ? pin.assets?.[asset] : null;
   if (typeof digest !== "string" || !SHA256.test(digest)) {
@@ -28094,28 +28158,28 @@ async function prepareActionToolchain({
 
 // action/src/run.mjs
 function inside(root, candidate) {
-  const path = (0, import_node_path23.relative)(root, candidate);
-  return path === "" || !path.startsWith("..") && !(0, import_node_path23.isAbsolute)(path);
+  const path = (0, import_node_path24.relative)(root, candidate);
+  return path === "" || !path.startsWith("..") && !(0, import_node_path24.isAbsolute)(path);
 }
 async function resolveActionDirectory(githubWorkspace, workingDirectory) {
   if (!githubWorkspace) throw new Error("GITHUB_WORKSPACE is not set by the runner.");
-  const root = await (0, import_promises19.realpath)(githubWorkspace);
-  const requested = (0, import_node_path23.resolve)(root, workingDirectory);
+  const root = await (0, import_promises20.realpath)(githubWorkspace);
+  const requested = (0, import_node_path24.resolve)(root, workingDirectory);
   let project;
   try {
-    project = await (0, import_promises19.realpath)(requested);
+    project = await (0, import_promises20.realpath)(requested);
   } catch {
     throw new Error(`working-directory does not exist: ${requested}`);
   }
   if (!inside(root, project)) {
     throw new Error("working-directory must stay inside GITHUB_WORKSPACE, including through symbolic links.");
   }
-  if (!(await (0, import_promises19.stat)(project)).isDirectory()) {
+  if (!(await (0, import_promises20.stat)(project)).isDirectory()) {
     throw new Error(`working-directory is not a directory: ${project}`);
   }
   return project;
 }
-var absoluteFrom = (root, value, fallback) => (0, import_node_path23.resolve)(root, value || fallback);
+var absoluteFrom = (root, value, fallback) => (0, import_node_path24.resolve)(root, value || fallback);
 async function executeAction(options2, {
   githubWorkspace = process.env.GITHUB_WORKSPACE,
   resolveDirectory = resolveActionDirectory,
@@ -28139,8 +28203,8 @@ async function executeAction(options2, {
     const workspace = configure({ cwd: project });
     const selected = await read(options2.scroll, { targetId: options2.target });
     assertHost(selected.adapter);
-    const privatePath = absoluteFrom(project, options2.privateKey, (0, import_node_path23.join)(workspace.keysDir, "signing-private.pem"));
-    const publicPath = absoluteFrom(project, options2.publicKey, (0, import_node_path23.join)(workspace.keysDir, "signing-public.json"));
+    const privatePath = absoluteFrom(project, options2.privateKey, (0, import_node_path24.join)(workspace.keysDir, "signing-private.pem"));
+    const publicPath = absoluteFrom(project, options2.publicKey, (0, import_node_path24.join)(workspace.keysDir, "signing-public.json"));
     const signing = { privatePath, publicPath, signerCommand: options2.signerCommand ?? null };
     await ensureSigning(signing);
     const tools = await prepareToolchain({

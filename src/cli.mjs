@@ -594,6 +594,10 @@ async function audit(name, flags) {
 }
 
 async function build(name, flags) {
+  const codesign = flags.get('codesign');
+  if (flags.has('codesign') && (typeof codesign !== 'string' || codesign.trim() === '')) {
+    fail('--codesign requires a signing identity, such as "Developer ID Application: Name (TEAMID)".');
+  }
   const reference = await selectScrollReference(name, flags);
   const signing = {
     ...keyPaths(flags),
@@ -619,6 +623,7 @@ async function build(name, flags) {
     namespace: text(flags, 'namespace') || undefined,
     pixiPath: text(flags, 'pixi'),
     condaPackPath: text(flags, 'conda-pack'),
+    codesignIdentity: text(flags, 'codesign'),
     log: (message) => {
       if (!message || /^(Box:|Release:|Channel:|Publish:| {9}then )/.test(message)) return;
       step(message);
@@ -810,6 +815,10 @@ Build options:
   --allow-dirty              Permit a build from an uncommitted source tree
   --pixi <path>              Use this pixi executable
   --conda-pack <path>        Use this conda-pack executable (managed installs pin 0.9.2)
+  --codesign <identity>      macOS only: sign every Mach-O binary with this Apple identity, the
+                             hardened runtime and a secure timestamp, before the self-test, so
+                             an app embedding the box passes notarization. The timestamp makes
+                             the archive differ between builds
 
 Scroll targets:
   lock, audit and build accept either <boxId>/<targetId> or a box ID plus

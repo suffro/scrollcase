@@ -642,6 +642,24 @@ an archive is downloaded, and a list only a downloaded archive reveals arrives t
 guess presented as a fact; the second names nothing that could ever be checked against the box, so
 it would go stale the first time a file was renamed and no one would find out.
 
+## Apple code signing is opt-in, because it costs determinism
+
+A box embedded in a macOS application is unpacked by Apple's notary service, which rejects every
+Mach-O file that lacks a Developer ID signature, a secure timestamp and, for an executable, the
+hardened runtime. A conda prefix carries hundreds of them. They cannot be signed after the build —
+the signed release already commits to the archive's hash — so `build --codesign <identity>` signs
+them in the payload, before the self-test, which then proves the box still runs signed.
+
+The secure timestamp is issued by Apple for every signature, so a code-signed box is no longer
+byte-identical across rebuilds. That is why it is a flag and never a default: a box that is not
+going inside a notarized application keeps the determinism guarantee in full. The identity is the
+caller's and passes straight to `codesign`; Scrollcase holds no certificate and names no vendor
+account.
+
+**Rejected:** signing without a timestamp to stay reproducible, which notarization refuses; and
+signing in the consuming application after extraction, which is too late — notarization inspects
+the application before anything is extracted.
+
 ## Deliberately out of scope
 
 Publishing to object storage, downloading boxes, selecting or promoting a channel, updating an

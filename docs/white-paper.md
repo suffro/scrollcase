@@ -2585,12 +2585,13 @@ interpreter first runs should be able to see it without following a call graph.
 | 9 | Licence inventories | `licenses.mjs` | When the scroll declares a reviewed conda audit: recomputes from the lock, compares against it, writes `payload/THIRD_PARTY_NOTICES/conda-distributions.json`. When it declares `bundledLicenseDeclaration`: validates it against the release schema's own `$defs/bundledLicenses`, checks every `linkedInto` path is a file the box carries, writes `payload/THIRD_PARTY_NOTICES/bundled-dependencies.json`, and returns it for the release |
 | 10 | Post-prune integrity | `box.mjs`, `execution.mjs` | Every `selfTest.files` entry still exists, except an asset declared `embed: false`; execution names a real script, discoverable module or carried binary, and whatever the box starts will come out of the archive executable |
 | 11 | Describe | `box.mjs` | Writes `payload/box.json`, so the self-test runs against the payload the box will ship — an application that reads its own manifest to find its files can then be exercised by it |
-| 12 | Self-test | `box.mjs` | Runs every invocation the runtime's probe implies — `payload/venv/bin/python -c …` for a Python box, `venv/bin/node -e …` for a Node one, the declared binary itself for a `native` one — with the target's validation environment |
-| 13 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances. Refused outright for `native`, which has no interpreter to run the check with |
-| 14 | Commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
-| 15 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
-| 16 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
-| 17 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
+| 12 | Code sign, when asked | `codesign.mjs` | Only with `--codesign`, on a macOS target: signs every Mach-O file in the payload with the given Apple identity, the hardened runtime and a secure timestamp, and verifies each signature — before the self-test, so the box is proven to run signed |
+| 13 | Self-test | `box.mjs` | Runs every invocation the runtime's probe implies — `payload/venv/bin/python -c …` for a Python box, `venv/bin/node -e …` for a Node one, the declared binary itself for a `native` one — with the target's validation environment |
+| 14 | Parity | `parity.mjs` | Runs the declared check once per accelerator and enforces the tolerances. Refused outright for `native`, which has no interpreter to run the check with |
+| 15 | Commit, normalise, measure | `box.mjs`, `filesystem.mjs` | Writes `payload-digest.v1` without listing the list itself, records its hash for the release, stamps every entry with the fixed mtime, and sums the installed size |
+| 16 | Archive | `archive.mjs` | Writes `<buildDir>/<stem>.zip` deterministically; hashes and measures it |
+| 17 | Sign | `sign/index.mjs` | Signs the release, hashes the signed document, signs a channel pointer at 100% |
+| 18 | Publish-ready move | `assets.mjs` | Moves archive and release into `dist/boxes/<boxId>/<version>/<targetId>/`, writes `dist/channels/<boxId>/<channel>/<targetId>.json` |
 
 Several properties of that order are load-bearing.
 
@@ -2610,7 +2611,7 @@ await mkdir(payloadDir, { recursive: true });
 ```
 
 **Pruning happens before every check that could catch an over-prune.** Stage 10 asks whether the
-files the box needs at run time are still present, and stage 12 asks whether the box can still answer
+files the box needs at run time are still present, and stage 13 asks whether the box can still answer
 what it claims. Neither would mean anything if pruning came after them. Stage 8 sits between the
 prune and both checks for the same reason from the other direction: a file the runtime writes for
 itself must survive the prune and still be seen by everything that reads the payload.
@@ -3378,6 +3379,39 @@ they can be recorded as evidence.
 The division of labour is the point, and it is the boundary of section 3 applied to numbers:
 Scrollcase owns the mechanism and enforces the declared threshold; the project owns the check
 script, the fixture, and what closeness means for its model.
+
+</div>
+
+<div class="h4-section">
+
+#### Code signing — `codesign.mjs`
+
+A box embedded in a macOS application is inspected by Apple's notary service, which unpacks nested
+archives and rejects every Mach-O file without a Developer ID signature, a secure timestamp and, for
+an executable, the hardened runtime. The archive cannot be signed afterwards — the release already
+commits to its hash — so `--codesign <identity>` signs the payload in place, just before the
+self-test, which then proves the box still runs signed.
+
+`signableMachOFiles()` reads the header of every regular file, in archive order, and keeps
+executables, dynamic libraries and bundles, thin or universal (a universal binary answers with its
+first slice). Those are the Mach-O types that embed their signature. An object file is left out:
+`codesign` would accept it but store the signature in extended attributes, which no archive
+carries, so it would verify on the build machine and be gone in every consumer. A universal binary
+shares its magic with a Java class file, so the next four bytes decide: a slice count is small, a
+class-file version is 45 or more. Links are skipped, because signing through one would sign its
+target twice. `codesignPayload()` then runs `codesign` in batches — sign, then verify — through the
+ordinary `run` seam:
+
+```js
+// src/build/codesign.mjs
+run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, ...batch], {
+```
+
+The option is refused for a target that is not macOS before anything is installed. It is opt-in and
+never a default because it gives up [determinism](#determinism): Apple's timestamp authority issues
+a fresh timestamp for each signature, so two code-signed builds of one commit differ. Signing without
+a timestamp would keep the archive reproducible, and notarization refuses it. Nothing rewrites a
+payload file on extraction, so the signatures hold in every consumer.
 
 </div>
 
@@ -6444,6 +6478,7 @@ line over all of them. The Rust crate follows at the end, since it ships separat
 | `src/build/audit.mjs` | `auditScroll` — the inventory as a command, with the reviewed-copy comparison | 6.8 |
 | `src/build/execution.mjs` | Static execution prerequisites shared by the builder and the verifier | 6.9 |
 | `src/build/parity.mjs` | The optional cross-accelerator numerical gate | 6.10 |
+| `src/build/codesign.mjs` | Optional Apple code signing of a macOS payload's Mach-O files | 6.10 |
 | `src/build/filesystem.mjs` | [Determinism](#determinism) and path-safety primitives | 6.11 |
 | `src/build/archive.mjs` | Deterministic ZIP writing, and defensive reading | 6.12 |
 | `src/build/identity.mjs` | Where a release's artefacts live relative to everything else | 6.13 |

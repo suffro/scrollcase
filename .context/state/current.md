@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-09-15.
+Last reviewed: 2026-09-28.
 
 ## In flight
 
@@ -43,6 +43,10 @@ still refused everywhere.
 
 ## Recent relevant changes
 
+- **`build --codesign <identity>`** (2026-09-28, for 1.3.0) signs a macOS payload's Mach-O files
+  for Apple notarization, before the self-test. Opt-in because Apple's timestamps break
+  byte-identical rebuilds — see
+  [`../decisions/apple-code-signing-is-opt-in.md`](../decisions/apple-code-signing-is-opt-in.md).
 - **The official GitHub Action is implemented, unreleased.** It builds and verifies one explicitly
   selected target on the matching runner, supports every runtime through the scroll, installs only
   a toolchain whose host digest the project already committed, and leaves upload and publication to

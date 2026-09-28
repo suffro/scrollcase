@@ -8,6 +8,12 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ### Added
 
+- **`build --codesign <identity>` signs a macOS box for Apple notarization.** Every Mach-O
+  executable, dynamic library and bundle in the payload is signed with the given identity, the hardened runtime and a secure timestamp, and
+  each signature is verified, before the self-test — so the box is proven to run signed, and an
+  application embedding it passes notarization, which unpacks nested archives. Opt-in, refused for
+  targets that are not macOS, and never a default: Apple's timestamps make a code-signed archive
+  differ between builds.
 - **A new Updating Boxes guide separates rebuilds from downloads and lifecycle changes.** It covers
   code, configuration, dependency and asset updates for `python`, `node` and `native` runtimes;
   explains embedded, deferred and application-managed files; and shows how cached assets,

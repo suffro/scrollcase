@@ -40,6 +40,7 @@ import {
   safeRelativePath,
   sha256File,
 } from './filesystem.mjs';
+import { codesignPayload } from './codesign.mjs';
 import { assertExecutionFiles } from './execution.mjs';
 import { boxReleaseObjectPrefix, boxReleaseStem, builderVersionFields } from './identity.mjs';
 import {
@@ -151,7 +152,8 @@ async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRo
 /**
  * Builds, self-tests, archives, and signs the box a scroll describes — the whole pipeline the
  * module header narrates. `name` is an exact scroll reference, or an unambiguous box shorthand;
- * options override signing, channel, namespace, and toolchain paths. `run`,
+ * options override signing, channel, namespace, and toolchain paths, and `codesignIdentity` signs a
+ * macOS payload's Mach-O files for Apple notarization. `run`,
  * `runResult`, and `fetchImpl` are the injection seams the tests use to substitute the toolchain
  * and asset transport.
  */
@@ -166,6 +168,7 @@ export async function buildBox(name, options = {}) {
     publicPath,
     pixiPath = null,
     condaPackPath = null,
+    codesignIdentity = null,
     run = runProcess,
     runResult = null,
     fetchImpl = fetch,
@@ -178,6 +181,11 @@ export async function buildBox(name, options = {}) {
   const { adapter, dir, scroll } = await readScroll(name);
   if (!CHANNELS.includes(channel)) {
     fail(`Unsupported channel: ${channel}. Use ${CHANNELS.join(' or ')}.`);
+  }
+  // Refused before anything is installed: Apple code signing means nothing to another platform's
+  // binaries, and finding that out after the environment is solved wastes the whole build.
+  if (codesignIdentity !== null && scroll.target.platform !== 'macos') {
+    fail(`--codesign signs macOS boxes; ${boxTargetId(scroll.target)} is not one.`);
   }
   // Whether an asset ships inside the archive is per entry and declared by the scroll, so there is
   // nothing to ask and nothing to override: a build-time override would silently repack a box under
@@ -378,6 +386,12 @@ export async function buildBox(name, options = {}) {
     ...deferredDescriptors,
     provenance,
   }, null, 2)}\n`);
+
+  if (codesignIdentity !== null) {
+    log('Code signing Mach-O files');
+    const signed = await codesignPayload({ payloadDir, identity: codesignIdentity, run });
+    log(`Signed ${signed} Mach-O files`);
+  }
 
   log('Running self-test');
   runSelfTest({

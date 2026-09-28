@@ -882,6 +882,52 @@ describe('the build pipeline', () => {
     expect(calls).toEqual([]);
   });
 
+  it('refuses to code sign a box that is not for macOS, before tool discovery', async () => {
+    // Refused ahead of the native-host gate, so the same assertion holds on every host.
+    const scroll = { ...SCROLL, target: { platform: 'linux', arch: 'x86_64', accelerator: 'cpu' } };
+    const { keys } = await makeProject(scroll);
+    const calls = [];
+    await expect(buildBox(`${SCROLL.boxId}/linux-x86_64-cpu`, {
+      ...keys,
+      codesignIdentity: 'Developer ID Application: Example (TEAMID1234)',
+      runResult: (...args) => calls.push(args),
+      log: () => {},
+    })).rejects.toThrow('--codesign signs macOS boxes; linux-x86_64-cpu is not one.');
+    expect(calls).toEqual([]);
+  });
+
+  it.runIf(process.platform === 'darwin')('code signs Mach-O files before the self-test proves the box', async () => {
+    const { keys, payloadDir } = await makeProject();
+    const toolchain = fakeToolchain(payloadDir);
+    const order = [];
+    const run = (command, args = [], options = {}) => {
+      if (command === 'codesign') {
+        order.push([command, args[0]]);
+        return '';
+      }
+      const result = toolchain.run(command, args, options);
+      if (command === 'pixi' && args[0] === 'install') {
+        // A prefix carries compiled libraries; the fake one gets a single arm64 dylib header.
+        const manifest = args[args.indexOf('--manifest-path') + 1];
+        writeDeep(join(dirname(manifest), '.pixi', 'envs', 'default', 'lib', 'libexample.dylib'),
+          Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x06, 0, 0, 0]));
+      } else if (command !== 'conda-pack') {
+        order.push(['self-test']);
+      }
+      return result;
+    };
+    const lines = [];
+    await buildBox(SCROLL_REF, {
+      ...keys,
+      ...toolchain,
+      run,
+      codesignIdentity: 'Developer ID Application: Example (TEAMID1234)',
+      log: (line) => lines.push(line),
+    });
+    expect(order).toEqual([['codesign', '--force'], ['codesign', '--verify'], ['self-test']]);
+    expect(lines).toContain('Signed 1 Mach-O files');
+  });
+
   it('gives an asset archive no way to be deferred, before touching anything', async () => {
     // An archive is expanded at build time, so "leave it out and let the caller fetch it" names
     // nothing that could happen. Version 2 refused the combination with a cross-field check in two
