@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-09-28
+
 ### Added
 
 - **`build --codesign-entitlements <plist>` gives a code-signed box's executables their
