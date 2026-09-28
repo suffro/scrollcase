@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-28
+
 ### Added
 
 - **`build --codesign <identity>` signs a macOS box for Apple notarization.** Every Mach-O
