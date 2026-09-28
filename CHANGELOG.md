@@ -6,6 +6,13 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`build --codesign-entitlements <plist>` gives a code-signed box's executables their
+  entitlements.** The hardened runtime ignores `DYLD_*` variables, so a program started with
+  `DYLD_LIBRARY_PATH` stopped starting once signed; `com.apple.security.cs.allow-dyld-environment-variables`
+  restores it. Executables only, and refused without `--codesign` or when the file is missing.
+
 ## [1.3.0] — 2026-09-28
 
 ### Added

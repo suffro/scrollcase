@@ -13,6 +13,11 @@
  * image. `codesign` accepts an object file too, but stores that signature in extended attributes,
  * which no archive carries — a signature that would verify here and be gone in every consumer.
  *
+ * Entitlements, when given, go on executables only: a library runs with the entitlements of the
+ * process that loads it. The one a conda prefix usually needs is
+ * `com.apple.security.cs.allow-dyld-environment-variables`: the hardened runtime otherwise ignores
+ * `DYLD_LIBRARY_PATH`, and a program that finds its libraries through it stops starting.
+ *
  * It is opt-in and never a default, because it gives up determinism: Apple's timestamp authority
  * issues a fresh timestamp for every signature, so two signed builds of one commit differ. Rejected:
  * signing without a timestamp to keep the archive reproducible, which notarization refuses.
@@ -31,8 +36,9 @@ const BIG_ENDIAN_MAGICS = new Set([0xfeedface, 0xfeedfacf]);
 const LITTLE_ENDIAN_MAGICS = new Set([0xcefaedfe, 0xcffaedfe]);
 const UNIVERSAL_MAGIC = 0xcafebabe;
 const UNIVERSAL_64_MAGIC = 0xcafebabf;
+const MH_EXECUTE = 0x2;
 // MH_EXECUTE, MH_DYLIB and MH_BUNDLE: the file types that embed their own signature.
-const SIGNABLE_FILE_TYPES = new Set([0x2, 0x6, 0x8]);
+const SIGNABLE_FILE_TYPES = new Set([MH_EXECUTE, 0x6, 0x8]);
 
 /**
  * @param {import('node:fs/promises').FileHandle} handle
@@ -74,18 +80,21 @@ async function machOFileType(handle, offset = 0) {
 }
 
 /**
- * Lists the payload files `codesign` should sign, in the stable archive order. Links are left out:
- * signing through one would sign its target a second time.
+ * Lists the payload files `codesign` should sign, in the stable archive order, split into
+ * executables and everything else. Links are left out: signing through one would sign its target a
+ * second time.
  *
  * @param {string} payloadDir
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ executables: string[], libraries: string[] }>}
  */
 export async function signableMachOFiles(payloadDir) {
-  const found = [];
+  const found = { executables: [], libraries: [] };
   for (const path of await collectRegularFiles(payloadDir)) {
     const handle = await open(join(payloadDir, path), 'r');
     try {
-      if (SIGNABLE_FILE_TYPES.has(await machOFileType(handle))) found.push(path);
+      const fileType = await machOFileType(handle);
+      if (fileType === MH_EXECUTE) found.executables.push(path);
+      else if (SIGNABLE_FILE_TYPES.has(fileType)) found.libraries.push(path);
     } finally {
       await handle.close();
     }
@@ -94,22 +103,38 @@ export async function signableMachOFiles(payloadDir) {
 }
 
 /**
- * Signs every signable Mach-O file in the payload with `identity`, the hardened runtime and a
- * secure timestamp, then verifies each signature. Returns how many files were signed.
- *
- * @param {{ payloadDir: string, identity: string, run: typeof import('./process.mjs').run }} options
- * @returns {Promise<number>}
+ * @param {string[]} files
+ * @param {string[]} signArguments
+ * @param {string} payloadDir
+ * @param {typeof import('./process.mjs').run} run
  */
-export async function codesignPayload({ payloadDir, identity, run }) {
+function signInBatches(files, signArguments, payloadDir, run) {
   // `./` keeps a file whose name starts with a dash from being read as an option.
-  const files = (await signableMachOFiles(payloadDir)).map((path) => `./${path}`);
-  for (let start = 0; start < files.length; start += BATCH_SIZE) {
-    const batch = files.slice(start, start + BATCH_SIZE);
-    run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, ...batch], {
-      cwd: payloadDir,
-      capture: true,
-    });
+  const relative = files.map((path) => `./${path}`);
+  for (let start = 0; start < relative.length; start += BATCH_SIZE) {
+    const batch = relative.slice(start, start + BATCH_SIZE);
+    run('codesign', [...signArguments, ...batch], { cwd: payloadDir, capture: true });
     run('codesign', ['--verify', '--strict', ...batch], { cwd: payloadDir, capture: true });
   }
-  return files.length;
+}
+
+/**
+ * Signs every signable Mach-O file in the payload with `identity`, the hardened runtime and a
+ * secure timestamp, then verifies each signature. `entitlements` is an absolute path to a plist
+ * applied to executables only. Returns how many files were signed.
+ *
+ * @param {{
+ *   payloadDir: string,
+ *   identity: string,
+ *   entitlements?: string | null,
+ *   run: typeof import('./process.mjs').run,
+ * }} options
+ * @returns {Promise<number>}
+ */
+export async function codesignPayload({ payloadDir, identity, entitlements = null, run }) {
+  const { executables, libraries } = await signableMachOFiles(payloadDir);
+  const signArguments = ['--force', '--options', 'runtime', '--timestamp', '--sign', identity];
+  signInBatches(libraries, signArguments, payloadDir, run);
+  signInBatches(executables, entitlements ? [...signArguments, '--entitlements', entitlements] : signArguments, payloadDir, run);
+  return executables.length + libraries.length;
 }

@@ -21,6 +21,12 @@ not going inside a notarized application.
 signed, `verify --self-test` and `run` passed, every signature still verified after extracting the
 archive, and Apple's notary service accepted the archive with no issues.
 
+**Amended 2026-09-28, for 1.4.0: entitlements.** The first real downstream box built with
+`--codesign` failed its self-test: its tools find their libraries through `DYLD_LIBRARY_PATH`, which
+the hardened runtime ignores. `--codesign-entitlements <plist>` applies the caller's entitlements to
+executables; `com.apple.security.cs.allow-dyld-environment-variables` fixed it. Not a default,
+because an entitlement is a security decision about the caller's programs.
+
 **Rejected:** signing without a timestamp (notarization refuses it), and signing in the consumer
 after extraction (notarization inspects the application before anything is extracted). The public
 reasoning is in `docs/concepts/design-decisions.md`.

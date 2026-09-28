@@ -896,6 +896,26 @@ describe('the build pipeline', () => {
     expect(calls).toEqual([]);
   });
 
+  it('refuses entitlements without an identity, and a missing entitlements file, before tool discovery', async () => {
+    const { root, keys } = await makeProject();
+    const calls = [];
+    const attempt = (options) => buildBox(SCROLL_REF, {
+      ...keys,
+      ...options,
+      runResult: (...args) => calls.push(args),
+      log: () => {},
+    });
+    await expect(attempt({ codesignEntitlements: join(root, 'entitlements.plist') }))
+      .rejects.toThrow('--codesign-entitlements needs --codesign.');
+    if (HOST_ADAPTER.platform === 'macos') {
+      await expect(attempt({
+        codesignIdentity: 'Developer ID Application: Example (TEAMID1234)',
+        codesignEntitlements: join(root, 'missing.plist'),
+      })).rejects.toThrow(`Entitlements file not found: ${join(root, 'missing.plist')}`);
+    }
+    expect(calls).toEqual([]);
+  });
+
   it.runIf(process.platform === 'darwin')('code signs Mach-O files before the self-test proves the box', async () => {
     const { keys, payloadDir } = await makeProject();
     const toolchain = fakeToolchain(payloadDir);

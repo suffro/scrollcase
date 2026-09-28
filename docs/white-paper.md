@@ -3407,6 +3407,13 @@ ordinary `run` seam:
 run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, ...batch], {
 ```
 
+`--codesign-entitlements <plist>` adds entitlements to executables only; a library runs with the
+entitlements of the process that loads it. The one a conda prefix usually needs is
+`com.apple.security.cs.allow-dyld-environment-variables`: the hardened runtime ignores `DYLD_*`
+variables, so a program whose libraries are found through `DYLD_LIBRARY_PATH` stops starting once it
+is signed — which is exactly the kind of failure the self-test, running after signing, exists to
+catch.
+
 The option is refused for a target that is not macOS before anything is installed. It is opt-in and
 never a default because it gives up [determinism](#determinism): Apple's timestamp authority issues
 a fresh timestamp for each signature, so two code-signed builds of one commit differ. Signing without

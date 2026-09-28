@@ -656,6 +656,11 @@ going inside a notarized application keeps the determinism guarantee in full. Th
 caller's and passes straight to `codesign`; Scrollcase holds no certificate and names no vendor
 account.
 
+Entitlements are the caller's too, through `--codesign-entitlements`, and go on executables only.
+The hardened runtime that notarization requires ignores `DYLD_*` variables, so a program started
+with `DYLD_LIBRARY_PATH` needs `com.apple.security.cs.allow-dyld-environment-variables`. Scrollcase
+does not grant it by default: an entitlement is a security decision about the caller's programs.
+
 **Rejected:** signing without a timestamp to stay reproducible, which notarization refuses; and
 signing in the consuming application after extraction, which is too late — notarization inspects
 the application before anything is extracted.

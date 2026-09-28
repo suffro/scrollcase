@@ -598,6 +598,10 @@ async function build(name, flags) {
   if (flags.has('codesign') && (typeof codesign !== 'string' || codesign.trim() === '')) {
     fail('--codesign requires a signing identity, such as "Developer ID Application: Name (TEAMID)".');
   }
+  const entitlements = flags.get('codesign-entitlements');
+  if (flags.has('codesign-entitlements') && (typeof entitlements !== 'string' || entitlements.trim() === '')) {
+    fail('--codesign-entitlements requires the path of an entitlements plist.');
+  }
   const reference = await selectScrollReference(name, flags);
   const signing = {
     ...keyPaths(flags),
@@ -624,6 +628,7 @@ async function build(name, flags) {
     pixiPath: text(flags, 'pixi'),
     condaPackPath: text(flags, 'conda-pack'),
     codesignIdentity: text(flags, 'codesign'),
+    codesignEntitlements: flags.has('codesign-entitlements') ? resolve(String(flags.get('codesign-entitlements'))) : null,
     log: (message) => {
       if (!message || /^(Box:|Release:|Channel:|Publish:| {9}then )/.test(message)) return;
       step(message);
@@ -819,6 +824,10 @@ Build options:
                              hardened runtime and a secure timestamp, before the self-test, so
                              an app embedding the box passes notarization. The timestamp makes
                              the archive differ between builds
+  --codesign-entitlements <plist>
+                             With --codesign: entitlements for the box's executables, such as
+                             com.apple.security.cs.allow-dyld-environment-variables for programs
+                             started with DYLD_LIBRARY_PATH, which the hardened runtime ignores
 
 Scroll targets:
   lock, audit and build accept either <boxId>/<targetId> or a box ID plus

@@ -153,7 +153,8 @@ async function writeLicenceInventories({ scroll, lockPath, payloadDir, projectRo
  * Builds, self-tests, archives, and signs the box a scroll describes — the whole pipeline the
  * module header narrates. `name` is an exact scroll reference, or an unambiguous box shorthand;
  * options override signing, channel, namespace, and toolchain paths, and `codesignIdentity` signs a
- * macOS payload's Mach-O files for Apple notarization. `run`,
+ * macOS payload's Mach-O files for Apple notarization, with `codesignEntitlements` on its
+ * executables. `run`,
  * `runResult`, and `fetchImpl` are the injection seams the tests use to substitute the toolchain
  * and asset transport.
  */
@@ -169,6 +170,7 @@ export async function buildBox(name, options = {}) {
     pixiPath = null,
     condaPackPath = null,
     codesignIdentity = null,
+    codesignEntitlements = null,
     run = runProcess,
     runResult = null,
     fetchImpl = fetch,
@@ -186,6 +188,10 @@ export async function buildBox(name, options = {}) {
   // binaries, and finding that out after the environment is solved wastes the whole build.
   if (codesignIdentity !== null && scroll.target.platform !== 'macos') {
     fail(`--codesign signs macOS boxes; ${boxTargetId(scroll.target)} is not one.`);
+  }
+  if (codesignEntitlements !== null) {
+    if (codesignIdentity === null) fail('--codesign-entitlements needs --codesign.');
+    if (!await fileExists(codesignEntitlements)) fail(`Entitlements file not found: ${codesignEntitlements}`);
   }
   // Whether an asset ships inside the archive is per entry and declared by the scroll, so there is
   // nothing to ask and nothing to override: a build-time override would silently repack a box under
@@ -389,7 +395,12 @@ export async function buildBox(name, options = {}) {
 
   if (codesignIdentity !== null) {
     log('Code signing Mach-O files');
-    const signed = await codesignPayload({ payloadDir, identity: codesignIdentity, run });
+    const signed = await codesignPayload({
+      payloadDir,
+      identity: codesignIdentity,
+      entitlements: codesignEntitlements,
+      run,
+    });
     log(`Signed ${signed} Mach-O files`);
   }
 

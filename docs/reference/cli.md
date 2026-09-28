@@ -496,7 +496,8 @@ plus a channel pointer. The full pipeline is narrated in
 scrollcase build [<scroll>] [--target <targetId>]
                  [--channel <name>]
                  [--publish-base-url <url>] [--namespace <ns>] [--allow-dirty]
-                 [--pixi <path>] [--conda-pack <path>] [--codesign <identity>]
+                 [--pixi <path>] [--conda-pack <path>]
+                 [--codesign <identity>] [--codesign-entitlements <plist>]
                  [--private-key <path>] [--public-key <path>] [--signer-command <cmd>]
 ```
 
@@ -512,6 +513,7 @@ menu. CI and other non-interactive callers must always provide it explicitly.
 | `--allow-dirty` | off | Permit a build from an uncommitted tree; recorded as `sourceTreeDirty: true` in the box |
 | `--signer-command` | none | Sign through an external command instead of the local key — see [Signing & Key Custody](/guides/signing-and-custody#external-signers) |
 | `--codesign` | off | macOS targets only. Sign every Mach-O executable, dynamic library and bundle in the payload with this Apple identity — a name such as `"Developer ID Application: Name (TEAMID)"` or its SHA-1 — with the hardened runtime and a secure timestamp, then verify each signature, all before the self-test. For a box embedded in a macOS application, whose notarization inspects nested archives |
+| `--codesign-entitlements` | none | With `--codesign`: an entitlements plist applied to the box's executables only. The hardened runtime ignores `DYLD_*` variables, so a program started with `DYLD_LIBRARY_PATH` needs `com.apple.security.cs.allow-dyld-environment-variables` — the self-test is where a missing one shows up |
 
 Before starting the environment build, Scrollcase checks that signing is ready. If both default
 local key files are absent, it fails immediately with `Signing keys not found. Run scrollcase
@@ -533,8 +535,9 @@ unchanged.
 `--allow-dirty` is absent; `pixi.lock` is missing; the pixi on hand is not the scroll's pinned
 version; or the host OS/architecture does not match the target — boxes are proven on the hardware
 they ship for. Dirty detection includes untracked files and excludes files ignored by Git.
-`--codesign` is refused for a target that is not macOS before anything is installed, and a file
-`codesign` cannot sign or verify stops the build.
+`--codesign` is refused for a target that is not macOS before anything is installed, and so is
+`--codesign-entitlements` without `--codesign` or naming a file that does not exist. A file `codesign`
+cannot sign or verify stops the build.
 
 A code-signed box is not byte-identical to another build of the same commit: Apple's timestamp
 authority issues a fresh timestamp for every signature. Every other build keeps the

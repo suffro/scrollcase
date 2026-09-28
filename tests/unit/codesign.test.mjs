@@ -50,10 +50,13 @@ describe('Apple code signing of a macOS payload', () => {
       await mkdir(join(payloadDir, path, '..'), { recursive: true });
       await writeFile(join(payloadDir, path), bytes);
     }
-    expect(await signableMachOFiles(payloadDir)).toEqual(['bin/tool', 'lib/libfat.dylib', 'lib/python/_ext.so']);
+    expect(await signableMachOFiles(payloadDir)).toEqual({
+      executables: ['bin/tool'],
+      libraries: ['lib/libfat.dylib', 'lib/python/_ext.so'],
+    });
   });
 
-  it('signs and then verifies each Mach-O file, never a script or a link', async () => {
+  it('signs and verifies libraries, then executables with their entitlements, never a script or a link', async () => {
     const payloadDir = await mkdtemp(join(tmpdir(), 'scrollcase-codesign-'));
     created.push(payloadDir);
     await mkdir(join(payloadDir, 'venv', 'bin'), { recursive: true });
@@ -63,30 +66,24 @@ describe('Apple code signing of a macOS payload', () => {
     await writeFile(join(payloadDir, 'venv', 'bin', 'launcher'), '#!/bin/sh\nexit 0\n');
     await symlink('libz.dylib', join(payloadDir, 'venv', 'lib', 'libz.1.dylib'));
 
-    expect(await signableMachOFiles(payloadDir)).toEqual(['venv/bin/tool', 'venv/lib/libz.dylib']);
-
     const calls = [];
     const signed = await codesignPayload({
       payloadDir,
       identity: 'Developer ID Application: Example (TEAMID1234)',
+      entitlements: '/project/entitlements.plist',
       run: (command, args, options) => calls.push({ command, args, cwd: options.cwd }),
     });
+    const signArguments = ['--force', '--options', 'runtime', '--timestamp', '--sign', 'Developer ID Application: Example (TEAMID1234)'];
     expect(signed).toBe(2);
     expect(calls).toEqual([
+      { command: 'codesign', args: [...signArguments, './venv/lib/libz.dylib'], cwd: payloadDir },
+      { command: 'codesign', args: ['--verify', '--strict', './venv/lib/libz.dylib'], cwd: payloadDir },
       {
         command: 'codesign',
-        args: [
-          '--force', '--options', 'runtime', '--timestamp',
-          '--sign', 'Developer ID Application: Example (TEAMID1234)',
-          './venv/bin/tool', './venv/lib/libz.dylib',
-        ],
+        args: [...signArguments, '--entitlements', '/project/entitlements.plist', './venv/bin/tool'],
         cwd: payloadDir,
       },
-      {
-        command: 'codesign',
-        args: ['--verify', '--strict', './venv/bin/tool', './venv/lib/libz.dylib'],
-        cwd: payloadDir,
-      },
+      { command: 'codesign', args: ['--verify', '--strict', './venv/bin/tool'], cwd: payloadDir },
     ]);
   });
 

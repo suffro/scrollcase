@@ -26161,7 +26161,8 @@ var BIG_ENDIAN_MAGICS = /* @__PURE__ */ new Set([4277009102, 4277009103]);
 var LITTLE_ENDIAN_MAGICS = /* @__PURE__ */ new Set([3472551422, 3489328638]);
 var UNIVERSAL_MAGIC = 3405691582;
 var UNIVERSAL_64_MAGIC = 3405691583;
-var SIGNABLE_FILE_TYPES = /* @__PURE__ */ new Set([2, 6, 8]);
+var MH_EXECUTE = 2;
+var SIGNABLE_FILE_TYPES = /* @__PURE__ */ new Set([MH_EXECUTE, 6, 8]);
 async function readAt(handle, position, length) {
   const buffer = Buffer.alloc(length);
   const { bytesRead } = await handle.read(buffer, 0, length, position);
@@ -26181,28 +26182,33 @@ async function machOFileType(handle, offset = 0) {
   return slice > 0 ? machOFileType(handle, slice) : null;
 }
 async function signableMachOFiles(payloadDir) {
-  const found = [];
+  const found = { executables: [], libraries: [] };
   for (const path of await collectRegularFiles(payloadDir)) {
     const handle = await (0, import_promises8.open)((0, import_node_path13.join)(payloadDir, path), "r");
     try {
-      if (SIGNABLE_FILE_TYPES.has(await machOFileType(handle))) found.push(path);
+      const fileType = await machOFileType(handle);
+      if (fileType === MH_EXECUTE) found.executables.push(path);
+      else if (SIGNABLE_FILE_TYPES.has(fileType)) found.libraries.push(path);
     } finally {
       await handle.close();
     }
   }
   return found;
 }
-async function codesignPayload({ payloadDir, identity, run: run2 }) {
-  const files = (await signableMachOFiles(payloadDir)).map((path) => `./${path}`);
-  for (let start = 0; start < files.length; start += BATCH_SIZE) {
-    const batch = files.slice(start, start + BATCH_SIZE);
-    run2("codesign", ["--force", "--options", "runtime", "--timestamp", "--sign", identity, ...batch], {
-      cwd: payloadDir,
-      capture: true
-    });
+function signInBatches(files, signArguments, payloadDir, run2) {
+  const relative4 = files.map((path) => `./${path}`);
+  for (let start = 0; start < relative4.length; start += BATCH_SIZE) {
+    const batch = relative4.slice(start, start + BATCH_SIZE);
+    run2("codesign", [...signArguments, ...batch], { cwd: payloadDir, capture: true });
     run2("codesign", ["--verify", "--strict", ...batch], { cwd: payloadDir, capture: true });
   }
-  return files.length;
+}
+async function codesignPayload({ payloadDir, identity, entitlements = null, run: run2 }) {
+  const { executables, libraries } = await signableMachOFiles(payloadDir);
+  const signArguments = ["--force", "--options", "runtime", "--timestamp", "--sign", identity];
+  signInBatches(libraries, signArguments, payloadDir, run2);
+  signInBatches(executables, entitlements ? [...signArguments, "--entitlements", entitlements] : signArguments, payloadDir, run2);
+  return executables.length + libraries.length;
 }
 
 // src/build/execution.mjs
@@ -27587,6 +27593,7 @@ async function buildBox(name, options2 = {}) {
     pixiPath = null,
     condaPackPath = null,
     codesignIdentity = null,
+    codesignEntitlements = null,
     run: run2 = run,
     runResult: runResult2 = null,
     fetchImpl = fetch,
@@ -27600,6 +27607,10 @@ async function buildBox(name, options2 = {}) {
   }
   if (codesignIdentity !== null && scroll.target.platform !== "macos") {
     fail(`--codesign signs macOS boxes; ${boxTargetId(scroll.target)} is not one.`);
+  }
+  if (codesignEntitlements !== null) {
+    if (codesignIdentity === null) fail("--codesign-entitlements needs --codesign.");
+    if (!await fileExists(codesignEntitlements)) fail(`Entitlements file not found: ${codesignEntitlements}`);
   }
   const deferred = scroll.assets.filter((asset) => asset.embed === false);
   const publishBaseUrl = String(publishBaseUrlOverride || scroll.publishBaseUrl || "").replace(/\/$/, "");
@@ -27741,7 +27752,12 @@ async function buildBox(name, options2 = {}) {
 `);
   if (codesignIdentity !== null) {
     log("Code signing Mach-O files");
-    const signed = await codesignPayload({ payloadDir, identity: codesignIdentity, run: run2 });
+    const signed = await codesignPayload({
+      payloadDir,
+      identity: codesignIdentity,
+      entitlements: codesignEntitlements,
+      run: run2
+    });
     log(`Signed ${signed} Mach-O files`);
   }
   log("Running self-test");
