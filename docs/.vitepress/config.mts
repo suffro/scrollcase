@@ -151,21 +151,22 @@ const sidebar = [
     link: '/reference',
     collapsed: false,
     items: [
-      { text: 'CLI Commands', link: '/reference/cli' },
-      { text: 'Workspace Configuration', link: '/reference/configuration' },
-      { text: 'The Scroll (scroll.json)', link: '/reference/scroll' },
-      { text: 'The Box Format', link: '/reference/box-format' },
-      { text: 'JSON Schemas', link: '/reference/schemas' },
+      { text: 'CLI Commands', link: '/reference/cli', items: []},
       {
         text: 'Scrollcase APIs',
         link: '/reference/api',
-        collapsed: true,
+        collapsed: false,
         items: [
           { text: 'Node', link: '/reference/api/node'},
           { text: 'Python', link: '/reference/api/python'},
           { text: 'Rust', link: '/reference/api/rust'}
         ]
-      }
+      },
+      { text: '<br><div class="divider">' },
+      { text: 'Workspace Configuration', link: '/reference/configuration' },
+      { text: 'The Scroll (scroll.json)', link: '/reference/scroll' },
+      { text: 'The Box Format', link: '/reference/box-format' },
+      { text: 'JSON Schemas', link: '/reference/schemas' }
     ]
   },
   {

@@ -5,6 +5,39 @@ description: The Rust surface for contracts, build primitives, signing and runni
 
 # Rust consumer
 
+The CLI is the supported way to run the build pipeline, but Scrollcase also provides Node, Python, and Rust surfaces for contracts, local consumers, build primitives, and signing.
+
+<div style="display: flex; justify-content: start; gap: 15px;">
+
+<Button
+  href="/reference/api/node"
+>
+
+Node
+
+</Button>
+
+<Button
+  href="/reference/api/python"
+>
+
+Python
+
+</Button>
+
+
+<Button
+    style="opacity: 0.5; pointer-events: none;"
+>
+
+Rust
+
+</Button>
+
+</div>
+
+---
+
 The `scrollcase-consumer` crate mirrors the same local consumer for applications — a Tauri desktop client, a native
 service — that would otherwise have to embed a second runtime just to start a box:
 

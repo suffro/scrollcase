@@ -7,6 +7,37 @@ description: The Node, Python, and Rust surfaces for contracts, build primitives
 
 The CLI is the supported way to run the build pipeline, but Scrollcase also provides Node, Python, and Rust surfaces for contracts, local consumers, build primitives, and signing.
 
+<div style="display: flex; justify-content: start; gap: 15px;">
+
+<Button
+  href="/reference/api/node"
+>
+
+Node
+
+</Button>
+
+<Button
+  href="/reference/api/python"
+>
+
+Python
+
+</Button>
+
+
+<Button
+  href="/reference/api/rust"
+>
+
+Rust
+
+</Button>
+
+</div>
+
+---
+
 ::: info The pipeline verbs are CLI-only
 `build`, `verify`, `audit`, `lock`, `init`, `new scroll`, and `doctor` are not part of the exported surface.
 They orchestrate a process — spawning pixi, writing a workspace, exiting non-zero — and are
@@ -26,34 +57,3 @@ the PyPI package, the crate — carries its own. The active v3 **format** — ta
 kinds, payload encoding, and signature algorithm — changes only through an explicit new schema
 version. The v3 API rejects v1 and v2 by name, each with its own remedy, rather than widening its
 types or runtime paths into a compatibility union.
-
-## APIs
-
-<div style="display: flex; justify-content: start; gap: 15px;">
-
-<Button
-  href="/reference/api/node"
->
-
-Node API
-
-</Button>
-
-<Button
-  href="/reference/api/python"
->
-
-Python consumer
-
-</Button>
-
-
-<Button
-  href="/reference/api/rust"
->
-
-Rust consumer
-
-</Button>
-
-</div>

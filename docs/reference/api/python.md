@@ -5,6 +5,39 @@ description: The Python surface for contracts, build primitives, signing and run
 
 # Python consumer
 
+The CLI is the supported way to run the build pipeline, but Scrollcase also provides Node, Python, and Rust surfaces for contracts, local consumers, build primitives, and signing.
+
+<div style="display: flex; justify-content: start; gap: 15px;">
+
+<Button
+  href="/reference/api/node"
+>
+
+Node
+
+</Button>
+
+<Button
+    style="opacity: 0.5; pointer-events: none;"
+>
+
+Python
+
+</Button>
+
+
+<Button
+  href="/reference/api/rust"
+>
+
+Rust
+
+</Button>
+
+</div>
+
+---
+
 `scrollcase_consumer` mirrors the local Node consumer without depending on Node or its CLI:
 
 ```sh

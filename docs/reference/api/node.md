@@ -5,7 +5,40 @@ description: The Node surface surface for contracts, build primitives, signing a
 
 # Node API
 
-The CLI is the supported way to run the build pipeline. The Node package additionally exports five
+The CLI is the supported way to run the build pipeline, but Scrollcase also provides Node, Python, and Rust surfaces for contracts, local consumers, build primitives, and signing.
+
+<div style="display: flex; justify-content: start; gap: 15px;">
+
+<Button
+    style="opacity: 0.5; pointer-events: none;"
+>
+
+Node
+
+</Button>
+
+<Button
+  href="/reference/api/python"
+>
+
+Python
+
+</Button>
+
+
+<Button
+  href="/reference/api/rust"
+>
+
+Rust
+
+</Button>
+
+</div>
+
+---
+
+The Node package additionally exports five
 modules for clients that need to understand, prepare, or execute local boxes: validate a document,
 derive a target ID, check a signature, resolve a workspace, or run a verified application.
 
