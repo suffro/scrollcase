@@ -173,7 +173,8 @@ export async function expandAssetArchive(payloadDir, archive) {
     throw error;
   }
   await assertAssetArchiveExecutables(payloadDir, archive);
-  const members = new Set(extracted.map((path) => posix.join(archive.destination, path)));
+  // Joined exactly as assetArchiveExecutablePaths joins, so membership never depends on spelling.
+  const members = new Set(extracted.map((path) => posix.join(safeRelativePath(archive.destination), path)));
   for (const path of executablePaths) {
     if (!members.has(path)) fail(`${field}: ${JSON.stringify(path)} is not a member of this archive.`);
   }

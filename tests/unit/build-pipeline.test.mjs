@@ -379,7 +379,7 @@ describe('the build pipeline', () => {
       if (declared) {
         await expect(build()).resolves.toMatchObject({ archiveSha256: expect.any(String) });
       } else {
-        await expect(build()).rejects.toThrow(/Self-test failed.*assetArchives\[\]\.executables.*tools\/bin\/tool.*EACCES/s);
+        await expect(build()).rejects.toThrow(/Self-test failed.*tools\/bin\/tool.*EACCES.*If a helper lost.*assetArchives\[\]\.executables.*cannot be declared yet/s);
         expect(messages).not.toContain('Creating deterministic archive');
         expect(statSync(join(payloadDir, 'tools', 'bin', 'tool')).mode & 0o777).toBe(0o644);
       }

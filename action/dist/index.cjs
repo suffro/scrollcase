@@ -26213,7 +26213,7 @@ async function expandAssetArchive(payloadDir, archive) {
     throw error2;
   }
   await assertAssetArchiveExecutables(payloadDir, archive);
-  const members = new Set(extracted.map((path) => import_node_path12.posix.join(archive.destination, path)));
+  const members = new Set(extracted.map((path) => import_node_path12.posix.join(safeRelativePath(archive.destination), path)));
   for (const path of executablePaths) {
     if (!members.has(path)) fail(`${field}: ${JSON.stringify(path)} is not a member of this archive.`);
   }
@@ -27638,7 +27638,8 @@ function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null 
         expectExitCode: invocation.expectExitCode
       });
     } catch (error2) {
-      fail(`Self-test failed with archive file modes. If a payload helper needs the executable bit, declare it in assetArchives[].executables (relative to destination), assets[].executable or localFiles[].executable. ${error2 instanceof Error ? error2.message : String(error2)}`);
+      if (adapter.host.platform === "win32") throw error2;
+      fail(`Self-test failed with the file modes the archive will carry. ${error2 instanceof Error ? error2.message : String(error2)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable; a file the solved environment installs outside the runtime's scripts directory cannot be declared yet.`);
     }
   }
 }

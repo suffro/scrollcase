@@ -111,7 +111,10 @@ function runSelfTest({ adapter, scroll, payloadDir, run, extraCode = null }) {
         expectExitCode: invocation.expectExitCode,
       });
     } catch (error) {
-      fail(`Self-test failed with archive file modes. If a payload helper needs the executable bit, declare it in assetArchives[].executables (relative to destination), assets[].executable or localFiles[].executable. ${error instanceof Error ? error.message : String(error)}`);
+      // Windows has no POSIX modes to lose, so a hint about the executable bit would only mislead.
+      // Elsewhere the hint is conditional: most failures are an ordinary import error, not a mode.
+      if (adapter.host.platform === 'win32') throw error;
+      fail(`Self-test failed with the file modes the archive will carry. ${error instanceof Error ? error.message : String(error)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable; a file the solved environment installs outside the runtime's scripts directory cannot be declared yet.`);
     }
   }
 }

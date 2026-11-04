@@ -25,7 +25,9 @@ All notable changes to Scrollcase are documented here. The format follows
   Declare the helper on its archive entry, asset or local file and rebuild. A static inventory of
   all 20 effective repository example/demo scrolls found no asset archives and no entry points
   missing declarations; the large CI-signed demos were not rebuilt. Dependency helpers outside
-  runtime script paths may still expose missing declarations during a real build.
+  runtime script paths may still expose missing declarations during a real build, and no scroll
+  field can declare one yet; the self-test failure says so rather than pointing only at fields
+  that cannot apply. On Windows a self-test failure keeps its original error with no mode hint.
 
 ## [1.4.0] — 2026-09-28
 

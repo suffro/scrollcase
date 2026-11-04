@@ -13,6 +13,13 @@ decisions, artifact hashes, source inventory and owner-only 1.5.0 release steps 
 [`../history/archive-member-executables-plan.md`](../history/archive-member-executables-plan.md).
 No version bump, release tag, push, publication or hosted workflow was performed.
 
+**Open follow-up — executables inside the solved environment.** The runtime rule marks only the
+scripts directory, so a helper a package installs elsewhere in the prefix (a compiler or server
+binary shipped inside a package's own directory) has always reached consumers as `0644`. The
+mode-faithful self-test now fails on it at build time when the probe exercises it, but no scroll
+field can declare it executable; the failure message says so. Closing that needs a declaration for
+prefix paths, designed separately — not a reason to restore inherited build-directory modes.
+
 **Native Windows follow-up:** Python 62 pass + 6 skips; Node 577 pass, 56 fail, 13 skips;
 Rust 98 pass, 1 fail. All remaining native failures are blocked by this account's missing Windows
 symlink privilege, also observed on untouched main. A pre-existing fixture carrying a Windows

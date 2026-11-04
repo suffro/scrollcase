@@ -739,7 +739,13 @@ self-test and parity. On Linux and macOS an undeclared helper outside the runtim
 paths is `0644`, even when its upstream archive says `0755`. Declare it with
 `assetArchives[].executables`, `assets[].executable` or `localFiles[].executable` as appropriate.
 Self-test failures retain their original error and point to these declarations. Windows validates
-the declarations identically and continues to use extensions rather than POSIX modes.
+the declarations identically and continues to use extensions rather than POSIX modes, so its
+self-test failures carry no such hint.
+
+One case has no declaration yet: a helper the solved environment itself installs outside the
+runtime's scripts directory — an executable shipped inside a package's own directory, for
+instance. It already reached consumers as `0644`; the self-test now fails on it at build time
+instead, when the probe exercises it, but no scroll field can mark it executable.
 
 Builder checks run with the payload's **own runtime** before the box is archived. Schema
 version 3 signs the probe for a consumer to repeat; it does not carry the richer file or
