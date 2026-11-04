@@ -85,6 +85,12 @@ When the upstream artefact is a tarball or zip, declare it as an asset and then 
 - Extraction never overwrites a file already present in the destination.
 - `removeAfterExtract` defaults to `true`: the compressed original is dead weight inside the
   payload once unpacked.
+- Add `"executables": ["bin/tool", "launch.sh"]` to the archive entry when expanded members must
+  run. Paths are relative to its `destination` after stripping. The build checks that each is a
+  distinct regular member, reaches it without traversing a link and still carries it after pruning.
+  Removing a declared executable is an error. Input archive modes never determine output modes.
+  Linux and macOS receive `0755`; Windows validates the list but keeps `0644` archive entries and
+  uses filename extensions. See the [complete rules](/reference/scroll#assetarchives).
 
 ## Compression
 

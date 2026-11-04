@@ -214,6 +214,10 @@ export interface BoxScroll {
     destination: PayloadPath;
     stripComponents?: number;
     removeAfterExtract?: boolean;
+    /**
+     * Regular archive members that need the executable bit, relative to this entry's destination after stripComponents. Paths must be distinct, use forward slashes and contain no dot segments or colons. Every path must be a member of this archive, exist before pruning, traverse no link and survive prunePaths and removeAfterExtract. The bit is synthesised from this declaration, never inherited from the upstream archive or build machine. Windows validates the same paths but writes 0644 and decides executability by extension. Empty or absent declares none.
+     */
+    executables?: string[];
   }[];
   /**
    * Files copied from the consumer's own repository into the payload. A file already under the project's own version control needs no second copy of its identity here, and what ships is hashed into the signed release either way; declaring sha256 pins one that must not change without review, which suits a licence notice and not a script still being written.

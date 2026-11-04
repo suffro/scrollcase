@@ -77,6 +77,6 @@ export function extractZipArchive(archivePath: string, destination: string): Pro
  * @param {'zip' | 'tar' | 'tar.gz'} format
  * @param {string} destination
  * @param {number} [stripComponents]
- * @returns {Promise<void>}
+ * @returns {Promise<string[]>} extracted regular-file paths, relative to the destination
  */
-export function extractScrollArchive(archivePath: string, format: "zip" | "tar" | "tar.gz", destination: string, stripComponents?: number): Promise<void>;
+export function extractScrollArchive(archivePath: string, format: "zip" | "tar" | "tar.gz", destination: string, stripComponents?: number): Promise<string[]>;

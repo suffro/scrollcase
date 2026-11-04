@@ -14,10 +14,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as tar from 'tar';
 import yazl from 'yazl';
 import {
+  createDeterministicZip,
   extractScrollArchive,
   extractZipArchive,
   listZipEntries,
 } from '../../src/build/archive.mjs';
+import { boxTargetAdapters } from '../../src/contract/targets.mjs';
 import { collectFiles, fileExists, safeRelativePath } from '../../src/build/filesystem.mjs';
 
 const created = [];
@@ -42,6 +44,20 @@ async function writeZip(path, entries) {
 }
 
 describe('archive boundaries', () => {
+  for (const adapter of boxTargetAdapters()) {
+    it(`synthesises declared-member modes for ${adapter.id} independently of the host`, async () => {
+      const root = await scratch();
+      const payload = join(root, 'payload');
+      await mkdir(payload);
+      await writeFile(join(payload, 'tool'), 'executable');
+      await writeFile(join(payload, 'data'), 'ordinary');
+      const archive = join(root, 'box.zip');
+      await createDeterministicZip(payload, archive, adapter, { runtimeId: 'native', executablePaths: ['tool'] });
+      const entries = await listZipEntries(archive);
+      expect(entries.find(({ path }) => path === 'tool').mode).toBe(adapter.platform === 'windows' ? 0o644 : 0o755);
+      expect(entries.find(({ path }) => path === 'data').mode).toBe(0o644);
+    });
+  }
   it('rejects traversal and absolute path spellings before joining them to a destination', () => {
     for (const path of ['', '../escape', 'safe/../../escape', '/absolute', 'C:/absolute', 'a//b']) {
       expect(() => safeRelativePath(path), path).toThrow(/Unsafe relative path/);

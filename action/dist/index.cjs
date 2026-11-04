@@ -22529,6 +22529,26 @@ function safeRelativePath(value) {
   }
   return normalized;
 }
+async function assertPathWithoutLinks(root, path, field, { allowMissing = false, kind = "file" } = {}) {
+  const parts = safeRelativePath(path).split("/");
+  let current2 = root;
+  for (const [index, part] of parts.entries()) {
+    current2 = (0, import_node_path.join)(current2, part);
+    let entry;
+    try {
+      entry = await (0, import_promises.lstat)(current2);
+    } catch (error2) {
+      if (error2.code !== "ENOENT" && error2.code !== "ENOTDIR") throw error2;
+      if (allowMissing) return;
+      fail(`${field}: ${JSON.stringify(path)} is missing (check prunePaths and removeAfterExtract).`);
+    }
+    if (entry.isSymbolicLink()) fail(`${field}: ${JSON.stringify(path)} is a link or traverses a link at ${parts.slice(0, index + 1).join("/")}.`);
+    const needsDirectory = index < parts.length - 1 || kind === "directory";
+    if (needsDirectory ? !entry.isDirectory() : !entry.isFile()) {
+      fail(`${field}: ${JSON.stringify(path)} must be a regular file with directory ancestors.`);
+    }
+  }
+}
 async function collectEntries(root, current2 = root) {
   const entries = await (0, import_promises.readdir)(current2, { withFileTypes: true });
   const collected = [];
@@ -26055,6 +26075,7 @@ async function extractScrollArchive(archivePath, format, destination, stripCompo
     } else {
       fail(`Unsupported archive format: ${format}`);
     }
+    await validateExtractedTree(tempRoot);
     let source = tempRoot;
     for (let index = 0; index < stripComponents; index += 1) {
       const entries = await collectFiles(source);
@@ -26068,6 +26089,7 @@ async function extractScrollArchive(archivePath, format, destination, stripCompo
     }
     const files = await collectFiles(source);
     for (const file of files) {
+      await assertPathWithoutLinks(destination, file, "Scroll archive entry", { allowMissing: true });
       if (await fileExists((0, import_node_path11.join)(destination, ...file.split("/")))) {
         fail(`Scroll archive entry already exists in destination: ${file}`);
       }
@@ -26078,6 +26100,7 @@ async function extractScrollArchive(archivePath, format, destination, stripCompo
       await (0, import_promises4.mkdir)((0, import_node_path11.dirname)(outputPath), { recursive: true });
       await (0, import_promises4.copyFile)((0, import_node_path11.join)(source, ...file.split("/")), outputPath, import_node_fs8.constants.COPYFILE_EXCL);
     }
+    return files;
   } finally {
     await (0, import_promises4.rm)(tempRoot, { recursive: true, force: true });
   }
@@ -26146,11 +26169,50 @@ async function moveIntoPlace(source, destination) {
     await (0, import_promises6.rm)(source, { force: true });
   }
 }
+function assetArchiveExecutablePaths(archive) {
+  const paths = archive.executables === void 0 ? [] : archive.executables;
+  const field = `assetArchives[].executables in ${archive.relativePath}`;
+  if (!Array.isArray(paths)) fail(`${field}: expected an array, received ${JSON.stringify(paths)}.`);
+  const seen = /* @__PURE__ */ new Set();
+  return paths.map((path) => {
+    try {
+      safeRelativePath(path);
+      if (typeof path !== "string" || path.includes("\\") || path.includes(":") || path.split("/").includes(".")) fail("Use a relative forward-slash path without dot segments or colons.");
+    } catch (error2) {
+      fail(`${field}: ${JSON.stringify(path)} is unsafe. ${error2.message}`);
+    }
+    if (seen.has(path)) fail(`${field}: ${JSON.stringify(path)} is a duplicate.`);
+    seen.add(path);
+    return import_node_path12.posix.join(safeRelativePath(archive.destination), path);
+  });
+}
+async function assertAssetArchiveExecutables(payloadDir, archive) {
+  const field = `assetArchives[].executables ${JSON.stringify(archive.executables ?? [])} in ${archive.relativePath}`;
+  for (const path of assetArchiveExecutablePaths(archive)) {
+    await assertPathWithoutLinks(payloadDir, path, field);
+  }
+}
 async function expandAssetArchive(payloadDir, archive) {
+  const executablePaths = assetArchiveExecutablePaths(archive);
   const archivePath = (0, import_node_path12.join)(payloadDir, safeRelativePath(archive.relativePath));
   const destination = (0, import_node_path12.join)(payloadDir, safeRelativePath(archive.destination));
-  await extractScrollArchive(archivePath, archive.format, destination, Number(archive.stripComponents ?? 0));
+  const field = `assetArchives[].executables ${JSON.stringify(archive.executables ?? [])} in ${archive.relativePath}`;
+  await assertPathWithoutLinks(payloadDir, archive.destination, field, { allowMissing: true, kind: "directory" });
+  let extracted;
+  try {
+    extracted = await extractScrollArchive(archivePath, archive.format, destination, Number(archive.stripComponents ?? 0));
+  } catch (error2) {
+    if (executablePaths.length) fail(`${field}: ${error2.message}`);
+    throw error2;
+  }
+  await assertAssetArchiveExecutables(payloadDir, archive);
+  const members = new Set(extracted.map((path) => import_node_path12.posix.join(archive.destination, path)));
+  for (const path of executablePaths) {
+    if (!members.has(path)) fail(`${field}: ${JSON.stringify(path)} is not a member of this archive.`);
+  }
   if (archive.removeAfterExtract !== false) await (0, import_promises6.rm)(archivePath, { force: true });
+  await assertAssetArchiveExecutables(payloadDir, archive);
+  return executablePaths;
 }
 
 // src/build/codesign.mjs
@@ -27387,6 +27449,16 @@ async function readExactScroll(reference) {
   const fragment = JSON.parse(await (0, import_promises16.readFile)((0, import_node_path21.resolve)(dir, "scroll.json"), "utf8"));
   const extended = fragment.extends !== void 0;
   const declared = extended ? joinScrollFragment(await readScrollBase(fragment, dir, normalized), fragment) : fragment;
+  const executableMembers = /* @__PURE__ */ new Set();
+  if (Array.isArray(declared.assetArchives)) {
+    for (const archive of declared.assetArchives) {
+      if (!archive || typeof archive !== "object" || typeof archive.destination !== "string" || typeof archive.relativePath !== "string") continue;
+      for (const path of assetArchiveExecutablePaths(archive)) {
+        if (executableMembers.has(path)) fail(`assetArchives[].executables: ${JSON.stringify(path)} is declared by more than one archive.`);
+        executableMembers.add(path);
+      }
+    }
+  }
   const [scrollSchema, targetSchema, executionSchema] = await loadScrollSchemas();
   const validationError = schemaValidationError(declared, scrollSchema, [targetSchema, executionSchema]);
   if (validationError) {
@@ -27664,11 +27736,15 @@ async function buildBox(name, options2 = {}) {
   for (const file of scroll.localFiles ?? []) {
     await copyVerifiedLocalFile(file, payloadDir, workspace.root);
   }
+  const archiveExecutablePaths = [];
   for (const archive of scroll.assetArchives ?? []) {
-    await expandAssetArchive(payloadDir, archive);
+    archiveExecutablePaths.push(...await expandAssetArchive(payloadDir, archive));
   }
   for (const prunePath of scroll.prunePaths ?? []) {
     await (0, import_promises17.rm)((0, import_node_path22.join)(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
+  }
+  for (const archive of scroll.assetArchives ?? []) {
+    await assertAssetArchiveExecutables(payloadDir, archive);
   }
   for (const written of await runtimeBuilder(scroll.runtime.id).preparePayload?.(payloadDir) ?? []) {
     log(`Writing ${written}`);
@@ -27792,9 +27868,12 @@ async function buildBox(name, options2 = {}) {
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path))
   ];
   const declaredExecutablePaths2 = [
-    ...scroll.assets,
-    ...scroll.localFiles ?? []
-  ].filter((entry) => entry.executable && entry.embed !== false).map((entry) => safeRelativePath(entry.relativePath));
+    ...archiveExecutablePaths,
+    ...[
+      ...scroll.assets,
+      ...scroll.localFiles ?? []
+    ].filter((entry) => entry.executable && entry.embed !== false).map((entry) => safeRelativePath(entry.relativePath))
+  ];
   if (scroll.execution) {
     const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
       execution: scroll.execution,
@@ -27802,7 +27881,7 @@ async function buildBox(name, options2 = {}) {
     });
     const commandPath = safeRelativePath(command.value);
     if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths2, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in.`);
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
     }
   }
   log("Creating deterministic archive");

@@ -29,7 +29,13 @@ import {
   payloadDigestStream,
 } from '../contract/payload-digest.mjs';
 import { signDocument } from '../sign/index.mjs';
-import { copyVerifiedLocalFile, downloadVerified, expandAssetArchive, moveIntoPlace } from './assets.mjs';
+import {
+  assertAssetArchiveExecutables,
+  copyVerifiedLocalFile,
+  downloadVerified,
+  expandAssetArchive,
+  moveIntoPlace,
+} from './assets.mjs';
 import { archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
 import {
   collectFiles,
@@ -280,13 +286,17 @@ export async function buildBox(name, options = {}) {
   }
   // An asset archive is expanded at build time and has no descriptor to defer, so the schema gives
   // it no `embed` field and there is nothing to skip here.
+  const archiveExecutablePaths = [];
   for (const archive of scroll.assetArchives ?? []) {
-    await expandAssetArchive(payloadDir, archive);
+    archiveExecutablePaths.push(...await expandAssetArchive(payloadDir, archive));
   }
   // Drops what is only needed to build (tests, docs, bundled sample data). A box is a multi-gigabyte
   // download for an end user, so pruning is a user-facing concern rather than tidiness.
   for (const prunePath of scroll.prunePaths ?? []) {
     await rm(join(payloadDir, safeRelativePath(prunePath)), { recursive: true, force: true });
+  }
+  for (const archive of scroll.assetArchives ?? []) {
+    await assertAssetArchiveExecutables(payloadDir, archive);
   }
   // Whatever the runtime needs in the payload that nothing declares. It runs after the prunes, so
   // a project cannot prune a file the runtime is about to write, and before the payload is read,
@@ -454,10 +464,13 @@ export async function buildBox(name, options = {}) {
   // arrives with no mode at all — HTTP carries content, not permissions — so without this a box
   // could not ship an asset that runs.
   const declaredExecutablePaths = [
-    ...scroll.assets,
-    ...(scroll.localFiles ?? []),
-  ].filter((entry) => entry.executable && entry.embed !== false)
-    .map((entry) => safeRelativePath(entry.relativePath));
+    ...archiveExecutablePaths,
+    ...[
+      ...scroll.assets,
+      ...(scroll.localFiles ?? []),
+    ].filter((entry) => entry.executable && entry.embed !== false)
+      .map((entry) => safeRelativePath(entry.relativePath)),
+  ];
   // Whatever the box starts has to come out of the archive runnable. For an interpreted runtime
   // that is the interpreter, and the runtime's own rule covers it; for a native one it is a file
   // the scroll brought in, and only the scroll can say the bit belongs on it. Asked through the
@@ -470,7 +483,7 @@ export async function buildBox(name, options = {}) {
     });
     const commandPath = safeRelativePath(command.value);
     if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in.`);
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
     }
   }
   log('Creating deterministic archive');

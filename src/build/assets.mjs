@@ -9,10 +9,10 @@
 
 import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, posix, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { extractScrollArchive as extractArchive } from './archive.mjs';
-import { fileExists, safeRelativePath, sha256File } from './filesystem.mjs';
+import { assertPathWithoutLinks, fileExists, safeRelativePath, sha256File } from './filesystem.mjs';
 import { fail } from './process.mjs';
 
 const MAX_DOWNLOAD_ATTEMPTS = 5;
@@ -115,6 +115,41 @@ export async function moveIntoPlace(source, destination) {
 }
 
 /**
+ * Resolves executable archive members without inheriting an upstream file mode.
+ *
+ * An archive entry owns its declarations: paths are relative to its destination after stripping,
+ * rather than a second top-level list whose relationship to the extraction would be implicit.
+ * Refusing aliases keeps both duplicate detection and diagnostics independent of the host OS.
+ * This is also asked while reading a scroll, before any download or toolchain invocation.
+ */
+export function assetArchiveExecutablePaths(archive) {
+  const paths = archive.executables === undefined ? [] : archive.executables;
+  const field = `assetArchives[].executables in ${archive.relativePath}`;
+  if (!Array.isArray(paths)) fail(`${field}: expected an array, received ${JSON.stringify(paths)}.`);
+  const seen = new Set();
+  return paths.map((path) => {
+    try {
+      safeRelativePath(path);
+      if (typeof path !== 'string' || path.includes('\\') || path.includes(':')
+        || path.split('/').includes('.')) fail('Use a relative forward-slash path without dot segments or colons.');
+    } catch (error) {
+      fail(`${field}: ${JSON.stringify(path)} is unsafe. ${error.message}`);
+    }
+    if (seen.has(path)) fail(`${field}: ${JSON.stringify(path)} is a duplicate.`);
+    seen.add(path);
+    return posix.join(safeRelativePath(archive.destination), path);
+  });
+}
+
+/** Validates the files again after staging or pruning; modes are irrelevant even on Windows. */
+export async function assertAssetArchiveExecutables(payloadDir, archive) {
+  const field = `assetArchives[].executables ${JSON.stringify(archive.executables ?? [])} in ${archive.relativePath}`;
+  for (const path of assetArchiveExecutablePaths(archive)) {
+    await assertPathWithoutLinks(payloadDir, path, field);
+  }
+}
+
+/**
  * Unpacks a downloaded archive into the payload tree.
  *
  * Entries are listed and validated *before* extraction (archive-slip defence). `stripComponents`
@@ -123,9 +158,27 @@ export async function moveIntoPlace(source, destination) {
  * a wrong tree.
  */
 export async function expandAssetArchive(payloadDir, archive) {
+  const executablePaths = assetArchiveExecutablePaths(archive);
   const archivePath = join(payloadDir, safeRelativePath(archive.relativePath));
   const destination = join(payloadDir, safeRelativePath(archive.destination));
-  await extractArchive(archivePath, archive.format, destination, Number(archive.stripComponents ?? 0));
+  const field = `assetArchives[].executables ${JSON.stringify(archive.executables ?? [])} in ${archive.relativePath}`;
+  // A packed prefix may already hold links. Check before copying anything into it, not only after
+  // a declared member has been written through an ancestor whose name conceals its destination.
+  await assertPathWithoutLinks(payloadDir, archive.destination, field, { allowMissing: true, kind: 'directory' });
+  let extracted;
+  try {
+    extracted = await extractArchive(archivePath, archive.format, destination, Number(archive.stripComponents ?? 0));
+  } catch (error) {
+    if (executablePaths.length) fail(`${field}: ${error.message}`);
+    throw error;
+  }
+  await assertAssetArchiveExecutables(payloadDir, archive);
+  const members = new Set(extracted.map((path) => posix.join(archive.destination, path)));
+  for (const path of executablePaths) {
+    if (!members.has(path)) fail(`${field}: ${JSON.stringify(path)} is not a member of this archive.`);
+  }
   // The compressed original is dead weight inside the payload once unpacked.
   if (archive.removeAfterExtract !== false) await rm(archivePath, { force: true });
+  await assertAssetArchiveExecutables(payloadDir, archive);
+  return executablePaths;
 }

@@ -665,6 +665,19 @@ does not grant it by default: an entitlement is a security decision about the ca
 signing in the consuming application after extraction, which is too late — notarization inspects
 the application before anything is extracted.
 
+## Expanded executable members are declared beside their archive
+
+`assetArchives[].executables` names regular members relative to the destination after stripping.
+The build validates their origin and survival through pruning, then adds them to the same mode
+rule as executable assets and local files. Upstream permission bits never decide what ships.
+Windows checks the declarations too, while continuing to decide executability by extension.
+
+**Rejected:** a top-level executable-path list, which separates a member from the archive that
+must supply it; and inheriting upstream modes, which would make the declaration incomplete and
+let extraction behavior determine the result. The optional build-input field stays in version 3:
+signed documents and ZIP interpretation are unchanged, older builders refuse the new property,
+and existing consumers already preserve its synthesized executable bit.
+
 ## Deliberately out of scope
 
 Publishing to object storage, downloading boxes, selecting or promoting a channel, updating an

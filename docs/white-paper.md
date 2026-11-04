@@ -2246,7 +2246,7 @@ The optional fields are where a scroll expresses intent:
 | `condaDependencyLicenseAudit` | Path to the reviewed licence inventory the build must still match |
 | `bundledLicenseDeclaration` | Path to the reviewed licences of what was linked *inside* a binary the box ships — the half `pixi.lock` cannot see |
 | `publishBaseUrl` | Where the built archive and its signed documents will be published, so each can point at the next. Optional: a box built to run locally is never published, and the build then omits both links rather than inventing an address |
-| `assetArchives` | Downloaded archives to expand into the payload, with `stripComponents` and `removeAfterExtract` |
+| `assetArchives` | Downloaded archives to expand into the payload, with `stripComponents`, `removeAfterExtract` and optional destination-relative `executables` |
 | `localFiles` | Files copied from the project's own repository, optionally pinned to a declared hash |
 | `prunePaths` | Payload paths deleted before packing |
 | `execution` | The application entry point |
@@ -3150,6 +3150,18 @@ surprising layout fails loudly rather than producing a wrong tree. The compresse
 removed after expansion unless the scroll asks otherwise, since it is dead weight inside the payload
 once unpacked.
 
+`assetArchiveExecutablePaths()` resolves an entry's optional `executables` relative to its
+destination after stripping. The scroll reader rejects unsafe paths and duplicate resulting paths
+before tool discovery. `expandAssetArchive()` checks regular-file membership before pruning and
+returns the declared payload paths; `assertAssetArchiveExecutables()` repeats the filesystem check
+after pruning. A missing member, directory, link or link ancestor fails with its declaration named.
+The extracted source is checked before copying, including ZIP links that a copy would otherwise
+conceal as regular files. A pre-existing destination file cannot satisfy an archive declaration.
+The original's removal and pruning cannot silently cancel a declaration. Empty and absent lists
+both declare none, and Windows applies the same validation.
+`assertPathWithoutLinks()` in `filesystem.mjs` supplies the shared lstat walk, also applied to
+each extraction destination before copying so a link deeper below the destination cannot be used.
+
 </div>
 
 <div class="h4-section">
@@ -3498,7 +3510,7 @@ zip.addFile(join(payloadDir, ...entry.path.split('/')), entry.path, {
   compress: compressionLevel !== 0,
   compressionLevel,
   mtime: FIXED_ARCHIVE_TIME,
-  mode: archiveFileMode(adapter, entry.path),
+  mode: archiveFileMode(adapter, entry.path, executablePaths),
   forceDosTimestamp: true,
 });
 ```
@@ -3506,13 +3518,14 @@ zip.addFile(join(payloadDir, ...entry.path.split('/')), entry.path, {
 Every variable that could differ between two runs has been removed. Entry order comes from the
 sorted enumeration; the timestamp is fixed and forced into DOS form so no local timezone leaks in;
 the compression level is pinned per path, because a different level produces different bytes for
-identical input; and the mode comes from the **target adapter** rather than from the filesystem:
+identical input; and the mode comes from the **target, runtime and scroll** rather than from the filesystem:
 
 | Path | Mode | Reason |
 | --- | --- | --- |
 | Windows target, anything | `0644` | Windows has no executable bit to preserve |
 | The interpreter entry point | `0755` | It must be executable after extraction |
 | Anything under the scripts directory | `0755` | Console scripts are executables |
+| A declared executable asset, local file or expanded archive member | `0755` | The scroll explicitly requires it to run |
 | Everything else | `0644` | |
 
 Reading the mode from disk instead would make the archive depend on the umask of whoever ran the

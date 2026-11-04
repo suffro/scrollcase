@@ -22,6 +22,7 @@ import { findEntryThroughLink, findUnresolvableLink } from '../contract/links.mj
 import { isExecutablePayloadPath, runtimeAdapter } from '../contract/runtimes.mjs';
 import {
   FIXED_ARCHIVE_TIME,
+  assertPathWithoutLinks,
   collectEntries,
   collectFiles,
   fileExists,
@@ -387,7 +388,7 @@ async function validateTarArchive(archivePath) {
  * @param {'zip' | 'tar' | 'tar.gz'} format
  * @param {string} destination
  * @param {number} [stripComponents]
- * @returns {Promise<void>}
+ * @returns {Promise<string[]>} extracted regular-file paths, relative to the destination
  */
 export async function extractScrollArchive(archivePath, format, destination, stripComponents = 0) {
   const tempRoot = await mkdtemp(join(tmpdir(), 'scrollcase-extract-'));
@@ -406,6 +407,10 @@ export async function extractScrollArchive(archivePath, format, destination, str
     } else {
       fail(`Unsupported archive format: ${format}`);
     }
+    // A box may carry checked prefix links, but an asset archive is copied into an existing tree.
+    // Copying a ZIP link would silently turn it into a regular file and conceal its origin from
+    // executable-member validation, so the same strict boundary applies to every asset format.
+    await validateExtractedTree(tempRoot);
 
     let source = tempRoot;
     for (let index = 0; index < stripComponents; index += 1) {
@@ -423,6 +428,7 @@ export async function extractScrollArchive(archivePath, format, destination, str
     const files = await collectFiles(source);
     // Archives may add a subtree beside verified assets, but must never replace those assets.
     for (const file of files) {
+      await assertPathWithoutLinks(destination, file, 'Scroll archive entry', { allowMissing: true });
       if (await fileExists(join(destination, ...file.split('/')))) {
         fail(`Scroll archive entry already exists in destination: ${file}`);
       }
@@ -433,6 +439,7 @@ export async function extractScrollArchive(archivePath, format, destination, str
       await mkdir(dirname(outputPath), { recursive: true });
       await copyFile(join(source, ...file.split('/')), outputPath, constants.COPYFILE_EXCL);
     }
+    return files;
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }

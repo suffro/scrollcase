@@ -6,6 +6,19 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`assetArchives[].executables` declares executable expanded members.** Paths are relative to
+  the archive's destination after stripping. The build rejects missing or non-regular members,
+  links and link traversal, unsafe or duplicate paths, and declarations removed by pruning.
+  Linux and macOS receive synthesized `0755` modes; Windows validates the same declarations and
+  continues to use extensions. This optional build-input field stays in schema version 3 and
+  requires a newer builder; existing consumers need no format upgrade. Intended for a minor release.
+
+### Fixed
+
+- ZIP asset archives reject links before copying, matching the existing TAR asset boundary.
+
 ## [1.4.0] — 2026-09-28
 
 ### Added

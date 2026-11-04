@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { downloadVerified } from '../../src/build/assets.mjs';
+import { downloadVerified, expandAssetArchive } from '../../src/build/assets.mjs';
 import { fileExists } from '../../src/build/filesystem.mjs';
+import { writeAssetArchive } from '../helpers/asset-archive.mjs';
 
 const created = [];
 afterEach(async () => {
@@ -18,6 +19,105 @@ async function scratch() {
 }
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+describe('executable members of asset archives', () => {
+  async function staged(format = 'tar.gz', overrides = {}, contents = {}) {
+    const root = await scratch();
+    const { path } = await writeAssetArchive(join(root, 'upstream'), { format, ...contents });
+    const payload = join(root, 'payload');
+    await mkdir(payload);
+    await copyFile(path, join(payload, `source.${format}`));
+    return {
+      payload,
+      archive: {
+        relativePath: `source.${format}`, format, destination: 'tools',
+        stripComponents: 1, executables: ['bin/tool'], ...overrides,
+      },
+    };
+  }
+
+  for (const format of ['zip', 'tar', 'tar.gz']) {
+    for (const stripComponents of [0, 1]) {
+      for (const removeAfterExtract of [true, false]) {
+        it(`validates ${format} members with strip=${stripComponents}, remove=${removeAfterExtract}`, async () => {
+          const member = stripComponents ? 'bin/tool' : 'wrapper/bin/tool';
+          const { payload, archive } = await staged(format, {
+            stripComponents, removeAfterExtract, executables: [member],
+          });
+          await expect(expandAssetArchive(payload, archive)).resolves.toEqual([`tools/${member}`]);
+          expect(await fileExists(join(payload, `source.${format}`))).toBe(!removeAfterExtract);
+        });
+      }
+    }
+  }
+
+  for (const path of ['missing', 'bin', '../escape', '/absolute', 'C:/drive', 'C:drive',
+    'bin/../tool', './bin/tool', 'bin/./tool', 'bin//tool', 'bin/tool/', 'bin\\tool', 'bad\0path', '']) {
+    it(`refuses the invalid member ${JSON.stringify(path)} and names its field`, async () => {
+      const { payload, archive } = await staged('tar.gz', { executables: [path] });
+      const error = await expandAssetArchive(payload, archive).catch((error) => error);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain('assetArchives[].executables');
+      expect(error.message).toContain(JSON.stringify(path));
+      expect(await fileExists(join(payload, archive.relativePath))).toBe(true);
+    });
+  }
+
+  it('refuses a duplicate declaration before extraction', async () => {
+    const { payload, archive } = await staged('zip', { executables: ['bin/tool', 'bin/tool'] });
+    await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*bin\/tool.*duplicate/i);
+    expect(await fileExists(join(payload, 'tools'))).toBe(false);
+  });
+
+  it('does not borrow a regular file already in the destination', async () => {
+    const { payload, archive } = await staged('tar', { executables: ['other'] });
+    await mkdir(join(payload, 'tools'));
+    await writeFile(join(payload, 'tools', 'other'), 'from elsewhere');
+    await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*other.*member/);
+  });
+
+  it('accepts empty and absent declarations', async () => {
+    for (const executables of [undefined, []]) {
+      const { payload, archive } = await staged('zip', { executables });
+      await expect(expandAssetArchive(payload, archive)).resolves.toEqual([]);
+    }
+  });
+
+  for (const format of ['zip', 'tar', 'tar.gz']) {
+    it(`refuses a declared link in ${format} before it can become a copied regular file`, async () => {
+      const { payload, archive } = await staged(format, { executables: ['bin/alias'] }, {
+        links: { 'wrapper/bin/alias': 'tool' },
+      });
+      await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*bin\/alias.*link/);
+    });
+  }
+
+  it('refuses a destination traversing a link', async () => {
+    const { payload, archive } = await staged();
+    await mkdir(join(payload, 'real'));
+    await symlink('real', join(payload, 'tools'), 'dir');
+    await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*bin\/tool.*link/);
+    expect(await fileExists(join(payload, 'real', 'bin', 'tool'))).toBe(false);
+  });
+
+  it('refuses a link below the destination before copying through it', async () => {
+    const { payload, archive } = await staged();
+    const outside = join(payload, '..', 'outside');
+    await mkdir(outside);
+    await mkdir(join(payload, 'tools'));
+    await symlink(outside, join(payload, 'tools', 'bin'), 'dir');
+    await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*bin\/tool.*link/);
+    expect(await fileExists(join(outside, 'tool'))).toBe(false);
+  });
+
+  it('refuses declaring the compressed original instead of a member', async () => {
+    const { payload, archive } = await staged('tar.gz', {
+      destination: '.', executables: ['source.tar.gz'],
+    });
+    await expect(expandAssetArchive(payload, archive)).rejects.toThrow(/assetArchives\[\]\.executables.*source.tar.gz.*not a member/);
+    expect(await fileExists(join(payload, 'source.tar.gz'))).toBe(true);
+  });
+});
 
 function response(bytes, status = 200) {
   return {

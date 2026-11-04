@@ -73,6 +73,35 @@ describe('joining a base scroll with a target fragment', () => {
     expect(scroll.scrollId).toBe(`example-model-${TARGET_ID}`);
   });
 
+  it('keeps executable members on both base and target archive entries', async () => {
+    const shared = { relativePath: 'shared.tar', format: 'tar', destination: 'shared', executables: ['bin/tool'] };
+    const target = { relativePath: 'target.zip', format: 'zip', destination: 'target', executables: ['bin/tool'] };
+    await family({ ...BASE, assetArchives: [shared] }, {
+      extends: '../scroll.json', target: TARGET, assetArchives: [target],
+    });
+    expect((await readScroll(REFERENCE)).scroll.assetArchives).toEqual([shared, target]);
+  });
+
+  it('refuses duplicate resulting executable paths across base and target archives', async () => {
+    const archive = { relativePath: 'one.tar', format: 'tar', destination: 'tools', executables: ['bin/tool'] };
+    await family({ ...BASE, assetArchives: [archive] }, {
+      extends: '../scroll.json', target: TARGET,
+      assetArchives: [{ ...archive, relativePath: 'two.tar', destination: './tools' }],
+    });
+    await expect(readScroll(REFERENCE)).rejects.toThrow(/assetArchives\[\]\.executables.*tools\/bin\/tool.*more than one/);
+  });
+
+  for (const path of ['../escape', 'bin/./tool', 'bin\\tool', '']) {
+    it(`refuses the unsafe archive declaration ${JSON.stringify(path)} while reading`, async () => {
+      await family({ ...BASE, assetArchives: [{
+        relativePath: 'source.zip', format: 'zip', destination: 'tools', executables: [path],
+      }] });
+      const error = await readScroll(REFERENCE).catch((error) => error);
+      expect(error.message).toContain('assetArchives[].executables');
+      expect(error.message).toContain(JSON.stringify(path));
+    });
+  }
+
   it('lets a fragment replace a scalar and a cohesive object', async () => {
     await family(
       { ...BASE, version: '1.0.0', execution: { kind: 'python-module', module: 'shared.main', defaultArgs: [] } },

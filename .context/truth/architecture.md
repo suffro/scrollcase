@@ -50,6 +50,12 @@ A consumer reverses it: verify the signature, check the payload shape, check the
 hash, check safe entries and manifest agreement — *then* extract, and only then run. Verification
 precedes execution, always, in all three consumers.
 
+Expanded archive members may declare executable bits through `assetArchives[].executables`,
+relative to the destination after stripping. The build checks regular-file membership, link-free
+paths and survival after pruning before joining the existing asset/local-file mode rule. No mode
+comes from the upstream archive or build filesystem. Windows validates the list identically and
+keeps 0644 file entries. See [`../decisions/archive-member-executables.md`](../decisions/archive-member-executables.md).
+
 ## External systems
 
 - **conda-forge**, through `pixi`. The only package source.

@@ -22,6 +22,24 @@ export function compareStableStrings(left: string, right: string): -1 | 0 | 1;
  */
 export function safeRelativePath(value: unknown): string;
 /**
+ * Checks an archive destination or member without following any filesystem link.
+ *
+ * The lexical safety rule still runs first; lstat then catches the different case where a safe
+ * name reaches a prefix link already on disk. With `allowMissing`, the first absent component is
+ * where extraction will start creating directories. Without it, a declared member must already
+ * exist. Callers supply the field so one shared walk reports the declaration an author can fix.
+ *
+ * @param {string} root
+ * @param {string} path
+ * @param {string} field
+ * @param {{ allowMissing?: boolean, kind?: 'file' | 'directory' }} [options]
+ * @returns {Promise<void>}
+ */
+export function assertPathWithoutLinks(root: string, path: string, field: string, { allowMissing, kind }?: {
+    allowMissing?: boolean;
+    kind?: "file" | "directory";
+}): Promise<void>;
+/**
  * Lists payload entries in the stable order used by hashing and archive creation.
  *
  * A payload may hold regular files and the narrow class of symbolic links `src/contract/links.mjs`

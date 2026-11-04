@@ -215,6 +215,16 @@
           },
           "removeAfterExtract": {
             "type": "boolean"
+          },
+          "executables": {
+            "type": "array",
+            "uniqueItems": true,
+            "description": "Regular archive members that need the executable bit, relative to this entry's destination after stripComponents. Paths must be distinct, use forward slashes and contain no dot segments or colons. Every path must be a member of this archive, exist before pruning, traverse no link and survive prunePaths and removeAfterExtract. The bit is synthesised from this declaration, never inherited from the upstream archive or build machine. Windows validates the same paths but writes 0644 and decides executability by extension. Empty or absent declares none.",
+            "items": {
+              "$ref": "#/$defs/payloadPath",
+              "type": "string",
+              "pattern": "^(?!.*(?:^|/)\\.(?:/|$))(?!.*[:\\u0000])(?!.*?/$).+$"
+            }
           }
         }
       }

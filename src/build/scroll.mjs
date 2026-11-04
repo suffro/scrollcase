@@ -26,6 +26,7 @@ import { compareStableStrings, fileExists, safeRelativePath } from './filesystem
 import { fail, runResult } from './process.mjs';
 import { schemaValidationError } from './schema-validation.mjs';
 import { getWorkspace } from './workspace.mjs';
+import { assetArchiveExecutablePaths } from './assets.mjs';
 
 const scrollSchemaUrl = new URL('../contract/schema/scroll.schema.json', import.meta.url);
 const targetSchemaUrl = new URL('../contract/schema/target.schema.json', import.meta.url);
@@ -268,6 +269,19 @@ async function readExactScroll(reference) {
   const declared = extended
     ? joinScrollFragment(await readScrollBase(fragment, dir, normalized), fragment)
     : fragment;
+  // Report the path as well as the field, including for duplicates the schema would otherwise
+  // describe only by array index. Malformed containers are left to the schema validator.
+  const executableMembers = new Set();
+  if (Array.isArray(declared.assetArchives)) {
+    for (const archive of declared.assetArchives) {
+      if (!archive || typeof archive !== 'object'
+        || typeof archive.destination !== 'string' || typeof archive.relativePath !== 'string') continue;
+      for (const path of assetArchiveExecutablePaths(archive)) {
+        if (executableMembers.has(path)) fail(`assetArchives[].executables: ${JSON.stringify(path)} is declared by more than one archive.`);
+        executableMembers.add(path);
+      }
+    }
+  }
   const [scrollSchema, targetSchema, executionSchema] = await loadScrollSchemas();
   const validationError = schemaValidationError(declared, scrollSchema, [targetSchema, executionSchema]);
   if (validationError) {

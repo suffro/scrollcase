@@ -122,9 +122,34 @@ including the rejected top-level executable list and archive-round-trip designs.
 ## Living evidence
 
 - [x] Fresh current source, repository instructions, baseline suite.
-- [ ] Plan committed before implementation.
-- [ ] Declaration, validation, authoring preservation, determinism and docs proved.
+- [x] Plan committed before implementation (`765119c`).
+- [x] Declaration, validation, authoring preservation, determinism and docs proved.
 - [ ] Consumer-mode self-test regression proved red, then green; source impact measured.
 - [ ] Three consumer implementations preserve the archive-member bit under umask 077.
 - [ ] Every required local check and packed-package end-to-end validation passed.
 - [ ] Final clean branch, commits and owner-only release steps recorded.
+
+Step 1 evidence in progress: 33 new asset tests failed against the baseline (4 existing passed).
+The expanded Node suite exposed Ajv strict mode requiring an explicit string type beside a
+referenced path pattern; fix the schema rather than weakening strict mode. A first native test
+omitted required `defaultArgs`; its corrected declaration passes. System Python lacks ensurepip,
+so tests use uv's isolated CPython 3.13 environment outside the clone instead. The existing pinned
+toolchain is present under the WSL user's `.pixi/`; do not infer absence from PATH.
+
+Safety review found that checking only an extraction destination misses a link deeper beneath it.
+Move the lstat walk into the existing filesystem module and apply it before every copied archive
+entry as well as when validating declarations. Add a regression asserting no file is written
+through that ancestor. No second extractor or mode rule is needed.
+
+Step 1 complete: **640 Node tests passed, 1 macOS-only skip, 38 files**. The source membership,
+link traversal, stripping/removal combinations, prune contradictions, Windows modes, native
+entry point and byte-identical ZIP/TAR/TAR.GZ builds pass. Authoring preservation and split-scroll
+tests pass. Generated contract/runtime types, 8 public schemas and Action bundle checks pass;
+Python and Rust synchronization made no copy changes because neither consumer ships the build-only
+scroll schema. Python: **68 tests**, mypy (9 source files), schema check, wheel/sdist and distribution
+inspection pass. Rust: **112 tests**, clippy clean. Docs build and postbuild verification pass:
+82 pages, 8 schemas, 82 Markdown twins and 46-page canonical/LLM coverage. `syngraphe check` passes
+with the pre-existing AGENT006 managed-block-version warning; no managed block was hand-edited.
+
+The docs build was first started concurrently with schema generation and correctly refused drift.
+It passed after synchronization; dependent checks will run after their generators from now on.

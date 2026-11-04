@@ -593,7 +593,8 @@ refuses to overwrite them.
     "format": "tar.gz",
     "destination": "cache/hello",
     "stripComponents": 1,
-    "removeAfterExtract": true
+    "removeAfterExtract": true,
+    "executables": ["bin/tool", "launch.sh"]
   }
 ]
 ```
@@ -604,6 +605,27 @@ validated and expanded exactly like `tar.gz`. An archive is expanded at build ti
 `embed` field**:
 "leave it out and let the caller fetch it" names nothing that could happen. Version 2 refused that
 combination with a cross-field check; version 3 makes it unspeakable.
+
+`executables` optionally lists regular archive members that need the executable bit. Each path is
+relative to this entry's `destination`, **after** `stripComponents`: the example marks
+`cache/hello/bin/tool` and `cache/hello/launch.sh`. It works with all three formats and with either
+value of `removeAfterExtract`. Empty and absent both declare none. Upstream modes are never inherited.
+
+Paths use forward slashes, with no absolute or drive paths, colons, empty or dot segments, NULs or
+globs. Each must come from this archive and be a regular file before pruning; missing files,
+directories, links, paths through links and duplicates fail with the field and path named.
+Two archive entries cannot declare the same resulting payload path. A declaration removed by
+`prunePaths` or `removeAfterExtract` also fails, even if a later step would recreate the file.
+
+On Linux and macOS, the declared file ships as `0755`; other files outside the runtime's executable
+paths ship as `0644`. Windows validates every declaration identically, but archive file entries
+remain `0644`: Windows decides executability by extension. The declaration also satisfies the
+guard on a native box's execution binary.
+
+Edit this nested list in `scroll.json`; `edit scroll` intentionally handles scalar fields only.
+Other editing commands and `refresh` preserve it, and base-plus-target joining keeps it with its
+archive entry. This optional build-input field stays within schema version 3. Older Scrollcase
+builders reject it as an unknown property; consumers need no upgrade to read the resulting ZIP.
 
 ### `localFiles`
 

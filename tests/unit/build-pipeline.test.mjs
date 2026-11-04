@@ -23,6 +23,7 @@ import { configureWorkspace, resetWorkspace } from '../../src/build/workspace.mj
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 import { boxTargetAdapters, boxTargetId, decodeDocumentPayload, documentKinds } from '../../src/contract/index.mjs';
 import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
+import { writeAssetArchive } from '../helpers/asset-archive.mjs';
 
 // The pipeline is the same on every platform, but the native-host gate (rightly) refuses to build
 // a box for any other one — so the test scroll targets whatever host the suite is running on.
@@ -271,6 +272,73 @@ describe('the build pipeline', () => {
     const scrollId = identity.scrollId ?? `${identity.boxId}-${boxTargetId(identity.target)}`;
     return { root, scrollDir, keys, payloadDir: join(root, '.scrollcase', 'build', scrollId, 'payload') };
   }
+
+  async function archiveProject({ format = 'tar.gz', archive = {}, scroll = {} } = {}) {
+    const upstream = await mkdtemp(join(tmpdir(), 'scrollcase-upstream-'));
+    created.push(upstream);
+    const { bytes } = await writeAssetArchive(upstream, { format });
+    const project = await makeProject({
+      ...SCROLL,
+      assets: [{
+        url: `https://assets.example.org/source.${format}`,
+        relativePath: `cache/source.${format}`,
+        sizeBytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      }],
+      assetArchives: [{
+        relativePath: `cache/source.${format}`, format, destination: 'tools',
+        stripComponents: 1, executables: ['bin/tool'], ...archive,
+      }],
+      ...scroll,
+    });
+    return {
+      ...project,
+      options: {
+        ...project.keys,
+        ...fakeToolchain(project.payloadDir),
+        fetchImpl: async () => ({ ok: true, status: 200, body: Readable.from([bytes]) }),
+        log: () => {},
+      },
+    };
+  }
+
+  for (const format of ['zip', 'tar', 'tar.gz']) {
+    it(`builds and rebuilds a declared ${format} member byte-identically`, async () => {
+      const { options } = await archiveProject({ format });
+      const first = await buildBox(SCROLL_REF, options);
+      const firstBytes = await readFile(first.archivePath);
+      const modes = await zipModes(first.archivePath);
+      expect(modes.get('tools/bin/tool')).toBe(process.platform === 'win32' ? 0o100644 : 0o100755);
+      expect(modes.has(`cache/source.${format}`)).toBe(false);
+      const second = await buildBox(SCROLL_REF, options);
+      expect(await readFile(second.archivePath)).toEqual(firstBytes);
+      expect(second.archiveSha256).toBe(first.archiveSha256);
+      await expect(verifyBox(second.releasePath, { publicPath: options.publicPath, log: () => {} }))
+        .resolves.toMatchObject({ status: 'passed' });
+    });
+  }
+
+  for (const pruned of ['tools/bin/tool', 'tools/bin', 'tools']) {
+    it(`refuses prunePaths removing the executable through ${pruned}`, async () => {
+      const { options } = await archiveProject({ scroll: { prunePaths: [pruned] } });
+      await expect(buildBox(SCROLL_REF, options))
+        .rejects.toThrow(/assetArchives\[\]\.executables.*bin\/tool.*prunePaths/);
+    });
+  }
+
+  it('lets a native box start a declared archive member', async () => {
+    const { options, payloadDir } = await archiveProject({
+      scroll: {
+        runtime: { id: 'native' },
+        execution: { kind: 'native-binary', binary: 'tools/bin/tool', defaultArgs: [] },
+        selfTest: { commands: [{ args: [] }] },
+      },
+    });
+    await expect(buildBox(SCROLL_REF, {
+      ...options,
+      ...fakeToolchain(payloadDir, { interpreter: false, selfTestCommand: join(payloadDir, 'tools', 'bin', 'tool') }),
+    })).resolves.toMatchObject({ archiveSha256: expect.any(String) });
+  });
 
   it('rejects the removed flat scroll layout', async () => {
     await makeProject(SCROLL, { commit: false, dirName: SCROLL.scrollId });
