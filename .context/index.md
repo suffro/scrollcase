@@ -42,6 +42,8 @@ system is, where the work stands, what was decided and why, and what already wen
 - `history/` — completed, historical, or superseded operational context:
   - `history/archive-member-executables-plan.md` — completed executable archive members, archive-mode
     self-tests, cross-language conformance, packed-package evidence and owner release steps.
+  - `history/windows-native-validation.md` — native Windows results, the upstream symlink-privilege
+    limitation, corrected target fixture and actual Windows EXE archive/consumer smoke.
   - `history/extraction-and-origin.md` — where Scrollcase came from, and how the maintainer works.
   - `history/mistakes-and-what-they-taught.md` — every trap fallen into, several of them twice.
   - `history/v3-plan.md` and `history/v3-phase-a.md`, `history/v3-phase-b.md`,

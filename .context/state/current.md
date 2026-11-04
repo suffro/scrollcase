@@ -7,11 +7,20 @@ Last reviewed: 2026-11-04.
 **Executable members of expanded asset archives are complete and verified, unreleased** — branch
 `feat/archive-member-executables`, based on main at `e512f00` (1.4.0). The declaration, mode-faithful
 self-test, authoring preservation, documentation and three-consumer umask conformance are delivered.
-Node: 645 pass + 1 macOS-only skip; Python: 68 pass; Rust: 112 pass. A real packed-package build,
+Linux: Node 645 pass + 1 macOS-only skip; Python 68 pass; Rust 112 pass. A real packed-package build,
 installation and execution under umask 077 pass, including a byte-identical rebuild. The plan,
 decisions, artifact hashes, source inventory and owner-only 1.5.0 release steps are in
 [`../history/archive-member-executables-plan.md`](../history/archive-member-executables-plan.md).
 No version bump, release tag, push, publication or hosted workflow was performed.
+
+**Native Windows follow-up:** Python 62 pass + 6 skips; Node 577 pass, 56 fail, 13 skips;
+Rust 98 pass, 1 fail. All remaining native failures are blocked by this account's missing Windows
+symlink privilege, also observed on untouched main. A pre-existing fixture carrying a Windows
+interpreter path into a Linux scroll is corrected. Types, Action drift, Python packaging/mypy
+and Rust clippy pass. A native EXE archive/build/consumer smoke and identical rebuild pass with
+the environment installer stubbed. Full details and existing GitHub CI matrix coverage are in
+[`../history/windows-native-validation.md`](../history/windows-native-validation.md). The full
+Windows suites are not green on this account; no machine-wide setting or test guard was changed.
 
 **A box may now contain PyPI dependencies** — branch `pypi-licence-declaration`, unreleased.
 
@@ -106,8 +115,9 @@ Nothing is authorised and in progress. What is owed, in the order it was last di
 None. Two standing limits shape what can be proven locally rather than blocking work:
 
 - **Native host coverage depends on the session.** The 2026-11-04 executable-member work ran on
-  Linux x86_64 in WSL, including a real packed-package smoke. macOS/Windows native execution was
-  not run in that session. On the maintainer's Mac, `MTLCreateSystemDefaultDevice()` returns nil,
+  Linux x86_64 in WSL and native Windows x86_64. Windows EXE execution passes, while link-dependent
+  native suites require a symlink-capable account. macOS native execution remains untested.
+  On the maintainer's Mac, `MTLCreateSystemDefaultDevice()` returns nil,
   so GPU checks still require the appropriate CI host.
 - **The demo boxes cannot be rebuilt locally.** CI signs them with a private key held in a GitHub
   secret — deliberately. See

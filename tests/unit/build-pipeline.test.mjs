@@ -1018,7 +1018,13 @@ describe('the build pipeline', () => {
 
   it('refuses to code sign a box that is not for macOS, before tool discovery', async () => {
     // Refused ahead of the native-host gate, so the same assertion holds on every host.
-    const scroll = { ...SCROLL, target: { platform: 'linux', arch: 'x86_64', accelerator: 'cpu' } };
+    // Let the target derive its entry point: keeping the host's Windows path would reject the
+    // contradictory runtime declaration before the code-signing option is ever inspected.
+    const scroll = {
+      ...SCROLL,
+      runtime: { id: RUNTIME_ID, version: PYTHON_VERSION },
+      target: { platform: 'linux', arch: 'x86_64', accelerator: 'cpu' },
+    };
     const { keys } = await makeProject(scroll);
     const calls = [];
     await expect(buildBox(`${SCROLL.boxId}/linux-x86_64-cpu`, {

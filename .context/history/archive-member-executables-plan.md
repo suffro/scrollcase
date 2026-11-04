@@ -241,7 +241,7 @@ The fresh clone is `/home/lorenzo/scrollcase-executables`; the unrelated working
 used. Runtime dependencies, lockfiles, export map, signed schemas and frozen signature fixtures
 are unchanged. Generated types, public schemas and the committed Action were regenerated.
 
-## Final verification
+## Initial Linux verification
 
 Host: WSL Ubuntu Linux x86_64; Node 22.14.0, Python 3.13.15 in isolated venvs, Rust/Cargo 1.95.0.
 
@@ -260,8 +260,11 @@ Host: WSL Ubuntu Linux x86_64; Node 22.14.0, Python 3.13.15 in isolated venvs, R
 | Rust clippy, copied-assets check and clean `cargo package` | Pass |
 | `syngraphe check` | Pass with the existing AGENT006 warning about the old managed block |
 
-The single skipped Node test requires native macOS code signing. The native macOS/Windows and
-other interpreter-version CI matrix legs were not run locally; no hosted workflows were started.
+The single skipped Node test requires native macOS code signing. At this initial handoff, native
+macOS/Windows and other interpreter-version CI matrix legs had not run locally; no hosted
+workflows were started. Native Windows was subsequently tested: see
+[`windows-native-validation.md`](windows-native-validation.md) for actual results, the existing
+symlink-privilege limitation and the successful Windows EXE smoke. Native macOS remains untested.
 All three target adapters' mode rules were exercised, and Windows declarations share the same
 target-independent validation. Large CI-signed demos were statically inventoried, not rebuilt.
 

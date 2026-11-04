@@ -67,9 +67,12 @@ habits that were learnt the expensive way.
 - **`MTLCreateSystemDefaultDevice()` returns nil on the maintainer's Mac.** Anything GPU-touching
   fails locally and passes in CI. Not a code defect; do not chase it.
 - **Record the host actually tested.** CI covers Linux, macOS and Windows. The 2026-11-04 archive
-  executable work additionally ran on WSL Linux x86_64, including a real packed-package build;
-  the older macOS-only local limitation no longer describes every session. Native execution on
-  another target still needs its matching host.
+  executable work ran on WSL Linux x86_64 and native Windows. Do not infer that Windows is
+  unavailable merely because the working clone is in WSL: native Node, Python and Rust exist.
+  This local Windows account cannot create symbolic links, so the full native suite has recorded
+  EPERM/1314 failures even on main; do not report it green or weaken those guards. The dedicated
+  native Windows EXE smoke passes. See
+  [`../history/windows-native-validation.md`](../history/windows-native-validation.md).
 - **Durable project knowledge belongs in tracked files** — this directory, `AGENTS.md`, `docs/`,
   `CHANGELOG.md`. Machine-local agent memory is a convenience, never the only copy: the original
   project-memory file was lost with a deleted clone, and what survives is the reconstruction in
