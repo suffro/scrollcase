@@ -12,6 +12,8 @@ system is, where the work stands, what was decided and why, and what already wen
 
 - `truth/architecture.md` — current system architecture.
 - `state/current.md` — current project state and active work.
+- `state/archive-member-executables-plan.md` — active plan and evidence for executable members of
+  expanded asset archives and self-tests against archive modes.
 
 ## When relevant
 

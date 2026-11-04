@@ -1,8 +1,13 @@
 # Current State
 
-Last reviewed: 2026-09-28.
+Last reviewed: 2026-11-04.
 
 ## In flight
+
+**Executable members of expanded asset archives** — branch `feat/archive-member-executables`.
+The implementation plan and baseline evidence are in
+[`archive-member-executables-plan.md`](archive-member-executables-plan.md). Read that checklist
+before continuing this work. No publication is authorized.
 
 **A box may now contain PyPI dependencies** — branch `pypi-licence-declaration`, unreleased.
 
