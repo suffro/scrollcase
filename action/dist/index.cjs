@@ -26398,6 +26398,14 @@ function validate(value, schema, context, path, errors) {
       errors.push(`${path} must contain at least ${schema.minItems} item${schema.minItems === 1 ? "" : "s"}`);
       return;
     }
+    if (schema.uniqueItems) {
+      for (let index = 0; index < value.length; index += 1) {
+        if (value.slice(0, index).some((item) => (0, import_node_util.isDeepStrictEqual)(item, value[index]))) {
+          errors.push(`${path}[${index}] is a duplicate item`);
+          return;
+        }
+      }
+    }
     if (schema.items) {
       for (let index = 0; index < value.length && errors.length === 0; index += 1) {
         validate(value[index], schema.items, context, `${path}[${index}]`, errors);

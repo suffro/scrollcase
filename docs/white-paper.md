@@ -2901,10 +2901,10 @@ declares a workspace.
 
 
 Scroll structure is validated at runtime, from the shipped schemas, before tool discovery or any
-build-directory mutation. The validator is written from scratch, in 194 lines, and implements the
+build-directory mutation. The dependency-free validator implements the
 subset of JSON Schema 2020-12 the shipped schemas use: `$ref` (local pointers and absolute
 registered `$id`s), `const`, `enum`, `type`, `minLength`, `pattern`, numeric bounds, `minItems`,
-`items`, `minProperties`, `required`, `properties`, `additionalProperties: false`,
+`items`, `uniqueItems`, `minProperties`, `required`, `properties`, `additionalProperties: false`,
 `dependentRequired`, `allOf`, `oneOf`, `if`/`then`/`else` and `not`.
 
 </div>

@@ -199,3 +199,27 @@ Guard cleanup finding: Python reused bytecode compiled during the deliberate sam
 source was correctly restored to 0755, but the next suite still observed the cached 0644 fixture.
 Remove only the identified generated conformance-support pyc, then rerun the full Python suite;
 this is mutation-harness cleanup, not a production-code fallback or weakened expectation.
+
+The Python suite passes again after removing that one generated pyc. Clean wheel installation
+and import pass from a second venv outside the checkout. `cargo package` passes from the clean
+conformance commit. The real packed build also succeeded in 0.734 seconds using the installed
+pixi 0.77.0 and conda-pack global environment pinned to 0.9.2, with a tiny locked libzlib prefix.
+Its first consumer extraction verified signature/hash/digest and restored 0755 under umask 077;
+the execution harness then passed a memory-only Writable where Node spawn needs a file descriptor.
+Correct only the scratch verifier to capture stdout through an opened file descriptor, commit that
+scratch correction, and rebuild cleanly. Do not change the consumer API as part of this task.
+
+Real smoke now passes completely, including a second clean build with the same ZIP hash. Final
+review identified a schema consistency gap: `uniqueItems` is new to the lightweight validator,
+so its own structural check would ignore it even though executable-path validation already
+rejects duplicates. Add one direct schema regression, observe it fail, implement the keyword
+using the validator's existing deep-equality primitive, update the module description, regenerate
+the Action, and rerun checks. This does not relax or replace the field/path diagnostic guard.
+The self-test regression was also strengthened to run the scroll's real Node probe source and
+argv through a tiny fixture interpreter, observing the nested helper's EACCES rather than
+substituting a helper launch for the probe. Both declared and undeclared cases pass.
+
+Final consistency gate: the new direct schema test failed before keyword support and passes
+afterwards. **645 Node tests passed, 1 skipped, 38 files**. Types, regenerated Action drift and
+docs/postbuild checks pass. The finished package was repacked and installed in a new scratch
+project; its real build and full consumer preparation, payload verification and execution pass.

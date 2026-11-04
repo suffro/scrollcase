@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
@@ -161,6 +161,7 @@ function fakeToolchain(payloadDir, {
   // What the box starts. A native box starts a file the scroll brought in, and its packed prefix
   // carries no interpreter at all — so both are parameters rather than the Python answer baked in.
   interpreter = true,
+  interpreterContents = null,
   entrySegments = ENTRY_SEGMENTS,
   selfTestCommand = join(payloadDir, ...ENTRY_SEGMENTS),
 } = {}) {
@@ -168,7 +169,11 @@ function fakeToolchain(payloadDir, {
     if (command === 'pixi' && args[0] === 'install') {
       const manifest = args[args.indexOf('--manifest-path') + 1];
       const prefix = join(dirname(manifest), '.pixi', 'envs', 'default');
-      if (interpreter) writeDeep(join(prefix, ...entrySegments.slice(1)), '#!/bin/sh\nexit 0\n');
+      if (interpreter) {
+        const entry = join(prefix, ...entrySegments.slice(1));
+        writeDeep(entry, interpreterContents ?? '#!/bin/sh\nexit 0\n');
+        if (interpreterContents && process.platform !== 'win32') chmodSync(entry, 0o755);
+      }
       if (consoleScript) {
         // What conda actually generates: the *build machine's* interpreter, reached through the
         // shell trampoline it falls back to when an absolute shebang would be too long.
@@ -343,15 +348,29 @@ describe('the build pipeline', () => {
 
   for (const declared of [false, true]) {
     it.runIf(process.platform !== 'win32')(`self-tests a real archive helper with declared=${declared}`, async () => {
-      const { options, payloadDir } = await archiveProject({ archive: { executables: declared ? ['bin/tool'] : [] } });
+      const layout = runtimeAdapter('node').layout(HOST_ADAPTER);
+      const { options, payloadDir } = await archiveProject({
+        archive: { executables: declared ? ['bin/tool'] : [] },
+        scroll: {
+          runtime: { id: 'node', version: process.versions.node },
+          selfTest: {
+            imports: ['node:child_process'],
+            code: 'require("node:child_process").execFileSync("./tools/bin/tool", { stdio: "inherit" });',
+          },
+        },
+      });
       const messages = [];
       const build = () => buildBox(SCROLL_REF, {
         ...options,
         ...fakeToolchain(payloadDir, {
-          onSelfTest: () => {
-            // The toolchain is stubbed; the helper launch is a real OS permission check. The
-            // baseline passes on its upstream 0755 even though the ZIP would silently ship 0644.
-            expect(runProcess(join(payloadDir, 'tools', 'bin', 'tool'), [], { cwd: payloadDir, capture: true }))
+          entrySegments: layout.entryPoint.split('/'),
+          selfTestCommand: join(payloadDir, ...layout.entryPoint.split('/')),
+          // A small fixture interpreter forwards the real invocation to Node without copying and
+          // compressing the host's entire executable in every unit test. The scroll's actual probe
+          // code, argument vector and helper launch run, rather than an assertion replacing them.
+          interpreterContents: `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n`,
+          onSelfTest: ({ command, args, options }) => {
+            expect(runProcess(command, args, { ...options, capture: true }))
               .toBe('archive-member-ok');
           },
         }),
@@ -360,7 +379,7 @@ describe('the build pipeline', () => {
       if (declared) {
         await expect(build()).resolves.toMatchObject({ archiveSha256: expect.any(String) });
       } else {
-        await expect(build()).rejects.toThrow(/Self-test failed.*assetArchives\[\]\.executables/s);
+        await expect(build()).rejects.toThrow(/Self-test failed.*assetArchives\[\]\.executables.*tools\/bin\/tool.*EACCES/s);
         expect(messages).not.toContain('Creating deterministic archive');
         expect(statSync(join(payloadDir, 'tools', 'bin', 'tool')).mode & 0o777).toBe(0o644);
       }

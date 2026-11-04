@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { downloadVerified, expandAssetArchive } from '../../src/build/assets.mjs';
 import { fileExists } from '../../src/build/filesystem.mjs';
 import { writeAssetArchive } from '../helpers/asset-archive.mjs';
+import { schemaValidationError } from '../../src/build/schema-validation.mjs';
 
 const created = [];
 afterEach(async () => {
@@ -21,6 +22,15 @@ async function scratch() {
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 describe('executable members of asset archives', () => {
+  it('enforces the schema uniqueness keyword as well as the field diagnostic', async () => {
+    const scrollSchema = JSON.parse(await readFile(new URL('../../src/contract/schema/scroll.schema.json', import.meta.url), 'utf8'));
+    const schema = {
+      ...scrollSchema.properties.assetArchives.items.properties.executables,
+      $defs: scrollSchema.$defs,
+    };
+    expect(schemaValidationError(['bin/tool', 'bin/tool'], schema)).toMatch(/duplicate/);
+    expect(schemaValidationError(['bin/tool', 'bin/other'], schema)).toBeNull();
+  });
   async function staged(format = 'tar.gz', overrides = {}, contents = {}) {
     const root = await scratch();
     const { path } = await writeAssetArchive(join(root, 'upstream'), { format, ...contents });
