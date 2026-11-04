@@ -14,6 +14,23 @@
  */
 export function archiveMarksExecutable(adapter: import("../contract/targets.mjs").BoxTargetAdapter, runtimeId: string, declared: readonly string[], relativePath: string): boolean;
 /**
+ * Gives the build tree the exact regular-file modes the archive will carry.
+ *
+ * A self-test against extracted upstream modes can pass on a helper the consumer receives as
+ * 0644. Ask the archive's own rule before testing, rather than maintaining a second definition or
+ * extracting a second multi-gigabyte tree. Links are never chmodded through an alias. Windows
+ * decides executability by extension and has no POSIX permissions to normalize.
+ *
+ * @param {string} payloadDir
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {{ runtimeId: string, executablePaths?: readonly string[] }} options
+ * @returns {Promise<void>}
+ */
+export function applyArchiveFileModes(payloadDir: string, adapter: import("../contract/targets.mjs").BoxTargetAdapter, { runtimeId, executablePaths: declared }: {
+    runtimeId: string;
+    executablePaths?: readonly string[];
+}): Promise<void>;
+/**
  * Streams a deterministic, Zip64-capable box archive using the pinned Node backend.
  *
  * Deflating an already-compressed file is pure loss: measured on incompressible bytes, level 6

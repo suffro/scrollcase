@@ -124,7 +124,7 @@ including the rejected top-level executable list and archive-round-trip designs.
 - [x] Fresh current source, repository instructions, baseline suite.
 - [x] Plan committed before implementation (`765119c`).
 - [x] Declaration, validation, authoring preservation, determinism and docs proved.
-- [ ] Consumer-mode self-test regression proved red, then green; source impact measured.
+- [x] Consumer-mode self-test regression proved red, then green; source impact measured.
 - [ ] Three consumer implementations preserve the archive-member bit under umask 077.
 - [ ] Every required local check and packed-package end-to-end validation passed.
 - [ ] Final clean branch, commits and owner-only release steps recorded.
@@ -153,3 +153,26 @@ with the pre-existing AGENT006 managed-block-version warning; no managed block w
 
 The docs build was first started concurrently with schema generation and correctly refused drift.
 It passed after synchronization; dependent checks will run after their generators from now on.
+
+Step 2 focused evidence: the undeclared real-helper regression failed because the baseline build
+wrongly succeeded; the runtime-mode assertion also failed (0644 instead of 0755). After applying
+the writer's rule, all 10 focused self-test cases pass. The undeclared helper now fails with an
+OS permission error before archive creation; declaring it succeeds. Probe outputs and the final
+digest receive final modes too; the link-alias regression checks that chmod never follows links.
+
+Static source inventory (script and JSON in the external evidence directory): **26 tracked
+scroll.json files, 20 effective example/demo scrolls**, all read through the real split-scroll
+reader. Zero example archive entries; every execution command satisfies the existing executable
+rule. Per family: codon-demo, dataset-demo, hello-box, llm-demo, sentiment-demo and transcode-demo
+each have 3 targets; hello-box-node and hello-box-native have 1 each. Native commands are the
+runtime-provided h5dump, zstd and ffmpeg under the scripts directory; interpreted commands are
+the runtime entry point. Scanning tracked JSON found 10 complete scroll inputs: the only archive
+declaration is the canonical scroll-pixi example, a source ZIP with no execution. The pre-existing
+inline archive fixtures exercise reading or intentionally invalid `embed`; no undeclared helper
+is run. The full suite measures these paths dynamically with the stubbed toolchain. This does
+not establish that every third-party dependency avoids spawning a helper outside runtime script
+paths; real builds may expose those, and CI-signed demos cannot be rebuilt with local keys.
+
+Step 2 gate: **644 Node tests passed, 1 skipped, 38 files**; contract/runtime types and Action
+drift checks pass; docs build and all generated-route checks pass; Syngraphe passes with the same
+pre-existing managed-block warning. No Python or Rust implementation/copy changed in this step.

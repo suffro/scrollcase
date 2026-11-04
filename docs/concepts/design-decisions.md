@@ -678,6 +678,19 @@ let extraction behavior determine the result. The optional build-input field sta
 signed documents and ZIP interpretation are unchanged, older builders refuse the new property,
 and existing consumers already preserve its synthesized executable bit.
 
+## A build self-test sees archive modes
+
+Before code signing, self-test and parity, the builder applies the archive writer's own mode rule
+to every regular payload file. Links are skipped, and Windows keeps its extension-based behavior.
+Modes are reapplied after probes and the final digest write so generated files also match. A
+helper whose executable bit was never declared therefore fails at build time, where an installed
+consumer already failed. The error points to the declarations while retaining the original cause.
+
+**Rejected:** validating an extracted second copy of the archive. That costs another full write,
+read and temporary multi-gigabyte tree to check a rule already centralized in `archiveFileMode`.
+Normalizing only declared files was also rejected: it would leave undeclared upstream executables
+available during self-testing and preserve the defect.
+
 ## Deliberately out of scope
 
 Publishing to object storage, downloading boxes, selecting or promoting a channel, updating an

@@ -2,9 +2,9 @@
  * `build` — assemble the environment, prove it works, archive it, sign it.
  *
  * In order: solve and pack the conda-forge environment from the committed lock, fetch and unpack the
- * declared assets, prune what is not needed at run time, audit dependency licences, self-test with
- * the payload's *own* interpreter, normalise timestamps, zip deterministically, and emit a signed
- * release plus a signed channel pointer.
+ * declared assets, prune what is not needed at run time, audit dependency licences, apply archive
+ * modes, self-test with the payload's *own* interpreter, normalise timestamps, zip deterministically,
+ * and emit a signed release plus a signed channel pointer.
  *
  * The self-test is the step that earns the box its name. The builder runs the platform assertion,
  * the probe the scroll declared, its file assertions and any extra source it named; the release
@@ -36,7 +36,7 @@ import {
   expandAssetArchive,
   moveIntoPlace,
 } from './assets.mjs';
-import { archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
+import { applyArchiveFileModes, archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
 import {
   collectFiles,
   fileExists,
@@ -104,11 +104,15 @@ function runSelfTest({ adapter, scroll, payloadDir, run, extraCode = null }) {
     ? join(payloadDir, ...safeRelativePath(argument.value).split('/'))
     : argument.value);
   for (const invocation of invocations) {
-    run(resolve(invocation.command), invocation.args.map(resolve), {
-      cwd: payloadDir,
-      env,
-      expectExitCode: invocation.expectExitCode,
-    });
+    try {
+      run(resolve(invocation.command), invocation.args.map(resolve), {
+        cwd: payloadDir,
+        env,
+        expectExitCode: invocation.expectExitCode,
+      });
+    } catch (error) {
+      fail(`Self-test failed with archive file modes. If a payload helper needs the executable bit, declare it in assetArchives[].executables (relative to destination), assets[].executable or localFiles[].executable. ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
@@ -331,6 +335,29 @@ export async function buildBox(name, options = {}) {
     runtimeVersion: scroll.runtime.version,
     files: payloadFiles,
   });
+  // The same declaration set drives the entry-point guard, the self-test tree and the ZIP. An
+  // upstream mode is never a fourth source of executability, even temporarily during validation.
+  const declaredExecutablePaths = [
+    ...archiveExecutablePaths,
+    ...[
+      ...scroll.assets,
+      ...(scroll.localFiles ?? []),
+    ].filter((entry) => entry.executable && entry.embed !== false)
+      .map((entry) => safeRelativePath(entry.relativePath)),
+  ];
+  const archiveModes = { runtimeId: scroll.runtime.id, executablePaths: declaredExecutablePaths };
+  // Whatever the box starts must be runnable after extraction. Check before the self-test so a
+  // native entry point receives the declaration diagnostic rather than only an OS launch error.
+  if (scroll.execution) {
+    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
+      execution: scroll.execution,
+      target: adapter,
+    });
+    const commandPath = safeRelativePath(command.value);
+    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
+    }
+  }
   // Everything needed to answer "where did this box come from, and could I rebuild it?".
   const provenance = {
     scrollId: scroll.scrollId,
@@ -403,6 +430,7 @@ export async function buildBox(name, options = {}) {
     provenance,
   }, null, 2)}\n`);
 
+  await applyArchiveFileModes(payloadDir, adapter, archiveModes);
   if (codesignIdentity !== null) {
     log('Code signing Mach-O files');
     const signed = await codesignPayload({
@@ -447,6 +475,9 @@ export async function buildBox(name, options = {}) {
   const digestStream = payloadDigestStream(await payloadDigestEntries(payloadDir));
   await writeFile(join(payloadDir, PAYLOAD_DIGEST_FILE), digestStream);
   const payloadDigestValue = { format: PAYLOAD_DIGEST_FORMAT, sha256: sha256Hex(digestStream) };
+  // Probes may create files, and the digest itself was written afterwards. Finish their modes too
+  // so inspection of the build directory still sees exactly what extraction will produce.
+  await applyArchiveFileModes(payloadDir, adapter, archiveModes);
   await normalizeTree(payloadDir);
   const installedSizeBytes = await payloadSize(payloadDir);
   await mkdir(workspace.distDir, { recursive: true });
@@ -458,39 +489,10 @@ export async function buildBox(name, options = {}) {
     ...scroll.assets.map((asset) => safeRelativePath(asset.relativePath)),
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path)),
   ];
-  // The executable bit is synthesised, never read off the build machine, so what carries it has to
-  // be *declared*: the runtime's own rule covers the interpreter and the console scripts a conda
-  // prefix generates, and the scroll covers everything it brought in itself. A downloaded file
-  // arrives with no mode at all — HTTP carries content, not permissions — so without this a box
-  // could not ship an asset that runs.
-  const declaredExecutablePaths = [
-    ...archiveExecutablePaths,
-    ...[
-      ...scroll.assets,
-      ...(scroll.localFiles ?? []),
-    ].filter((entry) => entry.executable && entry.embed !== false)
-      .map((entry) => safeRelativePath(entry.relativePath)),
-  ];
-  // Whatever the box starts has to come out of the archive runnable. For an interpreted runtime
-  // that is the interpreter, and the runtime's own rule covers it; for a native one it is a file
-  // the scroll brought in, and only the scroll can say the bit belongs on it. Asked through the
-  // argv rule rather than by naming an execution kind here, so the guard holds for every runtime
-  // and keeps holding for the next one.
-  if (scroll.execution) {
-    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
-      execution: scroll.execution,
-      target: adapter,
-    });
-    const commandPath = safeRelativePath(command.value);
-    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
-    }
-  }
   log('Creating deterministic archive');
   await createDeterministicZip(payloadDir, archivePath, adapter, {
     uncompressedPaths,
-    runtimeId: scroll.runtime.id,
-    executablePaths: declaredExecutablePaths,
+    ...archiveModes,
   });
 
   log('Hashing deterministic archive');

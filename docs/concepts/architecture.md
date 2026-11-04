@@ -110,9 +110,11 @@ reviewed copy. A licence problem is a legal problem, and it is cheaper to hit it
 expensive checks.
 
 **Self-test with the box's own interpreter.** The builder runs post-prune file assertions, the
-target assertion, imports, and optional scroll `code`. Schema version 2 signs the target
-assertion and import subset for a consumer to repeat; the richer scroll-only checks are not
-misrepresented as consumer checks.
+runtime's probe and optional scroll source. First it applies the archive writer's own mode rule
+to regular payload files, so an undeclared helper cannot pass only on inherited build-directory
+permissions. Declare such a helper on its asset, local file or archive entry. Windows validates
+those declarations too and uses extensions. Schema version 3 signs the imports and commands a
+consumer can repeat; the richer scroll-only checks remain builder checks.
 
 **Parity after the self-test, on the same payload.** There is no point comparing accelerators in
 a box that cannot import its dependencies in the first place.

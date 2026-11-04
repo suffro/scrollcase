@@ -25,6 +25,7 @@ import {
   assertPathWithoutLinks,
   collectEntries,
   collectFiles,
+  collectRegularFiles,
   fileExists,
   safeRelativePath,
   validateExtractedTree,
@@ -87,6 +88,27 @@ export function archiveMarksExecutable(adapter, runtimeId, declared, relativePat
     declaredExecutablePaths(runtimeId, adapter, declared),
     relativePath,
   );
+}
+
+/**
+ * Gives the build tree the exact regular-file modes the archive will carry.
+ *
+ * A self-test against extracted upstream modes can pass on a helper the consumer receives as
+ * 0644. Ask the archive's own rule before testing, rather than maintaining a second definition or
+ * extracting a second multi-gigabyte tree. Links are never chmodded through an alias. Windows
+ * decides executability by extension and has no POSIX permissions to normalize.
+ *
+ * @param {string} payloadDir
+ * @param {import('../contract/targets.mjs').BoxTargetAdapter} adapter
+ * @param {{ runtimeId: string, executablePaths?: readonly string[] }} options
+ * @returns {Promise<void>}
+ */
+export async function applyArchiveFileModes(payloadDir, adapter, { runtimeId, executablePaths: declared = [] }) {
+  if (adapter.host.platform === 'win32') return;
+  const rule = declaredExecutablePaths(runtimeId, adapter, declared);
+  for (const path of await collectRegularFiles(payloadDir)) {
+    await chmod(join(payloadDir, ...path.split('/')), archiveFileMode(adapter, path, rule) & 0o777);
+  }
 }
 
 /**

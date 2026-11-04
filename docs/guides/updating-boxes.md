@@ -23,6 +23,15 @@ native binary; the update model does not change.
 
 ## Start with what changed
 
+Upgrading to a builder that supports `assetArchives[].executables` also makes its self-test use
+the exact modes the archive will carry. A helper that only ran because extraction left it
+executable on the build machine now fails during the build, where installed users already failed.
+Add the member's path to its archive entry's `executables`, relative to the destination after
+stripping, then increment the box version and rebuild. Use `executable: true` for a direct asset
+or local file. See [archive declarations](/reference/scroll#assetarchives).
+Older builders reject this new optional field; installed consumers already understand the ZIP
+permissions and need no format upgrade.
+
 <Tabs :titles="['Code & configuration', 'Dependencies', 'Assets', 'Channels & rollback']">
 <Tab title="Code & configuration">
 

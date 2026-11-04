@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
@@ -24,6 +24,7 @@ import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
 import { boxTargetAdapters, boxTargetId, decodeDocumentPayload, documentKinds } from '../../src/contract/index.mjs';
 import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import { writeAssetArchive } from '../helpers/asset-archive.mjs';
+import { run as runProcess } from '../../src/build/process.mjs';
 
 // The pipeline is the same on every platform, but the native-host gate (rightly) refuses to build
 // a box for any other one — so the test scroll targets whatever host the suite is running on.
@@ -338,6 +339,52 @@ describe('the build pipeline', () => {
       ...options,
       ...fakeToolchain(payloadDir, { interpreter: false, selfTestCommand: join(payloadDir, 'tools', 'bin', 'tool') }),
     })).resolves.toMatchObject({ archiveSha256: expect.any(String) });
+  });
+
+  for (const declared of [false, true]) {
+    it.runIf(process.platform !== 'win32')(`self-tests a real archive helper with declared=${declared}`, async () => {
+      const { options, payloadDir } = await archiveProject({ archive: { executables: declared ? ['bin/tool'] : [] } });
+      const messages = [];
+      const build = () => buildBox(SCROLL_REF, {
+        ...options,
+        ...fakeToolchain(payloadDir, {
+          onSelfTest: () => {
+            // The toolchain is stubbed; the helper launch is a real OS permission check. The
+            // baseline passes on its upstream 0755 even though the ZIP would silently ship 0644.
+            expect(runProcess(join(payloadDir, 'tools', 'bin', 'tool'), [], { cwd: payloadDir, capture: true }))
+              .toBe('archive-member-ok');
+          },
+        }),
+        log: (message) => messages.push(message),
+      });
+      if (declared) {
+        await expect(build()).resolves.toMatchObject({ archiveSha256: expect.any(String) });
+      } else {
+        await expect(build()).rejects.toThrow(/Self-test failed.*assetArchives\[\]\.executables/s);
+        expect(messages).not.toContain('Creating deterministic archive');
+        expect(statSync(join(payloadDir, 'tools', 'bin', 'tool')).mode & 0o777).toBe(0o644);
+      }
+    });
+  }
+
+  it.runIf(process.platform !== 'win32')('self-tests runtime and declared modes, then normalises files the probe created', async () => {
+    const { options, payloadDir } = await archiveProject();
+    const built = await buildBox(SCROLL_REF, {
+      ...options,
+      ...fakeToolchain(payloadDir, {
+        consoleScript: 'example-cli',
+        onSelfTest: () => {
+          expect(statSync(join(payloadDir, ...ENTRY_SEGMENTS)).mode & 0o777).toBe(0o755);
+          expect(statSync(join(payloadDir, ...HOST_LAYOUT.scriptsDirectory.split('/'), 'example-cli')).mode & 0o777).toBe(0o755);
+          expect(statSync(join(payloadDir, 'tools', 'bin', 'tool')).mode & 0o777).toBe(0o755);
+          expect(statSync(join(payloadDir, 'box.json')).mode & 0o777).toBe(0o644);
+          writeFileSync(join(payloadDir, 'probe-output'), 'probe generated data', { mode: 0o777 });
+        },
+      }),
+    });
+    expect(statSync(join(payloadDir, 'probe-output')).mode & 0o777).toBe(0o644);
+    expect(statSync(join(payloadDir, PAYLOAD_DIGEST_FILE)).mode & 0o777).toBe(0o644);
+    expect((await zipModes(built.archivePath)).get('probe-output')).toBe(0o100644);
   });
 
   it('rejects the removed flat scroll layout', async () => {

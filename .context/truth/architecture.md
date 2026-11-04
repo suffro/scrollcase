@@ -56,6 +56,11 @@ paths and survival after pruning before joining the existing asset/local-file mo
 comes from the upstream archive or build filesystem. Windows validates the list identically and
 keeps 0644 file entries. See [`../decisions/archive-member-executables.md`](../decisions/archive-member-executables.md).
 
+Before code signing, self-test and parity, the build applies the archive writer's own mode rule to
+regular payload files, skipping links and Windows chmod. It reapplies modes after probes and the
+digest write. Thus inherited input modes cannot hide a missing executable declaration during the
+build. See [`../decisions/self-test-archive-modes.md`](../decisions/self-test-archive-modes.md).
+
 ## External systems
 
 - **conda-forge**, through `pixi`. The only package source.

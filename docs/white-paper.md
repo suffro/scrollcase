@@ -3342,6 +3342,16 @@ tested with the MPS fallback disabled rather than quietly falling back to CPU. T
 environment declaration is applied here too, before the target controls, so a bad runtime path fails
 the build while accelerator validation remains authoritative.
 
+Before optional code signing and these checks, `applyArchiveFileModes()` in `archive.mjs` uses
+the writer's own `archiveFileMode` rule on every collected regular file. Undeclared helpers outside
+runtime paths are 0644 even if extraction left them 0755, so the self-test now finds the failure
+that users of the installed archive already encountered. Failures retain the subprocess cause
+and point to executable asset, local-file and archive-member declarations. Links are skipped so
+an alias under the scripts directory cannot change its target's mode. Windows skips chmod and
+uses extensions. Parity sees the same modes; after probes and the final digest write, modes are
+applied again to cover newly generated files. The ZIP writer still synthesizes modes independently
+from the same rule. Two metadata walks avoid extracting a second multi-gigabyte payload.
+
 The code that runs is the adapter's platform assertion, then the declared imports, then the scroll's
 optional extra Python. Only the import subset reaches the signed release, with
 `timeoutSeconds: 180` recorded as the bound a consumer should apply when repeating it. The scroll's

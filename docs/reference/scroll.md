@@ -733,6 +733,13 @@ Supply it later with [`edit scroll`](/reference/cli#edit-scroll), or per build w
 
 ## Self-test
 
+The build applies the exact regular-file modes the archive will carry **before** running the
+self-test and parity. On Linux and macOS an undeclared helper outside the runtime's executable
+paths is `0644`, even when its upstream archive says `0755`. Declare it with
+`assetArchives[].executables`, `assets[].executable` or `localFiles[].executable` as appropriate.
+Self-test failures retain their original error and point to these declarations. Windows validates
+the declarations identically and continues to use extensions rather than POSIX modes.
+
 Builder checks run with the payload's **own runtime** before the box is archived. Schema
 version 3 signs the probe for a consumer to repeat; it does not carry the richer file or
 `code` assertions.

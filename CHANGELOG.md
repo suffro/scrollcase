@@ -18,6 +18,14 @@ All notable changes to Scrollcase are documented here. The format follows
 ### Fixed
 
 - ZIP asset archives reject links before copying, matching the existing TAR asset boundary.
+- **Build self-tests and parity now see the file modes the consumer receives.** Regular POSIX
+  files receive the archive writer's synthesized modes before testing; links are skipped and
+  Windows keeps its extension-based behavior. Boxes that passed only because of inherited
+  build-directory executable bits now fail at build time, where their users already failed.
+  Declare the helper on its archive entry, asset or local file and rebuild. A static inventory of
+  all 20 effective repository example/demo scrolls found no asset archives and no entry points
+  missing declarations; the large CI-signed demos were not rebuilt. Dependency helpers outside
+  runtime script paths may still expose missing declarations during a real build.
 
 ## [1.4.0] — 2026-09-28
 

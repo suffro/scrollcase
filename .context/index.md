@@ -29,6 +29,8 @@ system is, where the work stands, what was decided and why, and what already wen
     deferred to a v4.
   - `decisions/archive-member-executables.md` — declaring expanded members and validating their
     origin, safe paths and survival, without inheriting input modes or changing the signed format.
+  - `decisions/self-test-archive-modes.md` — applying the archive mode rule before self-testing,
+    instead of copying a second multi-gigabyte payload.
   - `decisions/payload-digest-v1.md` — the signed path list, and why a receipt is never serialised.
   - `decisions/box-environment-report.md` — accepted, unimplemented: report, do not enforce.
   - `decisions/demo-boxes-are-signed-by-ci.md` — why a demo box cannot be rebuilt locally.

@@ -25876,6 +25876,13 @@ function archiveMarksExecutable(adapter, runtimeId, declared, relativePath) {
     relativePath
   );
 }
+async function applyArchiveFileModes(payloadDir, adapter, { runtimeId, executablePaths: declared = [] }) {
+  if (adapter.host.platform === "win32") return;
+  const rule = declaredExecutablePaths(runtimeId, adapter, declared);
+  for (const path of await collectRegularFiles(payloadDir)) {
+    await (0, import_promises4.chmod)((0, import_node_path11.join)(payloadDir, ...path.split("/")), archiveFileMode(adapter, path, rule) & 511);
+  }
+}
 function isDeclaredUncompressed(path, declared) {
   return declared.some((entry) => path === entry || path.startsWith(`${entry}/`));
 }
@@ -27616,11 +27623,15 @@ function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null 
   );
   const resolve6 = (argument) => argument.kind === "payload-path" ? (0, import_node_path22.join)(payloadDir, ...safeRelativePath(argument.value).split("/")) : argument.value;
   for (const invocation of invocations) {
-    run2(resolve6(invocation.command), invocation.args.map(resolve6), {
-      cwd: payloadDir,
-      env,
-      expectExitCode: invocation.expectExitCode
-    });
+    try {
+      run2(resolve6(invocation.command), invocation.args.map(resolve6), {
+        cwd: payloadDir,
+        env,
+        expectExitCode: invocation.expectExitCode
+      });
+    } catch (error2) {
+      fail(`Self-test failed with archive file modes. If a payload helper needs the executable bit, declare it in assetArchives[].executables (relative to destination), assets[].executable or localFiles[].executable. ${error2 instanceof Error ? error2.message : String(error2)}`);
+    }
   }
 }
 async function writeNotice(payloadDir, name, value) {
@@ -27770,6 +27781,24 @@ async function buildBox(name, options2 = {}) {
     runtimeVersion: scroll.runtime.version,
     files: payloadFiles
   });
+  const declaredExecutablePaths2 = [
+    ...archiveExecutablePaths,
+    ...[
+      ...scroll.assets,
+      ...scroll.localFiles ?? []
+    ].filter((entry) => entry.executable && entry.embed !== false).map((entry) => safeRelativePath(entry.relativePath))
+  ];
+  const archiveModes = { runtimeId: scroll.runtime.id, executablePaths: declaredExecutablePaths2 };
+  if (scroll.execution) {
+    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
+      execution: scroll.execution,
+      target: adapter
+    });
+    const commandPath = safeRelativePath(command.value);
+    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths2, commandPath)) {
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
+    }
+  }
   const provenance = {
     scrollId: scroll.scrollId,
     scrollVersion: scroll.scrollVersion,
@@ -27826,6 +27855,7 @@ async function buildBox(name, options2 = {}) {
     provenance
   }, null, 2)}
 `);
+  await applyArchiveFileModes(payloadDir, adapter, archiveModes);
   if (codesignIdentity !== null) {
     log("Code signing Mach-O files");
     const signed = await codesignPayload({
@@ -27860,6 +27890,7 @@ async function buildBox(name, options2 = {}) {
   const digestStream = payloadDigestStream(await payloadDigestEntries(payloadDir));
   await (0, import_promises17.writeFile)((0, import_node_path22.join)(payloadDir, PAYLOAD_DIGEST_FILE), digestStream);
   const payloadDigestValue = { format: PAYLOAD_DIGEST_FORMAT, sha256: sha256Hex2(digestStream) };
+  await applyArchiveFileModes(payloadDir, adapter, archiveModes);
   await normalizeTree(payloadDir);
   const installedSizeBytes = await payloadSize(payloadDir);
   await (0, import_promises17.mkdir)(workspace.distDir, { recursive: true });
@@ -27867,28 +27898,10 @@ async function buildBox(name, options2 = {}) {
     ...scroll.assets.map((asset) => safeRelativePath(asset.relativePath)),
     ...(scroll.uncompressedPaths ?? []).map((path) => safeRelativePath(path))
   ];
-  const declaredExecutablePaths2 = [
-    ...archiveExecutablePaths,
-    ...[
-      ...scroll.assets,
-      ...scroll.localFiles ?? []
-    ].filter((entry) => entry.executable && entry.embed !== false).map((entry) => safeRelativePath(entry.relativePath))
-  ];
-  if (scroll.execution) {
-    const { command } = runtimeAdapter(scroll.runtime.id).buildArgv({
-      execution: scroll.execution,
-      target: adapter
-    });
-    const commandPath = safeRelativePath(command.value);
-    if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths2, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
-    }
-  }
   log("Creating deterministic archive");
   await createDeterministicZip(payloadDir, archivePath, adapter, {
     uncompressedPaths,
-    runtimeId: scroll.runtime.id,
-    executablePaths: declaredExecutablePaths2
+    ...archiveModes
   });
   log("Hashing deterministic archive");
   const archiveSha = await sha256File(archivePath);

@@ -1,5 +1,7 @@
 import { createWriteStream } from 'node:fs';
 import {
+  chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -14,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as tar from 'tar';
 import yazl from 'yazl';
 import {
+  applyArchiveFileModes,
   createDeterministicZip,
   extractScrollArchive,
   extractZipArchive,
@@ -44,6 +47,17 @@ async function writeZip(path, entries) {
 }
 
 describe('archive boundaries', () => {
+  it.runIf(process.platform !== 'win32')('normalises regular modes without chmod through a script-directory link', async () => {
+    const root = await scratch();
+    await mkdir(join(root, 'venv', 'bin'), { recursive: true });
+    await writeFile(join(root, 'data'), 'data');
+    await chmod(join(root, 'data'), 0o755);
+    await symlink('../../data', join(root, 'venv', 'bin', 'alias'));
+    const adapter = boxTargetAdapters().find(({ platform }) => platform === 'linux');
+    await applyArchiveFileModes(root, adapter, { runtimeId: 'python' });
+    expect((await lstat(join(root, 'data'))).mode & 0o777).toBe(0o644);
+    expect((await lstat(join(root, 'venv', 'bin', 'alias'))).isSymbolicLink()).toBe(true);
+  });
   for (const adapter of boxTargetAdapters()) {
     it(`synthesises declared-member modes for ${adapter.id} independently of the host`, async () => {
       const root = await scratch();
