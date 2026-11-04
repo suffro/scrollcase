@@ -4,10 +4,14 @@ Last reviewed: 2026-11-04.
 
 ## In flight
 
-**Executable members of expanded asset archives** — branch `feat/archive-member-executables`.
-The implementation plan and baseline evidence are in
-[`archive-member-executables-plan.md`](archive-member-executables-plan.md). Read that checklist
-before continuing this work. No publication is authorized.
+**Executable members of expanded asset archives are complete and verified, unreleased** — branch
+`feat/archive-member-executables`, based on main at `e512f00` (1.4.0). The declaration, mode-faithful
+self-test, authoring preservation, documentation and three-consumer umask conformance are delivered.
+Node: 645 pass + 1 macOS-only skip; Python: 68 pass; Rust: 112 pass. A real packed-package build,
+installation and execution under umask 077 pass, including a byte-identical rebuild. The plan,
+decisions, artifact hashes, source inventory and owner-only 1.5.0 release steps are in
+[`../history/archive-member-executables-plan.md`](../history/archive-member-executables-plan.md).
+No version bump, release tag, push, publication or hosted workflow was performed.
 
 **A box may now contain PyPI dependencies** — branch `pypi-licence-declaration`, unreleased.
 
@@ -101,9 +105,10 @@ Nothing is authorised and in progress. What is owed, in the order it was last di
 
 None. Two standing limits shape what can be proven locally rather than blocking work:
 
-- **Linux and Windows exist only in CI.** The local suite runs on macOS with the toolchain stubbed,
-  and `MTLCreateSystemDefaultDevice()` returns nil on the maintainer's Mac, so anything
-  GPU-touching fails locally and passes in CI.
+- **Native host coverage depends on the session.** The 2026-11-04 executable-member work ran on
+  Linux x86_64 in WSL, including a real packed-package smoke. macOS/Windows native execution was
+  not run in that session. On the maintainer's Mac, `MTLCreateSystemDefaultDevice()` returns nil,
+  so GPU checks still require the appropriate CI host.
 - **The demo boxes cannot be rebuilt locally.** CI signs them with a private key held in a GitHub
   secret — deliberately. See
   [`../decisions/demo-boxes-are-signed-by-ci.md`](../decisions/demo-boxes-are-signed-by-ci.md).

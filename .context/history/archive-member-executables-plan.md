@@ -1,6 +1,6 @@
 # Executable members of asset archives
 
-Prepared: 2026-11-04. Status: planned; implementation has not started.
+Prepared and completed: 2026-11-04. Status: implemented and locally verified; unreleased.
 Branch: `feat/archive-member-executables`, fresh clone of upstream `main` at `e512f00`
 (`scrollcase` 1.4.0). The other working copies are untouched.
 
@@ -126,8 +126,9 @@ including the rejected top-level executable list and archive-round-trip designs.
 - [x] Declaration, validation, authoring preservation, determinism and docs proved.
 - [x] Consumer-mode self-test regression proved red, then green; source impact measured.
 - [x] Three consumer implementations preserve the archive-member bit under umask 077.
-- [ ] Every required local check and packed-package end-to-end validation passed.
-- [ ] Final clean branch, commits and owner-only release steps recorded.
+- [x] Every required local check and packed-package end-to-end validation passed.
+- [x] Implementation commits and owner-only release steps recorded; final clean-tree check follows
+  the evidence commit.
 
 Step 1 evidence in progress: 33 new asset tests failed against the baseline (4 existing passed).
 The expanded Node suite exposed Ajv strict mode requiring an explicit string type beside a
@@ -223,3 +224,126 @@ Final consistency gate: the new direct schema test failed before keyword support
 afterwards. **645 Node tests passed, 1 skipped, 38 files**. Types, regenerated Action drift and
 docs/postbuild checks pass. The finished package was repacked and installed in a new scratch
 project; its real build and full consumer preparation, payload verification and execution pass.
+
+## Delivered commits
+
+| Commit | Result |
+| --- | --- |
+| `765119c` | Plan committed before implementation, with baseline and compatibility analysis |
+| `0e3a9e5` | Declaration, extraction safety, prune checks, authoring preservation and docs |
+| `d2499b4` | Self-test and parity use the archive writer's synthesized modes |
+| `f0d594f` | Existing umask conformance case extended across JS, Python and Rust |
+| `22ea9d9` | Schema uniqueness support and real scroll-probe subprocess regression |
+
+The final documentation commit closes this record, updates current context and records the owner
+release procedure. No version bump, release tag, push, hosted CI run or publication was performed.
+The fresh clone is `/home/lorenzo/scrollcase-executables`; the unrelated working copies were not
+used. Runtime dependencies, lockfiles, export map, signed schemas and frozen signature fixtures
+are unchanged. Generated types, public schemas and the committed Action were regenerated.
+
+## Final verification
+
+Host: WSL Ubuntu Linux x86_64; Node 22.14.0, Python 3.13.15 in isolated venvs, Rust/Cargo 1.95.0.
+
+| Check | Observed result |
+| --- | --- |
+| `npm test` | 38 files, **645 passed, 1 skipped**; baseline was 588 passed + 1 skipped |
+| `npm run types:check`, `npm run action:check` | Pass |
+| Public schema check and both language-copy checks | Pass; 8 public schemas |
+| `npm pack --dry-run`, actual `npm pack` and scratch installation | Pass |
+| `npm audit --omit=dev` | **0 vulnerabilities** |
+| Docs build and postbuild verification | Pass; 82 pages/twins, 8 schemas, 46-page canonical/LLM coverage |
+| Python unittest suite | **68 passed**, including all 86 shared conformance cases |
+| Python `mypy src`, schema check, wheel/sdist and distribution inspection | Pass; 9 source files typed |
+| Clean wheel installation/import from another venv | Pass; import resolves from its site-packages |
+| Rust `cargo test --all-targets` | **112 passed**, including all 86 shared conformance cases |
+| Rust clippy, copied-assets check and clean `cargo package` | Pass |
+| `syngraphe check` | Pass with the existing AGENT006 warning about the old managed block |
+
+The single skipped Node test requires native macOS code signing. The native macOS/Windows and
+other interpreter-version CI matrix legs were not run locally; no hosted workflows were started.
+All three target adapters' mode rules were exercised, and Windows declarations share the same
+target-independent validation. Large CI-signed demos were statically inventoried, not rebuilt.
+
+### Packed-package smoke
+
+The final npm tarball is the unreleased source still numbered 1.4.0, not the registry's published
+1.4.0. It was installed by absolute local tarball path in a separate scratch checkout.
+
+- Tarball SHA-256: `0dbc1114f28abd1dbac540869913f10850bafbdf707b839cef64c782d72ea500`.
+- Scratch root: `/home/lorenzo/scrollcase-executables-evidence/packed-smoke-aSn2R7`.
+- Scratch source commit: `c21da0cd8eead53db6b16d3d3c72a961c3f9a51f`, clean at build time.
+- A statically compiled C helper prints `archive-member-ok`. Its TAR.GZ has two roots,
+  `package/bin/tool` and `._metadata`, no stripping, and expands into `tools`. The scroll declares
+  `executables: ["package/bin/tool"]`, prunes only `tools/._metadata` and removes the compressed
+  source. The input is a hash-pinned local file, so this test needs no asset server.
+- Input TAR.GZ SHA-256: `603b5f249bee9e4d77c87f7e03d64229c32a0ee0c15c9fb11fd723acba216d9b`.
+- The manifest pins one conda-forge package, `libzlib = "=1.3.2"`, on `linux-64`. The real lock
+  SHA-256 is `9a16d25f318f7e6ed84c82aba81701fd3d9412f68e8a6d74d5833c6445cbc23e`.
+- Installed pixi 0.77.0 and the existing conda-pack global environment pinned to 0.9.2 performed
+  the real solve/install/pack. No toolchain was installed. The final build took **0.738 seconds**.
+- Consumer preparation under umask 077 verifies the signature, archive hash and manifest, then
+  restores **0755**. Explicit installed-payload verification succeeds for 10 entries. Running
+  through `runExtractedBox` exits **0**, prints **archive-member-ok** and raises no signal.
+- A second clean real build yields the same **401,550-byte** archive, SHA-256
+  `1e375528e5d2f7d02868be220f9969b386434d6743ce1530951a32ef54502f74`.
+- Signed release file SHA-256:
+  `10b8e25ee11988e9ae31cb62b6b43539954795cadf13c9ad6270e3a05f034379`.
+
+Exact smoke commands, after creating the synthetic project and installing the local tarball:
+
+```sh
+npm pack --pack-destination /home/lorenzo/scrollcase-executables-evidence
+# From the scratch project, using its installed package, not source imports:
+node node_modules/scrollcase/src/cli.mjs lock archive-member-smoke --pixi /home/lorenzo/.pixi/bin/pixi
+# Commit the scroll, input, manifest, lock and package lock before the build; ignore .scrollcase/.
+node node_modules/scrollcase/src/cli.mjs keygen
+node node_modules/scrollcase/src/cli.mjs build archive-member-smoke \
+  --pixi /home/lorenzo/.pixi/bin/pixi --conda-pack /home/lorenzo/.pixi/bin/conda-pack
+node verify.mjs
+```
+
+The scratch verifier sets umask 077 around `verifyAndExtractBox`, asserts the installed mode and
+pruned/source absence, calls `verifyExtractedPayload`, and runs the receipt with stdout captured
+through a file descriptor. Raw logs and executable scripts are in the external evidence directory;
+the decisions, results, exact inputs and hashes needed to continue are recorded here.
+
+## Owner-only release procedure
+
+The intended npm release is **1.5.0**: a new optional build-input field is a minor. Schema version
+stays 3. Existing consumers need no release; their runtime implementations and versions did not
+change. Older builders clearly reject scrolls using the field. Boxes whose undeclared helpers only
+worked under build-directory modes now fail early; the 20 effective repository examples need no
+declaration changes based on the measured static inventory above.
+
+After reviewing this branch, integrate it into current main. In this fresh clone main starts at
+the cloned base, so a fast-forward is available unless the owner has advanced it independently:
+
+```sh
+git switch main
+git merge --ff-only feat/archive-member-executables
+```
+
+Then, following `CONTRIBUTING.md`, **close the changelog before bumping**: rename the current
+Unreleased section to `[1.5.0]` with the actual release date, and open a fresh empty Unreleased
+section above it. The following commands are for the maintainer to execute, not an authorization
+for an agent to publish:
+
+```sh
+git add CHANGELOG.md
+git commit -m "Close the changelog for 1.5.0"
+npm version 1.5.0
+node scripts/check-release-version.mjs v1.5.0
+npm test
+npm run types:check
+npm run action:check
+npm pack --dry-run
+(cd docs && npm run build)
+git push --dry-run --follow-tags origin main
+# Inspect exactly which branch and tags would travel. Push only the intended release.
+git push origin main --follow-tags
+```
+
+Pushing `v1.5.0` starts the npm Trusted Publishing workflow. The maintainer checks its result and
+the registry version/provenance afterwards. Do not publish manually, backfill old release tags,
+or push Python/Rust release tags for this change. No GitHub release or paid workflow is needed.

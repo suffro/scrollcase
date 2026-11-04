@@ -12,8 +12,6 @@ system is, where the work stands, what was decided and why, and what already wen
 
 - `truth/architecture.md` — current system architecture.
 - `state/current.md` — current project state and active work.
-- `state/archive-member-executables-plan.md` — active plan and evidence for executable members of
-  expanded asset archives and self-tests against archive modes.
 
 ## When relevant
 
@@ -42,6 +40,8 @@ system is, where the work stands, what was decided and why, and what already wen
 ## Historical
 
 - `history/` — completed, historical, or superseded operational context:
+  - `history/archive-member-executables-plan.md` — completed executable archive members, archive-mode
+    self-tests, cross-language conformance, packed-package evidence and owner release steps.
   - `history/extraction-and-origin.md` — where Scrollcase came from, and how the maintainer works.
   - `history/mistakes-and-what-they-taught.md` — every trap fallen into, several of them twice.
   - `history/v3-plan.md` and `history/v3-phase-a.md`, `history/v3-phase-b.md`,

@@ -611,8 +611,9 @@ relative to this entry's `destination`, **after** `stripComponents`: the example
 `cache/hello/bin/tool` and `cache/hello/launch.sh`. It works with all three formats and with either
 value of `removeAfterExtract`. Empty and absent both declare none. Upstream modes are never inherited.
 
-Paths use forward slashes, with no absolute or drive paths, colons, empty or dot segments, NULs or
-globs. Each must come from this archive and be a regular file before pruning; missing files,
+Paths are literal, with no glob expansion. They use forward slashes, with no absolute or drive
+paths, colons, empty or dot segments, or NULs. Each must come from this archive and be a regular
+file before pruning; missing files,
 directories, links, paths through links and duplicates fail with the field and path named.
 Two archive entries cannot declare the same resulting payload path. A declaration removed by
 `prunePaths` or `removeAfterExtract` also fails, even if a later step would recreate the file.
