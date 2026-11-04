@@ -51,7 +51,7 @@ fn preparing_a_box_yields_a_receipt_describing_what_was_verified() {
     assert_eq!(prepared.box_id(), "fixture-box");
     assert_eq!(prepared.labels().unwrap()["model"], "fixture-model");
     assert_eq!(prepared.signing_key_ids(), [support::KEY_ID]);
-    assert!(prepared.required_assets().is_empty());
+    assert_eq!(prepared.required_assets(), []);
     assert!(prepared.execution().is_some());
     // The receipt reports what was measured, and the tree is really there.
     assert!(destination.join("box.json").is_file());

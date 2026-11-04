@@ -494,7 +494,7 @@ mod tests {
             )]
         };
         let summary = resolve_environment(&options("linux", layers(), &[], false, false)).unwrap();
-        assert!(summary.report.variables.is_empty());
+        assert_eq!(summary.report.variables, Vec::<super::EnvironmentVariableReport>::new());
         assert_eq!(summary.report.remaining_variable_count, 3);
         assert!(!summary.report.is_worth_reporting());
 

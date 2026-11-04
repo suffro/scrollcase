@@ -261,7 +261,7 @@ mod tests {
     fn an_empty_payload_still_commits_to_its_format() {
         let stream = payload_digest_stream(&[]).unwrap();
         assert_eq!(stream, format!("{PAYLOAD_DIGEST_FORMAT}\n").into_bytes());
-        assert!(parse_payload_digest_stream(&stream).unwrap().is_empty());
+        assert_eq!(parse_payload_digest_stream(&stream).unwrap(), Vec::<PayloadDigestEntry>::new());
     }
 
     #[test]
