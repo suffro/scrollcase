@@ -1404,7 +1404,8 @@
       "action": "prepare",
       "requiresPosixModes": true,
       "fixture": {
-        "executableAsset": true
+        "executableAsset": true,
+        "executableArchiveMember": true
       },
       "runtime": {
         "umask": "077"
@@ -1421,6 +1422,8 @@
           "targetId": "$NATIVE_TARGET",
           "executableModes": {
             "bin/tool": "755",
+            "tools/bin/archive-tool": "755",
+            "tools/README": "644",
             "box.json": "644"
           }
         }

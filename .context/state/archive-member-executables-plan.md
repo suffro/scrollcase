@@ -125,7 +125,7 @@ including the rejected top-level executable list and archive-round-trip designs.
 - [x] Plan committed before implementation (`765119c`).
 - [x] Declaration, validation, authoring preservation, determinism and docs proved.
 - [x] Consumer-mode self-test regression proved red, then green; source impact measured.
-- [ ] Three consumer implementations preserve the archive-member bit under umask 077.
+- [x] Three consumer implementations preserve the archive-member bit under umask 077.
 - [ ] Every required local check and packed-package end-to-end validation passed.
 - [ ] Final clean branch, commits and owner-only release steps recorded.
 
@@ -176,3 +176,26 @@ paths; real builds may expose those, and CI-signed demos cannot be rebuilt with 
 Step 2 gate: **644 Node tests passed, 1 skipped, 38 files**; contract/runtime types and Action
 drift checks pass; docs build and all generated-route checks pass; Syngraphe passes with the same
 pre-existing managed-block warning. No Python or Rust implementation/copy changed in this step.
+
+Step 3 in progress: extending the existing umask-077 case with `tools/bin/archive-tool` (0755)
+and an undeclared upstream-executable README (0644) first failed in **all three** implementations,
+because the extra paths were missing. The JS fixture now expands a real synthetic TAR.GZ through
+the build declaration; Python and Rust describe the resulting unchanged ZIP. No consumer runtime
+or signed schema changes are needed. Next gates include the full language checks and packaging.
+
+The lost-bit guard was then proven directly in all three fixture builders: set only the archive
+member's synthesized mode to 0644, run the conformance case, observe 0644 versus required 0755,
+and restore the exact original file in a finally block. JS exited 1, Python 1 and Rust 101.
+Separately, the 1.4.0 schema accepted its original canonical scroll, then rejected that same scroll
+with the new field as `$.assetArchives[0].executables is not allowed`. Compatibility is observed,
+not inferred. Full suites after the fixture additions passed: Node 644 + 1 skip, Python 68,
+Rust 112. Types, Action drift, npm pack dry-run, production audit (0 vulnerabilities), Python
+schema/mypy/build/distribution checks and Rust clippy/asset checks pass. Docs build passes too.
+The restored guards will be checked again before the conformance commit; clean cargo packaging,
+clean wheel import and the real packed-package smoke remain.
+
+Guard cleanup finding: Python reused bytecode compiled during the deliberate same-size 0755 to
+0644 mutation, because mutation and restoration fell within the same timestamp second. The
+source was correctly restored to 0755, but the next suite still observed the cached 0644 fixture.
+Remove only the identified generated conformance-support pyc, then rerun the full Python suite;
+this is mutation-harness cleanup, not a production-code fallback or weakened expectation.

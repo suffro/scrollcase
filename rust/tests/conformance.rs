@@ -213,6 +213,14 @@ impl Fixture {
         if spec.get("executableAsset").is_some() {
             entries.push(Entry::file("bin/tool", b"#!/bin/sh\nexit 0\n", 0o755));
         }
+        // The builder expands the archive and synthesizes modes. Consumers receive this result,
+        // without needing to interpret the build-only executable-member declaration themselves.
+        if spec.get("executableArchiveMember").is_some() {
+            entries.push(Entry::file("tools/bin/archive-tool", b"#!/bin/sh\nexit 0\n", 0o755));
+            entries.push(Entry::file(
+                "tools/README", b"ordinary data despite upstream executable permissions\n", 0o644,
+            ));
+        }
         if execution["kind"] == "python-module" {
             entries.push(Entry::file("example/application.py", b"print('module')\n", 0o644));
         } else {

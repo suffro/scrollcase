@@ -393,6 +393,7 @@ function fixtureOptions(spec = {}) {
     payloadDigest: spec.payloadDigest !== false,
     environment: spec.environment,
     executablePaths,
+    executableArchiveMember: spec.executableArchiveMember ?? false,
     ...(spec.executableAsset ? { extraFiles: { 'bin/tool': '#!/bin/sh\nexit 0\n' } } : {}),
     ...(spec.labels ? { labels: spec.labels } : {}),
   };

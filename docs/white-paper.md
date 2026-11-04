@@ -6368,6 +6368,12 @@ The two helpers are shared rather than duplicated: `consumer-box-fixture.mjs` bu
 and the external signer, and `consumer-conformance.mjs` builds the mutated archives the shared
 fixture describes.
 
+The restrictive-umask conformance case extracts both a declared executable asset and a declared
+archive member under `077`, asserting 0755 for each and 0644 for ordinary data. The JS fixture
+expands a real synthetic TAR.GZ through `assetArchives[].executables`; Python and Rust describe
+the resulting signed ZIP entries. Thus all three prove the installed mode without introducing a
+second interpretation of the builder's scroll field into a consumer.
+
 <div class="h3-section-initial-part">
 
 ### 11.4 The Python and Rust suites

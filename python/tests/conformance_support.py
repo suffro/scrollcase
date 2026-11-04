@@ -149,6 +149,13 @@ def _fixture_options(spec: dict[str, Any]) -> dict[str, Any]:
         # The mode is synthesised from the scroll's declaration, and extraction has to hand it back
         # whatever umask the process is running under.
         options["extra_files"] = {"bin/tool": (b"#!/bin/sh\nexit 0\n", 0o755)}
+    if spec.get("executableArchiveMember"):
+        # The builder expanded a declared member and synthesized its ZIP mode. The consumer sees
+        # the result, without a second definition of the build-only scroll field in this package.
+        options.setdefault("extra_files", {}).update({
+            "tools/bin/archive-tool": (b"#!/bin/sh\nexit 0\n", 0o755),
+            "tools/README": (b"ordinary data despite upstream executable permissions\n", 0o644),
+        })
     if "environment" in spec:
         options["environment"] = spec["environment"]
     if "labels" in spec:

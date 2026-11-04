@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   stat,
@@ -18,6 +19,8 @@ import { BOX_SCHEMA_VERSION, documentKinds } from '../../src/contract/documents.
 import { boxTargetAdapter } from '../../src/contract/targets.mjs';
 import { runtimeAdapter } from '../../src/contract/runtimes.mjs';
 import { generateSigningKey, signDocument } from '../../src/sign/index.mjs';
+import { expandAssetArchive } from '../../src/build/assets.mjs';
+import { writeAssetArchive } from './asset-archive.mjs';
 
 export function nativeTarget() {
   if (process.platform === 'darwin' && process.arch === 'arm64') {
@@ -74,6 +77,7 @@ export async function createConsumerBoxFixture({
   labels = undefined,
   runtimeId = 'python',
   executablePaths = [],
+  executableArchiveMember = false,
   extraFiles = {},
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'scrollcase-consumer-fixture-'));
@@ -89,6 +93,23 @@ export async function createConsumerBoxFixture({
     const filePath = join(payload, ...relativePath.split('/'));
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, contents);
+  }
+
+  const declaredPaths = [...executablePaths];
+  if (executableArchiveMember) {
+    // Exercise the build-side declaration and extraction too: consumers see only the resulting
+    // signed ZIP, whose modes must survive the restrictive extraction umask in the shared case.
+    const { path } = await writeAssetArchive(join(root, 'upstream'), {
+      files: {
+        'wrapper/bin/archive-tool': '#!/bin/sh\nexit 0\n',
+        'wrapper/README': 'ordinary data despite upstream executable permissions\n',
+      },
+    });
+    await copyFile(path, join(payload, 'source.tar.gz'));
+    declaredPaths.push(...await expandAssetArchive(payload, {
+      relativePath: 'source.tar.gz', format: 'tar.gz', destination: 'tools',
+      stripComponents: 1, executables: ['bin/archive-tool'],
+    }));
   }
 
   if (execution?.kind === 'python-script') {
@@ -142,7 +163,7 @@ export async function createConsumerBoxFixture({
   }
   const installedSizeBytes = await payloadSize(payload);
   const archivePath = join(root, 'box.zip');
-  await createDeterministicZip(payload, archivePath, adapter, { runtimeId, executablePaths });
+  await createDeterministicZip(payload, archivePath, adapter, { runtimeId, executablePaths: declaredPaths });
   const archiveMetadata = await stat(archivePath);
   const release = {
     ...shared,
