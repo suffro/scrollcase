@@ -124,6 +124,33 @@ where the PyPI release has had it since 0.4.0. Two consequences worth holding on
 
 Do not run `npm publish` by hand. It uploads the working tree, which is the thing this replaced.
 
+## GitHub Action releases
+
+The Action (`action.yml`, bundled into `action/dist/`) is consumed straight from a git ref, so
+nothing publishes it: users get whatever commit `action-v1` names. **An npm release does not move
+it.** `action-v1` sat on the 1.2.0 builder through 1.3.0 and 1.4.0 because no step said otherwise.
+
+After an npm release whose builder change the Action should carry, once `CI` and `example build`
+(which runs the Action for real) are green on the release commit:
+
+1. create an annotated `action-v<major>.<minor>.<patch>` tag on that commit, message
+   `Scrollcase Build <version>` — a minor for new scroll features, a patch otherwise. These tags
+   never move;
+2. move the lightweight `action-v1` to the same commit, recording its previous target first —
+   this is the one tag that is meant to move, and moving it changes every user's next run;
+3. push both together and read the result back:
+
+   ```sh
+   git push --dry-run --atomic origin refs/tags/action-v1.1.0 +refs/tags/action-v1
+   git push --atomic origin refs/tags/action-v1.1.0 +refs/tags/action-v1
+   git ls-remote origin 'refs/tags/action-v1*'
+   ```
+
+4. create the GitHub release for the new `action-v*` tag as **Latest**: it is what the Marketplace
+   listing shows.
+
+No `v*`, `python-v*` or `rust-v*` workflow matches an `action-*` tag, so this publishes no package.
+
 ## Python releases
 
 The Python consumer has an independent version and tag namespace. To prepare a release:

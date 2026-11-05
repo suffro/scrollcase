@@ -1,17 +1,24 @@
 # Current State
 
-Last reviewed: 2026-11-04.
+Last reviewed: 2026-11-05.
+
+## Released 2026-11-05
+
+**npm 1.5.0** — tag `v1.5.0` on `86504d3`, published by the Trusted Publishing workflow with
+provenance; PR #15 merged by fast-forward. **GitHub Action `action-v1.1.0`** (annotated) on the
+same commit, with `action-v1` moved there from `ada47e9` (the 1.2.0 builder) and a Latest GitHub
+release. The procedure the Action lacked is now in `CONTRIBUTING.md`. Python `scrollcase-consumer`
+0.5.0 and Rust `scrollcase-consumer` 0.4.0 were not released: only their tests and fixtures changed.
 
 ## In flight
 
-**Executable members of expanded asset archives are complete and verified, unreleased** — branch
+**Executable members of expanded asset archives — released in 1.5.0** — branch
 `feat/archive-member-executables`, based on main at `e512f00` (1.4.0). The declaration, mode-faithful
 self-test, authoring preservation, documentation and three-consumer umask conformance are delivered.
 Linux: Node 645 pass + 1 macOS-only skip; Python 68 pass; Rust 112 pass. A real packed-package build,
 installation and execution under umask 077 pass, including a byte-identical rebuild. The plan,
 decisions, artifact hashes, source inventory and owner-only 1.5.0 release steps are in
 [`../history/archive-member-executables-plan.md`](../history/archive-member-executables-plan.md).
-No version bump, release tag, push, publication or hosted workflow was performed.
 
 **Executables inside the solved environment — delivered on the same branch.** A helper a package
 installs in the prefix outside the scripts directory had always shipped as `0644`, and the
