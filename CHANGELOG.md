@@ -6,6 +6,8 @@ All notable changes to Scrollcase are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-05
+
 ### Added
 
 - **`assetArchives[].executables` declares executable expanded members.** Paths are relative to
@@ -13,7 +15,7 @@ All notable changes to Scrollcase are documented here. The format follows
   links and link traversal, unsafe or duplicate paths, and declarations removed by pruning.
   Linux and macOS receive synthesized `0755` modes; Windows validates the same declarations and
   continues to use extensions. This optional build-input field stays in schema version 3 and
-  requires a newer builder; existing consumers need no format upgrade. Intended for a minor release.
+  requires a newer builder; existing consumers need no format upgrade.
 - **`executablePaths` declares helpers the solved environment installs.** Literal paths under
   `venv/`, for an executable a package keeps outside the scripts directory, which until now always
   shipped as `0644`. A path outside `venv/`, or one an asset, local file or archive destination
