@@ -28,7 +28,8 @@ the exact modes the archive will carry. A helper that only ran because extractio
 executable on the build machine now fails during the build, where installed users already failed.
 Add the member's path to its archive entry's `executables`, relative to the destination after
 stripping, then increment the box version and rebuild. Use `executable: true` for a direct asset
-or local file. See [archive declarations](/reference/scroll#assetarchives).
+or local file, and [`executablePaths`](/reference/scroll#executablepaths) for a helper the solved
+environment installs under `venv/`. See [archive declarations](/reference/scroll#assetarchives).
 Older builders reject this new optional field; installed consumers already understand the ZIP
 permissions and need no format upgrade.
 

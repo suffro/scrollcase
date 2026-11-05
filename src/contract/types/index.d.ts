@@ -243,6 +243,10 @@ export interface BoxScroll {
    */
   uncompressedPaths?: PayloadPath[];
   /**
+   * Files the solved environment installs under venv/ that need the executable bit beyond the runtime's own scripts directory, such as a helper binary a package keeps in its own directory. Literal payload paths, with no glob expansion: forward slashes, no dot segments or colons. Each must be a regular file after pruning, traverse no link, and not be a file an asset, local file or asset archive brings in, which carry their own declaration. The bit is synthesised from this declaration, never inherited from the build machine. Windows validates the same paths but writes 0644 and decides executability by extension. Empty or absent declares none.
+   */
+  executablePaths?: string[];
+  /**
    * Builder checks run against the payload before archiving. The signed release carries the probe — the imports and commands a consumer can repeat after extraction — while file assertions and the optional extra source stay builder-only. At least one of imports and commands is required: a box that proves nothing about itself is not a box worth signing.
    */
   selfTest: {

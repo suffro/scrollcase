@@ -27,17 +27,19 @@ export function safeRelativePath(value: unknown): string;
  * The lexical safety rule still runs first; lstat then catches the different case where a safe
  * name reaches a prefix link already on disk. With `allowMissing`, the first absent component is
  * where extraction will start creating directories. Without it, a declared member must already
- * exist. Callers supply the field so one shared walk reports the declaration an author can fix.
+ * exist. Callers supply the field so one shared walk reports the declaration an author can fix, and
+ * the hint, because what usually removed a file depends on which declaration named it.
  *
  * @param {string} root
  * @param {string} path
  * @param {string} field
- * @param {{ allowMissing?: boolean, kind?: 'file' | 'directory' }} [options]
+ * @param {{ allowMissing?: boolean, kind?: 'file' | 'directory', missingHint?: string }} [options]
  * @returns {Promise<void>}
  */
-export function assertPathWithoutLinks(root: string, path: string, field: string, { allowMissing, kind }?: {
+export function assertPathWithoutLinks(root: string, path: string, field: string, { allowMissing, kind, missingHint, }?: {
     allowMissing?: boolean;
     kind?: "file" | "directory";
+    missingHint?: string;
 }): Promise<void>;
 /**
  * Lists payload entries in the stable order used by hashing and archive creation.

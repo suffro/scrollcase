@@ -75,15 +75,20 @@ export function safeRelativePath(value) {
  * The lexical safety rule still runs first; lstat then catches the different case where a safe
  * name reaches a prefix link already on disk. With `allowMissing`, the first absent component is
  * where extraction will start creating directories. Without it, a declared member must already
- * exist. Callers supply the field so one shared walk reports the declaration an author can fix.
+ * exist. Callers supply the field so one shared walk reports the declaration an author can fix, and
+ * the hint, because what usually removed a file depends on which declaration named it.
  *
  * @param {string} root
  * @param {string} path
  * @param {string} field
- * @param {{ allowMissing?: boolean, kind?: 'file' | 'directory' }} [options]
+ * @param {{ allowMissing?: boolean, kind?: 'file' | 'directory', missingHint?: string }} [options]
  * @returns {Promise<void>}
  */
-export async function assertPathWithoutLinks(root, path, field, { allowMissing = false, kind = 'file' } = {}) {
+export async function assertPathWithoutLinks(root, path, field, {
+  allowMissing = false,
+  kind = 'file',
+  missingHint = 'check prunePaths and removeAfterExtract',
+} = {}) {
   const parts = safeRelativePath(path).split('/');
   let current = root;
   for (const [index, part] of parts.entries()) {
@@ -94,7 +99,7 @@ export async function assertPathWithoutLinks(root, path, field, { allowMissing =
     } catch (error) {
       if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
       if (allowMissing) return;
-      fail(`${field}: ${JSON.stringify(path)} is missing (check prunePaths and removeAfterExtract).`);
+      fail(`${field}: ${JSON.stringify(path)} is missing (${missingHint}).`);
     }
     if (entry.isSymbolicLink()) fail(`${field}: ${JSON.stringify(path)} is a link or traverses a link at ${parts.slice(0, index + 1).join('/')}.`);
     const needsDirectory = index < parts.length - 1 || kind === 'directory';

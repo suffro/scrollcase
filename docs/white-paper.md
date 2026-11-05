@@ -2249,6 +2249,7 @@ The optional fields are where a scroll expresses intent:
 | `assetArchives` | Downloaded archives to expand into the payload, with `stripComponents`, `removeAfterExtract` and optional destination-relative `executables` |
 | `localFiles` | Files copied from the project's own repository, optionally pinned to a declared hash |
 | `prunePaths` | Payload paths deleted before packing |
+| `executablePaths` | Literal paths under `venv/` that the solved environment installs and that need the executable bit beyond the scripts directory |
 | `execution` | The application entry point |
 | `parity` | The cross-accelerator numerical gate |
 
@@ -3162,6 +3163,13 @@ both declare none, and Windows applies the same validation.
 `assertPathWithoutLinks()` in `filesystem.mjs` supplies the shared lstat walk, also applied to
 each extraction destination before copying so a link deeper below the destination cannot be used.
 
+Top-level `executablePaths` covers what no entry supplies: a file the solved environment installs
+outside the scripts directory. `assertEnvironmentExecutablePaths()` in `scroll.mjs` refuses, at
+read time, a path outside the runtime's environment root and any path an asset, local file or
+archive destination already owns, so each executable keeps one declaration. `buildBox()` runs the
+same lstat walk on each path after pruning, then adds the paths to the declared set that drives the
+entry-point guard, the self-test modes and the archive.
+
 </div>
 
 <div class="h4-section">
@@ -3535,7 +3543,7 @@ identical input; and the mode comes from the **target, runtime and scroll** rath
 | Windows target, anything | `0644` | Windows has no executable bit to preserve |
 | The interpreter entry point | `0755` | It must be executable after extraction |
 | Anything under the scripts directory | `0755` | Console scripts are executables |
-| A declared executable asset, local file or expanded archive member | `0755` | The scroll explicitly requires it to run |
+| A declared executable asset, local file, expanded archive member or environment path | `0755` | The scroll explicitly requires it to run |
 | Everything else | `0644` | |
 
 Reading the mode from disk instead would make the archive depend on the umask of whoever ran the

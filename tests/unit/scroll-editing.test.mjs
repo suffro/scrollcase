@@ -112,9 +112,10 @@ describe('editing an existing scroll', () => {
     expect(other.scroll.assets).toHaveLength(1);
   });
 
-  it('preserves archive executable declarations through add, edit and refresh', async () => {
+  it('preserves archive and environment executable declarations through add, edit and refresh', async () => {
     const archive = { relativePath: 'source.tar.gz', format: 'tar.gz', destination: 'tools', executables: ['bin/tool'] };
-    const { root } = await splitBox({ base: { ...SHARED, assetArchives: [archive] } });
+    const executablePaths = ['venv/lib/pkg/bin/helper'];
+    const { root } = await splitBox({ base: { ...SHARED, assetArchives: [archive], executablePaths } });
     await writeFile(join(root, 'notice.txt'), 'reviewed');
     await addFile({ boxId: SHARED.boxId, target: ALL_TARGETS, sourcePath: 'notice.txt', pin: true });
     await addAsset({ boxId: SHARED.boxId, target: ALL_TARGETS, url: 'https://example.org/data', fetchImpl: servingBytes('data') });
@@ -123,9 +124,13 @@ describe('editing an existing scroll', () => {
     expect((await refreshScroll({ boxId: SHARED.boxId })).updated).toEqual(['notice.txt']);
     await removeScrollEntry({ boxId: SHARED.boxId, target: ALL_TARGETS, field: 'localFiles', relativePath: 'notice.txt' });
     for (const reference of [REFERENCE, `example-model/${OTHER_TARGET_ID}`]) {
-      expect((await readScroll(reference)).scroll.assetArchives).toEqual([archive]);
+      const { scroll } = await readScroll(reference);
+      expect(scroll.assetArchives).toEqual([archive]);
+      expect(scroll.executablePaths).toEqual(executablePaths);
     }
-    expect((await editableScrollFields()).some(({ name }) => name === 'assetArchives')).toBe(false);
+    const editable = (await editableScrollFields()).map(({ name }) => name);
+    expect(editable).not.toContain('assetArchives');
+    expect(editable).not.toContain('executablePaths');
   });
 
   it('records an asset for one target only when asked', async () => {

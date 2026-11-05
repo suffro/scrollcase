@@ -13,7 +13,7 @@
  */
 
 import { readFile, readdir } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { join, posix, resolve, sep } from 'node:path';
 import { boxTargetAdapter, boxTargetId } from '../contract/targets.mjs';
 import {
   assertRuntimeEntryPoint,
@@ -61,7 +61,7 @@ const JOINED_ENTRY_LISTS = Object.freeze(['assets', 'assetArchives', 'localFiles
  * importing a module twice is idempotent, and refusing a base and a fragment that both name `json`
  * would be hostile for no gain.
  */
-const JOINED_STRING_LISTS = Object.freeze(['prunePaths', 'uncompressedPaths']);
+const JOINED_STRING_LISTS = Object.freeze(['prunePaths', 'uncompressedPaths', 'executablePaths']);
 
 /**
  * Open maps: joined key by key, fragment winning a shared key.
@@ -150,7 +150,7 @@ function joinSelfTests(base = {}, fragment = {}) {
  * | --- | --- |
  * | Scalars, and the cohesive objects `target`, `runtime`, `execution`, `parity` | The fragment replaces the base |
  * | `assets`, `assetArchives`, `localFiles` | Joined base-first; a repeated `relativePath` is an error |
- * | `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
+ * | `prunePaths`, `uncompressedPaths`, `executablePaths`, `selfTest.imports`, `selfTest.files` | Joined base-first, repeats dropped |
  * | `selfTest.commands` | Joined base-first, repeats kept |
  * | `compatibility`, `environment` | Joined key by key, the fragment winning a shared key |
  * | `extends` | Dropped: the joined scroll extends nothing |
@@ -223,6 +223,39 @@ export function scrollDirectory(reference) {
   const path = resolve(root, ...normalized.split('/'));
   if (path === root || !path.startsWith(`${root}${sep}`)) fail(`Invalid scroll: ${reference}`);
   return path;
+}
+
+/**
+ * Checks what `executablePaths` may name before anything is downloaded or solved.
+ *
+ * The field exists for one gap: a file the solved environment installs outside the runtime's
+ * scripts directory has no entry of its own to carry a flag. Anything an asset, local file or asset
+ * archive brings in already has one, so it keeps that single owner rather than a second declaration
+ * whose relationship to the first would be implicit. Whether the file exists is a build question,
+ * answered once the environment is unpacked and pruned.
+ *
+ * @param {Record<string, any>} scroll
+ * @param {string} environmentRoot
+ */
+function assertEnvironmentExecutablePaths(scroll, environmentRoot) {
+  const entryPaths = new Set([...scroll.assets, ...(scroll.localFiles ?? [])]
+    .map((entry) => posix.normalize(safeRelativePath(entry.relativePath))));
+  for (const path of scroll.executablePaths ?? []) {
+    const field = `executablePaths: ${JSON.stringify(path)}`;
+    if (!path.startsWith(`${environmentRoot}/`)) {
+      fail(`${field} is outside ${environmentRoot}/. This field marks files the solved environment installs; declare a file you bring in on its asset, local file or archive entry.`);
+    }
+    if (entryPaths.has(path)) {
+      fail(`${field} is brought in by an asset or local file; mark that entry "executable": true instead.`);
+    }
+    const archive = (scroll.assetArchives ?? []).find((entry) => {
+      const destination = posix.normalize(safeRelativePath(entry.destination)).replace(/\/$/, '');
+      return path === destination || path.startsWith(`${destination}/`);
+    });
+    if (archive) {
+      fail(`${field} lies under the destination of ${archive.relativePath}; declare it in that entry's assetArchives[].executables instead.`);
+    }
+  }
 }
 
 /**
@@ -326,6 +359,7 @@ async function readExactScroll(reference) {
     ...(scroll.localFiles ?? []).flatMap((file) => [file.sourcePath, file.relativePath]),
     ...(scroll.prunePaths ?? []),
     ...(scroll.uncompressedPaths ?? []),
+    ...(scroll.executablePaths ?? []),
     ...scroll.selfTest.files,
     ...(scroll.selfTest.script ? [scroll.selfTest.script] : []),
     ...(scroll.execution?.script ? [scroll.execution.script] : []),
@@ -337,6 +371,7 @@ async function readExactScroll(reference) {
   ];
   for (const path of payloadPaths) safeRelativePath(path);
   assertDistinctPayloadDestinations(scroll);
+  assertEnvironmentExecutablePaths(scroll, runtime.layout(adapter).root);
   const [boxDirectory, targetDirectory] = parts;
   if (boxDirectory !== scroll.boxId) {
     fail(`Nested scroll box directory ${boxDirectory} does not match scroll boxId ${scroll.boxId}.`);

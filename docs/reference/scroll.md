@@ -185,7 +185,7 @@ leave `execution` half from each half, producing a `python-script` that inherite
 | --- | --- |
 | Scalars, and the cohesive objects `target`, `execution`, `parity` | The fragment replaces the base |
 | `assets`, `assetArchives`, `localFiles` | Joined, base entries first. Two entries claiming one `relativePath` is an **error** |
-| `prunePaths`, `uncompressedPaths`, `selfTest.imports`, `selfTest.files` | Joined, base first, repeats dropped |
+| `prunePaths`, `uncompressedPaths`, `executablePaths`, `selfTest.imports`, `selfTest.files` | Joined, base first, repeats dropped |
 | `compatibility`, `environment` | Joined key by key; on a shared key the fragment wins |
 | `selfTest.code` / `selfTest.script` | One slot: a fragment naming either replaces both |
 | `extends` | Dropped — the joined scroll extends nothing |
@@ -692,9 +692,32 @@ automatically and does not need repeating here.
 The decision is taken from the scroll alone — nothing opens the file or reads its extension — which
 is what keeps two builds of the same commit byte-identical.
 
+### `executablePaths`
+
+Files the solved environment installs under `venv/` that need the executable bit, beyond the
+runtime's own scripts directory — a helper binary a package keeps in its own directory, for
+instance. Without a declaration such a file ships as `0644`, whatever mode conda gave it on the
+build machine.
+
+```jsonc
+"executablePaths": ["venv/lib/python3.11/site-packages/triton/backends/nvidia/bin/ptxas"]
+```
+
+Paths are **literal**, with no glob expansion, and use the same spelling rules as
+`assetArchives[].executables`: forward slashes, no dot segments, colons or trailing slash. The
+reader refuses a path outside `venv/`, a path an asset or local file brings in (mark that entry
+`"executable": true` instead) and a path under an `assetArchives` destination (declare it in that
+entry's `executables`), so every executable has exactly one declaration.
+
+The build checks each path once the environment is unpacked and pruned: it must be a regular file
+and traverse no link. A path the solve did not produce fails with the field named — which is also
+what happens when an upgrade moves the file, for example to a new `python3.x` directory, so the
+scroll cannot silently go stale. Linux and macOS receive `0755`; Windows validates the same paths
+and keeps deciding executability by extension.
+
 ::: warning Payload paths
 Every path inside the payload (`relativePath`, `destination`, `prunePaths`, `uncompressedPaths`,
-`selfTest.files`) is relative and may never escape the payload root. Absolute paths, `..` segments,
+`executablePaths`, `selfTest.files`) is relative and may never escape the payload root. Absolute paths, `..` segments,
 and drive letters are rejected.
 :::
 
@@ -736,16 +759,12 @@ Supply it later with [`edit scroll`](/reference/cli#edit-scroll), or per build w
 
 The build applies the exact regular-file modes the archive will carry **before** running the
 self-test and parity. On Linux and macOS an undeclared helper outside the runtime's executable
-paths is `0644`, even when its upstream archive says `0755`. Declare it with
-`assetArchives[].executables`, `assets[].executable` or `localFiles[].executable` as appropriate.
+paths is `0644`, even when its upstream archive or conda says `0755`. Declare it with
+`assetArchives[].executables`, `assets[].executable` or `localFiles[].executable` as appropriate,
+or with [`executablePaths`](#executablepaths) when the solved environment installs it.
 Self-test failures retain their original error and point to these declarations. Windows validates
 the declarations identically and continues to use extensions rather than POSIX modes, so its
 self-test failures carry no such hint.
-
-One case has no declaration yet: a helper the solved environment itself installs outside the
-runtime's scripts directory — an executable shipped inside a package's own directory, for
-instance. It already reached consumers as `0644`; the self-test now fails on it at build time
-instead, when the probe exercises it, but no scroll field can mark it executable.
 
 Builder checks run with the payload's **own runtime** before the box is archived. Schema
 version 3 signs the probe for a consumer to repeat; it does not carry the richer file or

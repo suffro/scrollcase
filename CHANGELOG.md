@@ -14,6 +14,12 @@ All notable changes to Scrollcase are documented here. The format follows
   Linux and macOS receive synthesized `0755` modes; Windows validates the same declarations and
   continues to use extensions. This optional build-input field stays in schema version 3 and
   requires a newer builder; existing consumers need no format upgrade. Intended for a minor release.
+- **`executablePaths` declares helpers the solved environment installs.** Literal paths under
+  `venv/`, for an executable a package keeps outside the scripts directory, which until now always
+  shipped as `0644`. A path outside `venv/`, or one an asset, local file or archive destination
+  already owns, is refused when the scroll is read; after pruning, each path must be a regular file
+  reached without a link. Same modes, Windows behaviour and schema-version-3 compatibility as
+  `assetArchives[].executables`.
 
 ### Fixed
 
@@ -22,12 +28,12 @@ All notable changes to Scrollcase are documented here. The format follows
   files receive the archive writer's synthesized modes before testing; links are skipped and
   Windows keeps its extension-based behavior. Boxes that passed only because of inherited
   build-directory executable bits now fail at build time, where their users already failed.
-  Declare the helper on its archive entry, asset or local file and rebuild. A static inventory of
-  all 20 effective repository example/demo scrolls found no asset archives and no entry points
-  missing declarations; the large CI-signed demos were not rebuilt. Dependency helpers outside
-  runtime script paths may still expose missing declarations during a real build, and no scroll
-  field can declare one yet; the self-test failure says so rather than pointing only at fields
-  that cannot apply. On Windows a self-test failure keeps its original error with no mode hint.
+  Declare the helper on its archive entry, asset or local file, or in `executablePaths` when the
+  environment installs it, and rebuild. A static inventory of all 20 effective repository
+  example/demo scrolls found no asset archives and no entry points missing declarations; the large
+  CI-signed demos were not rebuilt. Dependency helpers outside runtime script paths may still
+  expose missing declarations during a real build. On Windows a self-test failure keeps its
+  original error with no mode hint.
 
 ## [1.4.0] — 2026-09-28
 

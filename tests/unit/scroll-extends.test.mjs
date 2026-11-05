@@ -102,6 +102,45 @@ describe('joining a base scroll with a target fragment', () => {
     });
   }
 
+  it('joins environment executable paths base-first and drops repeats', async () => {
+    await family({ ...BASE, executablePaths: ['venv/lib/pkg/bin/shared', 'venv/lib/pkg/bin/both'] }, {
+      extends: '../scroll.json', target: TARGET,
+      executablePaths: ['venv/lib/pkg/bin/both', 'venv/lib/pkg/bin/target'],
+    });
+    expect((await readScroll(REFERENCE)).scroll.executablePaths)
+      .toEqual(['venv/lib/pkg/bin/shared', 'venv/lib/pkg/bin/both', 'venv/lib/pkg/bin/target']);
+  });
+
+  const owned = {
+    'outside the environment': [{ executablePaths: ['tools/bin/helper'] }, /executablePaths: "tools\/bin\/helper" is outside venv\//],
+    'an asset brings in': [
+      { assets: [{ ...asset('helper', 'a'), relativePath: 'venv/extra/helper' }], executablePaths: ['venv/extra/helper'] },
+      /executablePaths: "venv\/extra\/helper" is brought in by an asset or local file/,
+    ],
+    'an archive expands': [{
+      assetArchives: [{ relativePath: 'cache/tools.zip', format: 'zip', destination: './venv/extra' }],
+      executablePaths: ['venv/extra/bin/helper'],
+    }, /executablePaths: "venv\/extra\/bin\/helper" lies under the destination of cache\/tools\.zip/],
+  };
+  for (const [name, [declaration, message]] of Object.entries(owned)) {
+    it(`refuses an executable path ${name}`, async () => {
+      await family({ ...BASE, ...declaration });
+      await expect(readScroll(REFERENCE)).rejects.toThrow(message);
+    });
+  }
+
+  for (const path of ['venv/lib/./helper', 'venv/lib/../helper', 'venv\\lib\\helper', 'venv/lib/helper/', 'C:venv/helper']) {
+    it(`refuses the unsafe environment declaration ${JSON.stringify(path)} while reading`, async () => {
+      await family({ ...BASE, executablePaths: [path] });
+      await expect(readScroll(REFERENCE)).rejects.toThrow(/executablePaths/);
+    });
+  }
+
+  it('refuses a repeated environment executable path in a whole scroll', async () => {
+    await family(null, { ...BASE, target: TARGET, executablePaths: ['venv/lib/helper', 'venv/lib/helper'] });
+    await expect(readScroll(REFERENCE)).rejects.toThrow(/executablePaths.*duplicate/);
+  });
+
   it('lets a fragment replace a scalar and a cohesive object', async () => {
     await family(
       { ...BASE, version: '1.0.0', execution: { kind: 'python-module', module: 'shared.main', defaultArgs: [] } },

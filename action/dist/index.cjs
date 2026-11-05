@@ -22529,7 +22529,11 @@ function safeRelativePath(value) {
   }
   return normalized;
 }
-async function assertPathWithoutLinks(root, path, field, { allowMissing = false, kind = "file" } = {}) {
+async function assertPathWithoutLinks(root, path, field, {
+  allowMissing = false,
+  kind = "file",
+  missingHint = "check prunePaths and removeAfterExtract"
+} = {}) {
   const parts = safeRelativePath(path).split("/");
   let current2 = root;
   for (const [index, part] of parts.entries()) {
@@ -22540,7 +22544,7 @@ async function assertPathWithoutLinks(root, path, field, { allowMissing = false,
     } catch (error2) {
       if (error2.code !== "ENOENT" && error2.code !== "ENOTDIR") throw error2;
       if (allowMissing) return;
-      fail(`${field}: ${JSON.stringify(path)} is missing (check prunePaths and removeAfterExtract).`);
+      fail(`${field}: ${JSON.stringify(path)} is missing (${missingHint}).`);
     }
     if (entry.isSymbolicLink()) fail(`${field}: ${JSON.stringify(path)} is a link or traverses a link at ${parts.slice(0, index + 1).join("/")}.`);
     const needsDirectory = index < parts.length - 1 || kind === "directory";
@@ -27355,7 +27359,7 @@ async function loadScrollSchemas() {
 }
 var SCROLL_BASE_REFERENCE = "../scroll.json";
 var JOINED_ENTRY_LISTS = Object.freeze(["assets", "assetArchives", "localFiles"]);
-var JOINED_STRING_LISTS = Object.freeze(["prunePaths", "uncompressedPaths"]);
+var JOINED_STRING_LISTS = Object.freeze(["prunePaths", "uncompressedPaths", "executablePaths"]);
 var JOINED_MAPS = Object.freeze(["compatibility", "environment"]);
 function assertDistinctPayloadDestinations(scroll) {
   const claimed = /* @__PURE__ */ new Map();
@@ -27440,6 +27444,25 @@ function scrollDirectory(reference) {
   if (path === root || !path.startsWith(`${root}${import_node_path21.sep}`)) fail(`Invalid scroll: ${reference}`);
   return path;
 }
+function assertEnvironmentExecutablePaths(scroll, environmentRoot) {
+  const entryPaths = new Set([...scroll.assets, ...scroll.localFiles ?? []].map((entry) => import_node_path21.posix.normalize(safeRelativePath(entry.relativePath))));
+  for (const path of scroll.executablePaths ?? []) {
+    const field = `executablePaths: ${JSON.stringify(path)}`;
+    if (!path.startsWith(`${environmentRoot}/`)) {
+      fail(`${field} is outside ${environmentRoot}/. This field marks files the solved environment installs; declare a file you bring in on its asset, local file or archive entry.`);
+    }
+    if (entryPaths.has(path)) {
+      fail(`${field} is brought in by an asset or local file; mark that entry "executable": true instead.`);
+    }
+    const archive = (scroll.assetArchives ?? []).find((entry) => {
+      const destination = import_node_path21.posix.normalize(safeRelativePath(entry.destination)).replace(/\/$/, "");
+      return path === destination || path.startsWith(`${destination}/`);
+    });
+    if (archive) {
+      fail(`${field} lies under the destination of ${archive.relativePath}; declare it in that entry's assetArchives[].executables instead.`);
+    }
+  }
+}
 function effectiveScroll(scroll, adapter, targetId) {
   const layout = runtimeAdapter(scroll.runtime.id).layout(adapter);
   const runtime = layout.entryPoint === null ? { ...scroll.runtime } : { ...scroll.runtime, entryPoint: scroll.runtime.entryPoint ?? layout.entryPoint };
@@ -27507,6 +27530,7 @@ async function readExactScroll(reference) {
     ...(scroll.localFiles ?? []).flatMap((file) => [file.sourcePath, file.relativePath]),
     ...scroll.prunePaths ?? [],
     ...scroll.uncompressedPaths ?? [],
+    ...scroll.executablePaths ?? [],
     ...scroll.selfTest.files,
     ...scroll.selfTest.script ? [scroll.selfTest.script] : [],
     ...scroll.execution?.script ? [scroll.execution.script] : [],
@@ -27518,6 +27542,7 @@ async function readExactScroll(reference) {
   ];
   for (const path of payloadPaths) safeRelativePath(path);
   assertDistinctPayloadDestinations(scroll);
+  assertEnvironmentExecutablePaths(scroll, runtime.layout(adapter).root);
   const [boxDirectory, targetDirectory] = parts;
   if (boxDirectory !== scroll.boxId) {
     fail(`Nested scroll box directory ${boxDirectory} does not match scroll boxId ${scroll.boxId}.`);
@@ -27639,7 +27664,7 @@ function runSelfTest({ adapter, scroll, payloadDir, run: run2, extraCode = null 
       });
     } catch (error2) {
       if (adapter.host.platform === "win32") throw error2;
-      fail(`Self-test failed with the file modes the archive will carry. ${error2 instanceof Error ? error2.message : String(error2)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable; a file the solved environment installs outside the runtime's scripts directory cannot be declared yet.`);
+      fail(`Self-test failed with the file modes the archive will carry. ${error2 instanceof Error ? error2.message : String(error2)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable, or in executablePaths if the solved environment installs it.`);
     }
   }
 }
@@ -27766,6 +27791,11 @@ async function buildBox(name, options2 = {}) {
   for (const archive of scroll.assetArchives ?? []) {
     await assertAssetArchiveExecutables(payloadDir, archive);
   }
+  for (const path of scroll.executablePaths ?? []) {
+    await assertPathWithoutLinks(payloadDir, path, "executablePaths", {
+      missingHint: "check the path against the solved environment and prunePaths"
+    });
+  }
   for (const written of await runtimeBuilder(scroll.runtime.id).preparePayload?.(payloadDir) ?? []) {
     log(`Writing ${written}`);
   }
@@ -27792,6 +27822,7 @@ async function buildBox(name, options2 = {}) {
   });
   const declaredExecutablePaths2 = [
     ...archiveExecutablePaths,
+    ...scroll.executablePaths ?? [],
     ...[
       ...scroll.assets,
       ...scroll.localFiles ?? []
@@ -27805,7 +27836,7 @@ async function buildBox(name, options2 = {}) {
     });
     const commandPath = safeRelativePath(command.value);
     if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths2, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, in assetArchives[].executables relative to that archive's destination, or in executablePaths if the solved environment installs it.`);
     }
   }
   const provenance = {

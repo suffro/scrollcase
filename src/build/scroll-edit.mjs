@@ -531,7 +531,7 @@ export async function removeSelfTestCommand({ boxId, target, args }) {
 const UNEDITABLE_FIELDS = Object.freeze(new Set([
   '$schema', 'schemaVersion', 'extends', 'boxId', 'target', 'runtime',
   'labels', 'compatibility', 'environment', 'assets', 'assetArchives', 'localFiles',
-  'prunePaths', 'uncompressedPaths', 'selfTest', 'execution', 'parity',
+  'prunePaths', 'uncompressedPaths', 'executablePaths', 'selfTest', 'execution', 'parity',
 ]));
 
 /**

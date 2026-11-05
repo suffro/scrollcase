@@ -56,6 +56,11 @@ paths and survival after pruning before joining the existing asset/local-file mo
 comes from the upstream archive or build filesystem. Windows validates the list identically and
 keeps 0644 file entries. See [`../decisions/archive-member-executables.md`](../decisions/archive-member-executables.md).
 
+Files the solved environment installs outside the scripts directory are declared in top-level
+`executablePaths`, literal paths under `venv/`. The reader refuses any path an asset, local file
+or archive destination owns; the build requires a link-free regular file after pruning. See
+[`../decisions/environment-executable-paths.md`](../decisions/environment-executable-paths.md).
+
 Before code signing, self-test and parity, the build applies the archive writer's own mode rule to
 regular payload files, skipping links and Windows chmod. It reapplies modes after probes and the
 digest write. Thus inherited input modes cannot hide a missing executable declaration during the

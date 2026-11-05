@@ -678,6 +678,20 @@ let extraction behavior determine the result. The optional build-input field sta
 signed documents and ZIP interpretation are unchanged, older builders refuse the new property,
 and existing consumers already preserve its synthesized executable bit.
 
+## Environment executables have a list of their own
+
+A package can install a helper binary in its own directory inside the prefix, outside the scripts
+directory the runtime rule covers. Such a file has no scroll entry to carry a flag, so top-level
+`executablePaths` names it: literal paths under `venv/`, checked as link-free regular files after
+pruning and added to the same mode rule. The reader refuses a path an asset, local file or archive
+destination owns, so this is not the top-level list rejected above — every executable still has
+exactly one declaration, on whatever supplies it.
+
+**Rejected:** globs, which would declare whatever the solve happened to produce rather than what
+the author reviewed; a literal path that moves with a new `python3.x` directory fails the build by
+name instead. **Rejected:** marking a whole package directory, which would make data files
+executable. Like the archive field, it is optional build input inside version 3.
+
 ## A build self-test sees archive modes
 
 Before code signing, self-test and parity, the builder applies the archive writer's own mode rule

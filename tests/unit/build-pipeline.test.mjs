@@ -164,6 +164,9 @@ function fakeToolchain(payloadDir, {
   interpreterContents = null,
   entrySegments = ENTRY_SEGMENTS,
   selfTestCommand = join(payloadDir, ...ENTRY_SEGMENTS),
+  // Files a package installs in the prefix, relative to it, written with mode 0755 the way conda
+  // installs a helper binary — so a test can prove the box does not inherit that bit.
+  prefixFiles = {},
 } = {}) {
   const run = function run(command, args = [], options = {}) {
     if (command === 'pixi' && args[0] === 'install') {
@@ -196,6 +199,11 @@ function fakeToolchain(payloadDir, {
           : ['lib', `python${PYTHON_VERSION.split('.').slice(0, 2).join('.')}`, 'site-packages'];
         writeDeep(join(prefix, ...sitePackages, ...modulePath.slice(0, -1), `${modulePath.at(-1)}.py`),
           'print("module ready")\n');
+      }
+      for (const [path, contents] of Object.entries(prefixFiles)) {
+        const file = join(prefix, ...path.split('/'));
+        writeDeep(file, contents);
+        if (process.platform !== 'win32') chmodSync(file, 0o755);
       }
       plantPrefixSymlinks(prefix);
       return '';
@@ -379,10 +387,81 @@ describe('the build pipeline', () => {
       if (declared) {
         await expect(build()).resolves.toMatchObject({ archiveSha256: expect.any(String) });
       } else {
-        await expect(build()).rejects.toThrow(/Self-test failed.*tools\/bin\/tool.*EACCES.*If a helper lost.*assetArchives\[\]\.executables.*cannot be declared yet/s);
+        await expect(build()).rejects.toThrow(/Self-test failed.*tools\/bin\/tool.*EACCES.*If a helper lost.*assetArchives\[\]\.executables.*executablePaths/s);
         expect(messages).not.toContain('Creating deterministic archive');
         expect(statSync(join(payloadDir, 'tools', 'bin', 'tool')).mode & 0o777).toBe(0o644);
       }
+    });
+  }
+
+  const ENVIRONMENT_HELPER = 'lib/pkg/bin/helper';
+  const environmentHelperFiles = {
+    [ENVIRONMENT_HELPER]: '#!/bin/sh\nprintf environment-helper-ok\n',
+    'lib/pkg/README': 'not a program\n',
+  };
+
+  for (const declared of [false, true]) {
+    it.runIf(process.platform !== 'win32')(`self-tests a real environment helper with declared=${declared}`, async () => {
+      const layout = runtimeAdapter('node').layout(HOST_ADAPTER);
+      const project = await makeProject({
+        ...SCROLL,
+        runtime: { id: 'node', version: process.versions.node },
+        selfTest: {
+          imports: ['node:child_process'],
+          code: `require("node:child_process").execFileSync("./venv/${ENVIRONMENT_HELPER}", { stdio: "inherit" });`,
+        },
+        executablePaths: declared ? [`venv/${ENVIRONMENT_HELPER}`] : [],
+      });
+      const build = () => buildBox(SCROLL_REF, {
+        ...project.keys,
+        ...fakeToolchain(project.payloadDir, {
+          entrySegments: layout.entryPoint.split('/'),
+          selfTestCommand: join(project.payloadDir, ...layout.entryPoint.split('/')),
+          interpreterContents: `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n`,
+          prefixFiles: environmentHelperFiles,
+          onSelfTest: ({ command, args, options }) => {
+            expect(runProcess(command, args, { ...options, capture: true }))
+              .toBe('environment-helper-ok');
+          },
+        }),
+        log: () => {},
+      });
+      if (declared) {
+        const built = await build();
+        const modes = await zipModes(built.archivePath);
+        expect(modes.get(`venv/${ENVIRONMENT_HELPER}`)).toBe(0o100755);
+        expect(modes.get('venv/lib/pkg/README')).toBe(0o100644);
+      } else {
+        // conda installed it 0755; the box would not, and the build now says so before signing.
+        await expect(build()).rejects.toThrow(/Self-test failed.*venv\/lib\/pkg\/bin\/helper.*EACCES.*executablePaths/s);
+      }
+    });
+  }
+
+  const environmentFailures = {
+    'a path the solve did not produce': [{ executablePaths: ['venv/lib/pkg/bin/missing'] },
+      /executablePaths: "venv\/lib\/pkg\/bin\/missing" is missing \(check the path against the solved environment and prunePaths\)/],
+    'a pruned helper': [{ executablePaths: [`venv/${ENVIRONMENT_HELPER}`], prunePaths: ['venv/lib/pkg'] },
+      /executablePaths: "venv\/lib\/pkg\/bin\/helper" is missing/],
+    'a directory': [{ executablePaths: ['venv/lib/pkg/bin'] },
+      /executablePaths: "venv\/lib\/pkg\/bin" must be a regular file/],
+    // Packing materialises directory links, so `lib/icu/current/` is a real directory by now; a file
+    // link inside the prefix survives as a link on POSIX targets only, and Windows gets the file.
+    ...(process.platform === 'win32' ? {} : {
+      'a prefix link itself': [{ executablePaths: ['venv/lib/icu/pkgdata.inc'] },
+        /executablePaths: "venv\/lib\/icu\/pkgdata\.inc" is a link or traverses a link at venv\/lib\/icu\/pkgdata\.inc/],
+    }),
+  };
+  for (const [name, [declaration, message]] of Object.entries(environmentFailures)) {
+    it(`refuses an environment executable that is ${name}`, async () => {
+      const project = await makeProject({ ...SCROLL, ...declaration });
+      const messages = [];
+      await expect(buildBox(SCROLL_REF, {
+        ...project.keys,
+        ...fakeToolchain(project.payloadDir, { prefixFiles: environmentHelperFiles }),
+        log: (line) => messages.push(line),
+      })).rejects.toThrow(message);
+      expect(messages).not.toContain('Running self-test');
     });
   }
 

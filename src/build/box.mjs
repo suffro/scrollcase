@@ -38,6 +38,7 @@ import {
 } from './assets.mjs';
 import { applyArchiveFileModes, archiveMarksExecutable, createDeterministicZip } from './archive.mjs';
 import {
+  assertPathWithoutLinks,
   collectFiles,
   fileExists,
   normalizeTree,
@@ -114,7 +115,7 @@ function runSelfTest({ adapter, scroll, payloadDir, run, extraCode = null }) {
       // Windows has no POSIX modes to lose, so a hint about the executable bit would only mislead.
       // Elsewhere the hint is conditional: most failures are an ordinary import error, not a mode.
       if (adapter.host.platform === 'win32') throw error;
-      fail(`Self-test failed with the file modes the archive will carry. ${error instanceof Error ? error.message : String(error)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable; a file the solved environment installs outside the runtime's scripts directory cannot be declared yet.`);
+      fail(`Self-test failed with the file modes the archive will carry. ${error instanceof Error ? error.message : String(error)} If a helper lost its executable bit, declare it in assetArchives[].executables (relative to the archive's destination), assets[].executable or localFiles[].executable, or in executablePaths if the solved environment installs it.`);
     }
   }
 }
@@ -305,6 +306,14 @@ export async function buildBox(name, options = {}) {
   for (const archive of scroll.assetArchives ?? []) {
     await assertAssetArchiveExecutables(payloadDir, archive);
   }
+  // A declared environment file is checked once the prefix is unpacked and pruned: the path names
+  // what the solve produced, so a version bump that moved it fails here rather than shipping a box
+  // whose helper silently lost its bit.
+  for (const path of scroll.executablePaths ?? []) {
+    await assertPathWithoutLinks(payloadDir, path, 'executablePaths', {
+      missingHint: 'check the path against the solved environment and prunePaths',
+    });
+  }
   // Whatever the runtime needs in the payload that nothing declares. It runs after the prunes, so
   // a project cannot prune a file the runtime is about to write, and before the payload is read,
   // so what it writes is archived and digested like everything else.
@@ -342,6 +351,7 @@ export async function buildBox(name, options = {}) {
   // upstream mode is never a fourth source of executability, even temporarily during validation.
   const declaredExecutablePaths = [
     ...archiveExecutablePaths,
+    ...(scroll.executablePaths ?? []),
     ...[
       ...scroll.assets,
       ...(scroll.localFiles ?? []),
@@ -358,7 +368,7 @@ export async function buildBox(name, options = {}) {
     });
     const commandPath = safeRelativePath(command.value);
     if (!archiveMarksExecutable(adapter, scroll.runtime.id, declaredExecutablePaths, commandPath)) {
-      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, or in assetArchives[].executables relative to that archive's destination.`);
+      fail(`This box runs ${commandPath}, which the archive would not mark executable. Declare it with "executable": true on the asset or local file that brings it in, in assetArchives[].executables relative to that archive's destination, or in executablePaths if the solved environment installs it.`);
     }
   }
   // Everything needed to answer "where did this box come from, and could I rebuild it?".
