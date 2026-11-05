@@ -18,7 +18,15 @@ installs in the prefix outside the scripts directory had always shipped as `0644
 mode-faithful self-test made that a build failure with nothing to declare. Top-level
 `executablePaths` now names such files under `venv/`; see
 [`../decisions/environment-executable-paths.md`](../decisions/environment-executable-paths.md).
-Covered by unit tests only: no real build has exercised it against a solved environment yet.
+Real smoke on 2026-11-05 (Linux/WSL, packed tarball of `9582e80`, pixi 0.77.0, conda-pack 0.9.2):
+a native box whose execution binary is conda-forge `libtool 2.5.4`'s
+`venv/share/libtool/build-aux/config.guess`, installed `0755` by conda. Undeclared, the build
+refuses it at the entry-point guard; declared, it builds in 1.4 s (2,792,682-byte archive, SHA-256
+`248da16e67b1f798d77055b881c656415328f1f38ac0836f1e9b21d27c088950`) with the helper `0755` and the
+undeclared `ltmain.sh` `0644` in the ZIP. The Node consumer under umask 077 verifies the signature,
+archive and 94 payload entries, restores `0755`, and runs it: exit 0, `x86_64-pc-linux-gnu`. A
+clean rebuild is byte-identical. Scripts and logs: `/home/lorenzo/scrollcase-executables-evidence/`
+(`envexec-*`).
 
 **Native Windows follow-up:** Python 62 pass + 6 skips; Node 577 pass, 56 fail, 13 skips;
 Rust 98 pass, 1 fail. All remaining native failures are blocked by this account's missing Windows
